@@ -420,6 +420,14 @@ function paymentGoodsForSku(sku: string) {
   return pack;
 }
 
+function parsePaymentPlayerState(raw: unknown): PlayerState {
+  const state = parseStoredJson<PlayerState>(raw);
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    throw new Error('Saved player data could not be read; the purchase was not applied.');
+  }
+  return state;
+}
+
 export async function grantPurchasedPack(userId: string, sku: string, orderId: string): Promise<boolean> {
   const pack = paymentGoodsForSku(sku);
   const pkey = playerKeyFor(userId);
@@ -427,7 +435,7 @@ export async function grantPurchasedPack(userId: string, sku: string, orderId: s
   for (let attempt = 0; attempt < 4; attempt++) {
     const txn = await redis.watch(pkey);
     const raw = await txn.get(pkey);
-    const state = raw ? JSON.parse(raw) as PlayerState : createInitialState();
+    const state = raw == null ? createInitialState() : parsePaymentPlayerState(raw);
     state.paymentReceipts = state.paymentReceipts ?? {};
     const existingReceipt = state.paymentReceipts[orderId];
     if (
@@ -471,11 +479,11 @@ export async function refundPurchasedPack(userId: string, sku: string, orderId: 
   for (let attempt = 0; attempt < 4; attempt++) {
     const txn = await redis.watch(pkey);
     const raw = await txn.get(pkey);
-    if (!raw) {
+    if (raw == null) {
       await txn.unwatch();
       return;
     }
-    const state = JSON.parse(raw) as PlayerState;
+    const state = parsePaymentPlayerState(raw);
     state.paymentReceipts = state.paymentReceipts ?? {};
     const receipt = state.paymentReceipts[orderId];
     if (!receipt) {
@@ -842,8 +850,8 @@ export async function applyRolls(
   // without waiting for that player's personal state cache to refresh.
   const globalBoosters = await getGlobalBoosters();
   s.globalBoosters = globalBoosters;
-  const globalLuck = globalBoosterLuckMultiplier(globalBoosters.luck);
-  const baseLuck = luckMultiplier(s) * communityLuck * globalLuck;
+  // luckMultiplier already includes the current global Luck booster.
+  const baseLuck = luckMultiplier(s) * communityLuck;
 
   // Apex Fortune Mastery: chance on multi-roll to double the luck of that activation
   const apexChance = Math.min(1, (s.masterySkills?.apexFortune ?? 0) * 0.05);
