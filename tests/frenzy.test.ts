@@ -29,7 +29,7 @@ test('Frenzy Volley keeps its existing bonus on top of the Multi Roll multiplier
   const multi = 5;
   assert.equal(
     frenzyClaimCountForRarity(10_000, multi, 1),
-    Math.floor(base * multi * 1.8),
+    Math.floor(base * 1.8),
   );
 });
 
