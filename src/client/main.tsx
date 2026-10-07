@@ -279,6 +279,7 @@ export function App() {
   const [newBestModalData, setNewBestModalData] = useState<{ orb: Orb; prevBest: number } | null>(null);
   const [frenzyRunTriggered, setFrenzyRunTriggered] = useState(false);
   const [showFrenzyPrompt, setShowFrenzyPrompt] = useState(false);
+  const frenzyPromptShownRef = useRef(false);
   const stateRevisionRef = useRef(0);
   const appliedServerRevisionRef = useRef(-1);
   const stateRef = useRef<PlayerState | null>(null);
@@ -666,7 +667,7 @@ export function App() {
       const current = stateRef.current;
       if (!current || now - startedAt < FRENZY_PROMPT_DELAY_MS) return;
       if (!canShowDailyFrenzyPrompt(current.lastFrenzyDate, now)) return;
-      if (showFrenzyPrompt) return;
+      if (frenzyPromptShownRef.current) return;
 
       const storageKey = `io-frenzy-prompt-shown-${todayKey(now)}`;
       try {
@@ -677,6 +678,7 @@ export function App() {
         // state still prevents repeated prompts during this session.
       }
 
+      frenzyPromptShownRef.current = true;
       setShowFrenzyPrompt(true);
     };
 
