@@ -631,8 +631,9 @@ export function App() {
 
           if (cancelled) return;
           applyPlayerState(res.state);
-          setLastOrb(res.orb);
-          setLastBatch(res.batch ?? [res.orb]);
+
+          const revealBatch = res.batch?.length ? res.batch : [res.orb];
+          setLastBatch(revealBatch);
           setBatchSummary({
             totalVal: res.totalRollValue,
             coins: res.coinsGained,
@@ -641,6 +642,18 @@ export function App() {
             frenzyCount: res.frenzyCount ?? 0,
           });
           setReadyAt(Date.now() + res.rollsRemainingUntilNext);
+
+          // Reveal the actual resolved Orbs one by one through the normal
+          // central Orb display. The server still settles the whole Frenzy
+          // atomically, but the player gets a real in-game roll sequence.
+          for (const revealedOrb of revealBatch) {
+            if (cancelled) return;
+            setLastOrb(revealedOrb);
+            await new Promise(resolve => window.setTimeout(resolve, 140));
+          }
+          if (cancelled) return;
+          setLastOrb(res.orb);
+
           showToast(
             `⚡ Orb Frenzy claimed! ${formatNumber(res.frenzyCount ?? 0)} Orbs rolled.`,
             'success',
