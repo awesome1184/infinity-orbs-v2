@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowRight, Flame, Users, Zap } from 'lucide-react';
+import { requestExpandedMode } from '@devvit/web/client';
+import { ArrowRight, Flame, Users } from 'lucide-react';
 import './styles.css';
-import { formatNumber, formatRarity, getOrbInfo, frenzyOrbCountForRarity } from '../shared/game.js';
+import { formatRarity, getOrbInfo } from '../shared/game.js';
 
 interface FrenzyInfo {
   rarity: number;
@@ -10,7 +11,10 @@ interface FrenzyInfo {
   createdAt: number;
   claimedToday: boolean;
   isOwner: boolean;
+  canClaim: boolean;
+  selfClaimTest: boolean;
   postId: string;
+  inGame?: boolean;
 }
 
 function PublicBrand() {
@@ -25,18 +29,55 @@ function PublicBrand() {
   );
 }
 
+function AnimatedRarity({ rarity, color }: { rarity: number; color: string }) {
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    let frame = 0;
+    const started = performance.now();
+    const duration = 1200;
+
+    const animate = (now: number) => {
+      const progress = Math.min(1, (now - started) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const value = progress >= 1 ? rarity : Math.floor(rarity * eased);
+      setDisplay(value);
+
+      if (progress < 1) frame = window.requestAnimationFrame(animate);
+    };
+
+    setDisplay(0);
+    frame = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(frame);
+  }, [rarity]);
+
+  return (
+    <div className="io-frenzy-rarity-lockup" style={{ color }}>
+      <span className="io-frenzy-rarity-prefix">1 /</span>
+      <span
+        key={rarity}
+        className="io-frenzy-rarity-number"
+        aria-label={'1/' + formatRarity(rarity)}
+        style={{ textShadow: '0 0 34px ' + color + '55' }}
+      >
+        {formatRarity(display)}
+      </span>
+    </div>
+  );
+}
+
 function FrenzyPost() {
   const [info, setInfo] = useState<FrenzyInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claimed, setClaimed] = useState(false);
-  const [result, setResult] = useState<{ count: number; coins: number; xp: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [openedGame, setOpenedGame] = useState(false);
 
   const load = async () => {
     try {
       const res = await fetch('/api/frenzy/info');
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not load Frenzy.');
-      const data = await res.json();
+      const data = await res.json() as FrenzyInfo;
       setInfo(data);
       setClaimed(Boolean(data.claimedToday));
     } catch (e: unknown) {
@@ -46,19 +87,27 @@ function FrenzyPost() {
 
   useEffect(() => { void load(); }, []);
 
-  const claim = async () => {
+  const claim = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!info?.canClaim || loading) return;
     setLoading(true);
     setError(null);
+
+    const claimRequest = fetch('/api/frenzy/claim', { method: 'POST' });
+
     try {
-      const res = await fetch('/api/frenzy/claim', { method: 'POST' });
+      requestExpandedMode(event.nativeEvent, 'game');
+      setOpenedGame(true);
+      void claimRequest.catch(() => null);
+      return;
+    } catch {
+      // Some previews cannot expand. Finish the claim on this screen instead.
+    }
+
+    try {
+      const res = await claimRequest;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not claim Frenzy.');
       setClaimed(true);
-      setResult({
-        count: data.frenzyCount ?? data.orb?.rarity ?? 0,
-        coins: data.coinsGained,
-        xp: data.xpGained,
-      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not claim Frenzy.');
     } finally {
@@ -99,78 +148,70 @@ function FrenzyPost() {
   }
 
   const orb = getOrbInfo(info.rarity);
-  const canClaim = !info.isOwner && !claimed && !result;
-  const expectedCount = frenzyOrbCountForRarity(info.rarity);
+  const canClaim = info.canClaim && !claimed && !openedGame;
 
   return (
     <main className="io-public">
       <div className="io-public-grid" aria-hidden="true" />
-      <div className="io-public-glow" aria-hidden="true" />
+      <div
+        className="io-public-glow"
+        aria-hidden="true"
+        style={{ background: 'radial-gradient(ellipse at center, ' + orb.color + '18, transparent 68%)' }}
+      />
+
       <div className="io-public-frame">
         <PublicBrand />
 
         <section className="io-public-card io-frenzy-card">
           <div className="io-public-eyebrow io-public-eyebrow-frenzy">
             <Flame className="w-3.5 h-3.5" />
-            Community event
+            Posted Frenzy
           </div>
 
-          <div className="io-frenzy-heading">
-            <div>
-              <h1>Orb Frenzy</h1>
-              <p><span>u/{info.ownerUsername}</span> opened a daily Frenzy from a <strong>1/{formatRarity(info.rarity)}</strong> discovery.</p>
-            </div>
-            <div className="io-public-tier" style={{ color: orb.color, borderColor: `${orb.color}55`, backgroundColor: `${orb.color}10` }}>
-              {orb.tier}
-            </div>
+          <div className="io-frenzy-copy">
+            <p className="io-frenzy-lede">
+              <strong>u/{info.ownerUsername}</strong> got a
+            </p>
+
+            <AnimatedRarity rarity={info.rarity} color={orb.color} />
+
+            <p className="io-frenzy-ball-label">ball in their Frenzy</p>
+            <p className="io-frenzy-instruction">
+              Click below to claim it. You can only claim one a day.
+            </p>
           </div>
 
-          <div className="io-frenzy-hero">
-            <div
-              className="io-public-orb io-frenzy-orb"
-              style={{
-                background: orb.bgGradient,
-                borderColor: `${orb.color}66`,
-                boxShadow: `0 0 42px ${orb.color}24, inset 0 1px rgba(255,255,255,.32)`,
-              }}
-            >
-              <span className="io-public-orb-ring" />
-              <span className="io-public-orb-tier">{orb.tier}</span>
-              <strong>1/{formatRarity(info.rarity)}</strong>
-              <small>{orb.name}</small>
-            </div>
-
-            <div className="io-frenzy-stats">
-              <div>
-                <span>STARTED BY</span>
-                <strong>u/{info.ownerUsername}</strong>
-              </div>
-              <div>
-                <span>BASE DISCOVERY</span>
-                <strong>1/{formatRarity(info.rarity)}</strong>
-              </div>
-              <div>
-                <span>FRENZY SIZE</span>
-                <strong>{formatNumber(expectedCount)} Orbs</strong>
-              </div>
-            </div>
+          <div className="io-frenzy-meta" style={{ borderColor: orb.color + '22' }}>
+            <span>{orb.tier}</span>
+            <span>{orb.name}</span>
           </div>
 
-          {result ? (
-            <div className="io-public-result">
-              <div className="io-public-eyebrow io-public-eyebrow-success">Frenzy claimed</div>
-              <strong>{formatNumber(result.count)} Orbs rolled</strong>
-              <p>+{formatNumber(result.coins)} Coins · +{formatNumber(result.xp)} XP</p>
+          {openedGame ? (
+            <div className="io-public-result io-frenzy-opened">
+              <div className="io-public-eyebrow io-public-eyebrow-success">Opening game</div>
+              <strong>Your Frenzy is loading in Infinity Orbs.</strong>
+              <p>The full claim result appears in the game.</p>
             </div>
           ) : (
             <button
-              onClick={() => void claim()}
+              onClick={(event) => void claim(event)}
               disabled={!canClaim || loading}
               className="io-public-button io-public-button-primary io-frenzy-button"
+              style={canClaim ? {
+                borderColor: orb.color + '66',
+                boxShadow: '0 10px 34px ' + orb.color + '18',
+              } : undefined}
             >
-              <Zap className="w-4 h-4" />
-              {info.isOwner ? 'Your Frenzy' : claimed ? 'Already Claimed Today' : loading ? 'Unleashing…' : 'Unleash the Frenzy'}
-              {canClaim && <ArrowRight className="w-4 h-4" />}
+              <ArrowRight className="w-4 h-4" />
+              {loading
+                ? 'Opening Game…'
+                : claimed
+                  ? 'Already Claimed Today'
+                  : info.selfClaimTest
+                    ? 'Claim Your Frenzy · Test'
+                    : info.isOwner
+                      ? 'Your Frenzy'
+                      : 'Claim Frenzy · Open Game'}
             </button>
           )}
 
@@ -178,7 +219,10 @@ function FrenzyPost() {
 
           <div className="io-public-note">
             <div><Users className="w-3.5 h-3.5" /> One Frenzy claim per player, per day.</div>
-            <div><Flame className="w-3.5 h-3.5" /> Frenzy size scales logarithmically with the displayed discovery, then crit effects are applied server-side.</div>
+            <div><Flame className="w-3.5 h-3.5" /> Your Multi Roll multiplies the Frenzy size when you claim it.</div>
+            <div><Flame className="w-3.5 h-3.5" /> When someone claims this Frenzy, u/{info.ownerUsername} gets +5 Shards.</div>
+            <div><Flame className="w-3.5 h-3.5" /> That +5 Shard reward bypasses the 50 Shard daily cap.</div>
+            {info.selfClaimTest && <div><Users className="w-3.5 h-3.5" /> Self-claim is enabled for admin testing.</div>}
           </div>
         </section>
       </div>
