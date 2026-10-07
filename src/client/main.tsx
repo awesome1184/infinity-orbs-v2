@@ -278,6 +278,7 @@ export function App() {
   });
   const [newBestModalData, setNewBestModalData] = useState<{ orb: Orb; prevBest: number } | null>(null);
   const [frenzyRunTriggered, setFrenzyRunTriggered] = useState(false);
+  const [frenzyArmed, setFrenzyArmed] = useState(false);
   const [showFrenzyPrompt, setShowFrenzyPrompt] = useState(false);
   const frenzyPromptShownRef = useRef(false);
   const stateRevisionRef = useRef(0);
@@ -725,6 +726,46 @@ export function App() {
 
     void (async () => {
       try {
+        if (!isAutoRoll && frenzyArmed) {
+          setIsRolling(true);
+          const res = await getJson<{
+            state: PlayerState;
+            postId: string;
+            url: string;
+            rarity: number;
+            orb: Orb;
+            batch: Orb[];
+            totalValueGained: number;
+            totalRollValue: number;
+            coinsGained: number;
+            shardsGained: number;
+            xpGained: number;
+            rollsRemainingUntilNext: number;
+            rollsProcessed: number;
+            dramaticReveal: boolean;
+          }>('/api/frenzy/start', { method: 'POST' });
+
+          applyPlayerState(res.state);
+          setFrenzyArmed(false);
+          setLastOrb(res.orb);
+          setLastBatch(res.batch ?? [res.orb]);
+          setBatchSummary({
+            totalVal: res.totalRollValue,
+            coins: res.coinsGained,
+            shards: res.shardsGained,
+            xp: res.xpGained,
+            frenzyCount: undefined,
+          });
+          setReadyAt(Date.now() + res.rollsRemainingUntilNext);
+          sound.playEpicFanfare();
+          showToast(
+            `🔥 Frenzy submitted! Your ${formatRarity(res.rarity)} roll is now posted.`,
+            'success',
+          );
+          setIsRolling(false);
+          return;
+        }
+
         const ticket = await ensureRollTicket();
         const ticketIndex = ticket.nextIndex;
         const prediction = predictRollActivation(
@@ -820,6 +861,7 @@ export function App() {
     ensureRollTicket,
     refreshAll,
     worldEvent?.buffMultiplier,
+    frenzyArmed,
   ]);
 
   // Auto roll watcher (paced steadily)
@@ -1003,20 +1045,47 @@ export function App() {
 
   // Daily Orb Frenzy
   const handleStartOrbFrenzy = async () => {
+    if (frenzyArmed) return;
+
+    const current = stateRef.current;
+    if (!current) return;
+    const today = todayKey();
+    if (current.lastFrenzyDate === today) {
+      showToast('Orb Frenzy is on cooldown until the next day.', 'warn');
+      return;
+    }
+
     setBusy(true);
+
     try {
-      const res = await getJson<{ state: PlayerState; postId: string; url: string; rarity: number }>('/api/frenzy/start', {
-        method: 'POST',
-      });
-      applyPlayerState(res.state);
-      sound.playEpicFanfare();
-      showToast(
-        `🔥 Frenzy posted: 1/${formatRarity(res.rarity)}. When someone claims it, you get +${FRENZY_OWNER_SHARD_REWARD} Shards.`,
-        'success',
-      );
-      setShowFrenzyPrompt(false);
+      // Stop Auto Roll before arming. The next click must be a genuine manual
+      // roll so the player deliberately chooses the starter result.
+      if (autoRoll) {
+        const rollback = beginOptimisticState(state => ({
+          ...state,
+          autoRollEnabled: false,
+        }));
+        setAutoRoll(false);
+
+        try {
+          const res = await getJson<{ state: PlayerState }>('/api/auto-roll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: false }),
+          });
+          applyPlayerState(res.state);
+        } catch (error) {
+          rollback?.();
+          setAutoRoll(true);
+          throw error;
+        }
+      }
+
+      setFrenzyArmed(true);
+      sound.playChime(1040, 'sawtooth', 0.22);
+      showToast('⚡ Frenzy armed. Your next manual Roll will submit it.', 'success');
     } catch (e: any) {
-      showToast(e.message || 'Could not post your Frenzy', 'warn');
+      showToast(e.message || 'Could not arm Orb Frenzy', 'warn');
     } finally {
       setBusy(false);
     }
@@ -2184,6 +2253,7 @@ export function App() {
             onToggleAutoRoll={handleToggleAutoRoll}
             onRoll={handleRoll}
             onOrbFrenzy={handleStartOrbFrenzy}
+            frenzyArmed={frenzyArmed}
             onOpenShareModal={r => setShareRarity(r)}
             onNewBest={(orb, prevBest) => setNewBestModalData({ orb, prevBest })}
           />
