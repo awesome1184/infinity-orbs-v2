@@ -93,7 +93,7 @@ test('starting a Frenzy creates a dedicated public Frenzy post', () => {
 
 test('Frenzy claims expose one-per-day eligibility and test self-claim', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
-  assert.match(source, /canClaim: !claimedToday/);
+  assert.match(source, /canClaim: \(!claimedToday \|\| selfClaimTest\)/);
   assert.match(source, /selfClaimTest/);
   assert.match(source, /data\.adminTest === true/);
 });
@@ -142,5 +142,7 @@ test('admin self-claim works even when the normal daily claim is already used', 
   const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
   assert.match(source, /isFrenzyTestAdmin\(s\.username\)/);
   assert.match(source, /data\.adminTest === true/);
+  assert.match(source, /const canClaim = info\.canClaim && !openedGame/);
+  assert.match(source, /Claim Your Frenzy · Test/);
   assert.match(source, /if \(s\.lastFrenzyClaimDate === today && !selfClaimTest\)/);
 });
