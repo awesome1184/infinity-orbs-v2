@@ -656,7 +656,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [state, frenzyRunTriggered, applyPlayerState, showToast]);
+  }, [state, frenzyRunTriggered, applyPlayerState]);
 
   useEffect(() => {
     const startedAt = Date.now();
@@ -683,7 +683,7 @@ export function App() {
     const interval = window.setInterval(checkPrompt, 15_000);
     checkPrompt();
     return () => window.clearInterval(interval);
-  }, [showFrenzyPrompt]);
+  }, []);
 
   // Social quests count only when the player actually opens the social area.
   // Background leaderboard/guild refreshes must not award the visit quest.
