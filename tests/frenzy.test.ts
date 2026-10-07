@@ -69,7 +69,10 @@ test('posted Frenzy opens the actual game entrypoint from the claim button', () 
   assert.match(source, /Click below to claim it\. You can only claim one a day\./);
   assert.match(source, /io-frenzy-rarity-number/);
   assert.match(source, /Your Multi Roll multiplies the Frenzy size/);
-  assert.match(source, /bypasses the 50 Shard daily cap/);
+  assert.doesNotMatch(source, /When someone claims this Frenzy/);
+  assert.doesNotMatch(source, /That \+5 Shard reward bypasses/);
+  assert.doesNotMatch(source, /Self-claim is enabled for admin testing/);
+  assert.match(source, /io-frenzy-orb-ball/);
 });
 
 test('posted Frenzy rarity uses the rarity color and roll-up animation', () => {
@@ -103,4 +106,41 @@ test('daily Frenzy prompt appears after the delay and explains the owner reward'
   assert.match(source, /\+\{FRENZY_OWNER_SHARD_REWARD\} Shards/);
   assert.match(source, /bypasses the 50 Shard daily cap/);
   assert.match(source, /localStorage\.setItem\(storageKey, '1'\)/);
+});
+
+
+test('Frenzy submission arms a manual roll and disables Auto Roll first', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/client/main.tsx'), 'utf8');
+  assert.match(source, /const \[frenzyArmed, setFrenzyArmed\] = useState\(false\)/);
+  assert.match(source, /body: JSON\.stringify\(\{ enabled: false \}\)/);
+  assert.match(source, /setAutoRoll\(false\)/);
+  assert.match(source, /setFrenzyArmed\(true\)/);
+  assert.match(source, /if \(!isAutoRoll && frenzyArmed\)/);
+  assert.match(source, /\/api\/frenzy\/start/);
+});
+
+test('Frenzy Roll button has a persistent lightning charge state and releases on click', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/client/components/RollSection.tsx'), 'utf8');
+  const styles = readFileSync(resolve(process.cwd(), 'src/client/styles.css'), 'utf8');
+  assert.match(source, /frenzy-supercharged/);
+  assert.match(source, /frenzy-lightning-left/);
+  assert.match(source, /frenzy-lightning-right/);
+  assert.match(source, /RELEASE FRENZY/);
+  assert.match(styles, /@keyframes io-frenzy-charge-pulse/);
+  assert.match(styles, /@keyframes io-frenzy-lightning/);
+});
+
+test('Frenzy button shows a ticking daily cooldown after submission', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/client/components/RollSection.tsx'), 'utf8');
+  assert.match(source, /nextFrenzyResetAt/);
+  assert.match(source, /formatFrenzyCooldown/);
+  assert.match(source, /Frenzy Cooldown/);
+  assert.match(source, /disabled=\{busy \|\| frenzyArmed \|\| frenzyUsedToday\}/);
+});
+
+test('admin self-claim works even when the normal daily claim is already used', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
+  assert.match(source, /isFrenzyTestAdmin\(s\.username\)/);
+  assert.match(source, /data\.adminTest === true/);
+  assert.match(source, /if \(s\.lastFrenzyClaimDate === today && !selfClaimTest\)/);
 });
