@@ -776,38 +776,35 @@ async function grantFrenzyOwnerReward(
   const safeOwnerId = String(ownerId ?? '').trim();
   if (!safeOwnerId || safeOwnerId === 'unknown') return 0;
 
-  return withPlayerMutationLockFor(safeOwnerId, async () => {
-    const ownerKey = playerKeyFor(safeOwnerId);
-
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const txn = await redis.watch(ownerKey);
-      const raw = await redis.get(ownerKey);
-      if (raw == null) {
-        await txn.unwatch();
-        throw new Error('Frenzy owner save was not found.');
-      }
-
-      const ownerState = parsePlayerStateValue(raw);
-      if (!ownerState) {
-        await txn.unwatch();
-        throw new Error('Frenzy owner save could not be read safely.');
-      }
-
-      const granted = grantFrenzyOwnerShards(ownerState, amount);
-      const currentRevision = Math.max(
-        0,
-        Math.floor(Number(ownerState.stateRevision ?? 0)) || 0,
-      );
-      const nextState = { ...ownerState, stateRevision: currentRevision + 1 };
-
-      await txn.multi();
-      await txn.set(ownerKey, JSON.stringify(nextState));
-      const committed = await txn.exec();
-      if (committed !== null) return granted;
+  const ownerKey = playerKeyFor(safeOwnerId);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const txn = await redis.watch(ownerKey);
+    const raw = await redis.get(ownerKey);
+    if (raw == null) {
+      await txn.unwatch();
+      throw new Error('Frenzy owner save was not found.');
     }
 
-    throw new Error('Could not safely grant the Frenzy owner reward.');
-  });
+    const ownerState = parsePlayerStateValue(raw);
+    if (!ownerState) {
+      await txn.unwatch();
+      throw new Error('Frenzy owner save could not be read safely.');
+    }
+
+    const granted = grantFrenzyOwnerShards(ownerState, amount);
+    const currentRevision = Math.max(
+      0,
+      Math.floor(Number(ownerState.stateRevision ?? 0)) || 0,
+    );
+    const nextState = { ...ownerState, stateRevision: currentRevision + 1 };
+
+    await txn.multi();
+    await txn.set(ownerKey, JSON.stringify(nextState));
+    const committed = await txn.exec();
+    if (committed !== null) return granted;
+  }
+
+  throw new Error('Could not safely grant the Frenzy owner reward.');
 }
 
 
