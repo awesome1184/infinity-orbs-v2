@@ -2003,7 +2003,7 @@ export async function applyRolls(
       s.totalCrits = (s.totalCrits ?? 0) + 1;
       const supernovaLevel = s.prestigeUpgrades?.supernova ?? 0;
       if (supernovaLevel > 0 && rng() < supernovaLevel * 0.10) {
-        effectiveCm = cm * 2.5; // 5x base critical multiplier!
+        effectiveCm = 5; // Supernova always resolves to exactly 5x the base rarity.
       }
     }
 
@@ -3643,7 +3643,7 @@ export async function claimOrbFrenzy(options: {
 
   const normalCritCount = Math.max(0, critCount - supernovaCount);
   const normalCritRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s)));
-  const supernovaRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s) * 2.5));
+  const supernovaRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * 5));
 
   const groups = [
     { count: count - critCount, rarity: data.rarity },
