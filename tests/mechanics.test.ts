@@ -18,6 +18,8 @@ import {
   GUILD_COMBO_MAX_TIER,
   grantFreeShards,
   onlinePlayerLuckMultiplier,
+  luckMultiplier,
+  frenzyClaimCountForRarity,
   frenzyOrbCountForRarity,
   FRENZY_LOG_BASE,
   bestCodexChain,
@@ -233,4 +235,23 @@ test('online population Luck is monotonic and sane', () => {
   assert.equal(onlinePlayerLuckMultiplier(2), 1.05);
   assert.ok(onlinePlayerLuckMultiplier(100) > onlinePlayerLuckMultiplier(10));
   assert.equal(onlinePlayerLuckMultiplier(0), 1);
+});
+
+test('Astral Reserve adds exactly 2% Luck per level', () => {
+  const state = createInitialState(NOW);
+  state.prestigeUpgrades.astralReserve = 0;
+  assert.equal(luckMultiplier(state), 1);
+
+  state.prestigeUpgrades.astralReserve = 1;
+  assert.equal(luckMultiplier(state), 1.02);
+
+  state.prestigeUpgrades.astralReserve = 5;
+  assert.equal(luckMultiplier(state), 1.10);
+});
+
+test('Frenzy Volley counts each additional multiball at 20% efficiency', () => {
+  const base = frenzyOrbCountForRarity(100);
+  assert.equal(frenzyClaimCountForRarity(100, 1, 0), base);
+  assert.equal(frenzyClaimCountForRarity(100, 2, 1), Math.floor(base * 1.20));
+  assert.equal(frenzyClaimCountForRarity(100, 3, 1), Math.floor(base * 1.40));
 });
