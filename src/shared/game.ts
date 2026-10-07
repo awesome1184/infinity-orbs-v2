@@ -238,6 +238,9 @@ export const GUILD_COMBO_TIMER_ACCELERATION_PER_TIER = 0.25;
 
 export const FRENZY_LOG_BASE = 1.05;
 export const FRENZY_MIN_ORBS = 1;
+export const FRENZY_OWNER_SHARD_REWARD = 5;
+export const FRENZY_PROMPT_DELAY_MS = 3 * 60_000;
+export const FRENZY_CLAIM_MAX_ORBS = 50_000_000;
 
 export function frenzyOrbCountForRarity(rarity: number): number {
   const safeRarity = Math.max(1, Number(rarity) || 1);
@@ -245,6 +248,44 @@ export function frenzyOrbCountForRarity(rarity: number): number {
     FRENZY_MIN_ORBS,
     Math.floor(Math.log(safeRarity) / Math.log(FRENZY_LOG_BASE)),
   );
+}
+
+export function frenzyClaimCountForRarity(
+  rarity: number,
+  multiRolls: number,
+  frenzyVolleyLevel = 0,
+): number {
+  const baseCount = frenzyOrbCountForRarity(rarity);
+  const safeMultiRolls = Math.max(1, Math.floor(Number(multiRolls) || 1));
+  const safeVolleyLevel = Math.max(0, Math.floor(Number(frenzyVolleyLevel) || 0));
+  const volleyMultiplier = safeVolleyLevel > 0
+    ? 1 + Math.max(0, safeMultiRolls - 1) * 0.20
+    : 1;
+  return Math.max(
+    1,
+    Math.min(
+      FRENZY_CLAIM_MAX_ORBS,
+      Math.floor(baseCount * safeMultiRolls * volleyMultiplier),
+    ),
+  );
+}
+
+export function grantFrenzyOwnerShards(
+  s: PlayerState,
+  requested = FRENZY_OWNER_SHARD_REWARD,
+): number {
+  const amount = Math.max(0, Math.floor(Number(requested) || 0));
+  if (amount <= 0) return 0;
+  s.shards = (s.shards ?? 0) + amount;
+  s.lifetimeShards = (s.lifetimeShards ?? 0) + amount;
+  return amount;
+}
+
+export function canShowDailyFrenzyPrompt(
+  lastFrenzyDate?: string,
+  now = Date.now(),
+): boolean {
+  return lastFrenzyDate !== todayKey(now);
 }
 
 export function createInitialGuildCombo(now = Date.now()): GuildComboState {
