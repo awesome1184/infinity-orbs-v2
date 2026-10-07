@@ -3450,7 +3450,7 @@ export async function startOrbFrenzy(options: {
   bypassDailyLimit?: boolean;
   forcedRarity?: number;
   adminTest?: boolean;
-} = {}): Promise<{ state: PlayerState; postId: string; url: string; rarity: number }> {
+} = {}): Promise<RollResponse & { postId: string; url: string; rarity: number }> {
   return withPlayerMutationLock(async () => {
     const s = await settleOffline(await loadRaw());
     const today = new Date().toISOString().slice(0, 10);
