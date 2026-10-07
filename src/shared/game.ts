@@ -258,14 +258,17 @@ export function frenzyClaimCountForRarity(
   const baseCount = frenzyOrbCountForRarity(rarity);
   const safeMultiRolls = Math.max(1, Math.floor(Number(multiRolls) || 1));
   const safeVolleyLevel = Math.max(0, Math.floor(Number(frenzyVolleyLevel) || 0));
-  const volleyMultiplier = safeVolleyLevel > 0
+  // Without Volley, every Multi Roll contributes one full share.
+  // With Volley, the first share is full value and every additional
+  // multiball contributes at 20% efficiency.
+  const effectiveRolls = safeVolleyLevel > 0
     ? 1 + Math.max(0, safeMultiRolls - 1) * 0.20
-    : 1;
+    : safeMultiRolls;
   return Math.max(
     1,
     Math.min(
       FRENZY_CLAIM_MAX_ORBS,
-      Math.floor(baseCount * safeMultiRolls * volleyMultiplier),
+      Math.floor(baseCount * effectiveRolls),
     ),
   );
 }
@@ -1984,7 +1987,7 @@ export function predictRollActivation(
       s.totalCrits = (s.totalCrits ?? 0) + 1;
       const supernovaLevel = s.prestigeUpgrades?.supernova ?? 0;
       if (supernovaLevel > 0 && rng() < supernovaLevel * 0.10) {
-        effectiveCm = cm * 2.5;
+        effectiveCm = 5;
       }
     }
 
