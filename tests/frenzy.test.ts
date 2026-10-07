@@ -94,3 +94,13 @@ test('Frenzy claims expose one-per-day eligibility and test self-claim', () => {
   assert.match(source, /selfClaimTest/);
   assert.match(source, /data\.adminTest === true/);
 });
+
+
+test('daily Frenzy prompt appears after the delay and explains the owner reward', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/client/main.tsx'), 'utf8');
+  assert.match(source, /FRENZY_PROMPT_DELAY_MS/);
+  assert.match(source, /Post today’s Frenzy/);
+  assert.match(source, /\+\{FRENZY_OWNER_SHARD_REWARD\} Shards/);
+  assert.match(source, /bypasses the 50 Shard daily cap/);
+  assert.match(source, /localStorage\.setItem\(storageKey, '1'\)/);
+});
