@@ -21,6 +21,7 @@ import {
   calculatePrestigeDust,
   offlineRollCap,
   getOrbInfo,
+  formatRarity,
   createInitialDailyQuests,
   createInitialWeeklyQuests,
   COSMETICS_LIST,
@@ -44,7 +45,9 @@ import {
   activateGlobalBoosterStack,
   globalBoosterCritChanceBonus,
   guildComboCritChanceBonus,
-  frenzyOrbCountForRarity,
+  frenzyClaimCountForRarity,
+  grantFrenzyOwnerShards,
+  FRENZY_OWNER_SHARD_REWARD,
 
   PREMIUM_BOOSTERS,
   AUTOMATIONS,
@@ -758,6 +761,55 @@ export async function getCcuPeaks(): Promise<{
 }
 
 const FRENZY_POST_PREFIX = 'io:frenzy:post:';
+
+function isFrenzyTestAdmin(): boolean {
+  return String(context.username ?? '')
+    .trim()
+    .replace(/^u\//i, '')
+    .toLowerCase() === 'shadow_fen';
+}
+
+async function grantFrenzyOwnerReward(
+  ownerId: string,
+  amount = FRENZY_OWNER_SHARD_REWARD,
+): Promise<number> {
+  const safeOwnerId = String(ownerId ?? '').trim();
+  if (!safeOwnerId || safeOwnerId === 'unknown') return 0;
+
+  return withPlayerMutationLockFor(safeOwnerId, async () => {
+    const ownerKey = playerKeyFor(safeOwnerId);
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const txn = await redis.watch(ownerKey);
+      const raw = await redis.get(ownerKey);
+      if (raw == null) {
+        await txn.unwatch();
+        throw new Error('Frenzy owner save was not found.');
+      }
+
+      const ownerState = parsePlayerStateValue(raw);
+      if (!ownerState) {
+        await txn.unwatch();
+        throw new Error('Frenzy owner save could not be read safely.');
+      }
+
+      const granted = grantFrenzyOwnerShards(ownerState, amount);
+      const currentRevision = Math.max(
+        0,
+        Math.floor(Number(ownerState.stateRevision ?? 0)) || 0,
+      );
+      const nextState = { ...ownerState, stateRevision: currentRevision + 1 };
+
+      await txn.multi();
+      await txn.set(ownerKey, JSON.stringify(nextState));
+      const committed = await txn.exec();
+      if (committed !== null) return granted;
+    }
+
+    throw new Error('Could not safely grant the Frenzy owner reward.');
+  });
+}
+
 
 function parseGlobalBoosterSnapshot(
   raw: unknown,
@@ -3402,52 +3454,71 @@ export async function startOrbFrenzy(options: {
   adminTest?: boolean;
 } = {}): Promise<{ state: PlayerState; postId: string; url: string; rarity: number }> {
   return withPlayerMutationLock(async () => {
-  const s = await settleOffline(await loadRaw());
-  const today = new Date().toISOString().slice(0, 10);
-  if (!options.bypassDailyLimit && s.lastFrenzyDate === today) {
-    throw new Error('Orb Frenzy is already used today.');
-  }
+    const s = await settleOffline(await loadRaw());
+    const today = new Date().toISOString().slice(0, 10);
+    if (!options.bypassDailyLimit && s.lastFrenzyDate === today) {
+      throw new Error('Orb Frenzy is already used today.');
+    }
 
-  // Frenzy now stays inside the current game post. The owner gets one normal
-  // roll to determine the Frenzy rarity, then the game expands and unleashes
-  // the full Frenzy volley in the normal game window.
-  const forcedRarity = options.forcedRarity == null
-    ? undefined
-    : Math.max(2, Math.floor(Number(options.forcedRarity)));
-  const result = await applyRolls(s, 1, forcedRarity, 'online', 1);
+    const forcedRarity = options.forcedRarity == null
+      ? undefined
+      : Math.max(2, Math.floor(Number(options.forcedRarity)));
+    const result = await applyRolls(s, 1, forcedRarity, 'online', 1);
 
-  const postId = context.postId ?? 'no-post';
-  const postKey = FRENZY_POST_PREFIX + postId;
-  await redis.set(postKey, JSON.stringify({
-    ownerId: currentUserId(),
-    ownerUsername: context.username ?? 'Redditor',
-    rarity: result.bestOrb.rarity,
-    subredditName: context.subredditName ?? '',
-    createdAt: Date.now(),
-    adminTest: options.adminTest === true,
-    inGame: true,
-    consumedAt: null,
-  }));
+    const subredditName = String(context.subredditName ?? '').trim();
+    if (!subredditName) throw new Error('Subreddit context is unavailable.');
 
-  s.lastFrenzyDate = today;
-  s.lastRollAt = Date.now();
-  s.lastSeenAt = Date.now();
-  await save(s);
-  await appendPlayerSpyLog('frenzy-start', {
-    rarity: result.bestOrb.rarity,
-    postId: context.postId ?? '',
-    forcedRarity: forcedRarity ?? null,
-    snapshot: playerSpySnapshot(s),
+    const ownerUsername = String(context.username ?? s.username ?? 'Redditor')
+      .trim()
+      .replace(/^u\//i, '') || 'Redditor';
+    const rarity = result.bestOrb.rarity;
+    const postText =
+      `u/${ownerUsername} got a 1/${formatRarity(rarity)} ball in their Frenzy.\n\n` +
+      `Click below to claim it! You can only claim one a day.\n\n` +
+      `When someone claims your Frenzy, you receive +${FRENZY_OWNER_SHARD_REWARD} Shards. ` +
+      `This reward bypasses the 50 Shard daily cap.`;
+    const post = await reddit.submitCustomPost({
+      runAs: 'USER',
+      subredditName,
+      title: `u/${ownerUsername} got a 1/${formatRarity(rarity)} ball in their Frenzy`,
+      entry: 'frenzy',
+      userGeneratedContent: { text: postText },
+    });
+    const postId = String(post?.id ?? '').trim();
+    if (!postId) throw new Error('Could not create the Frenzy post.');
+
+    const adminTest = options.adminTest === true || isFrenzyTestAdmin();
+    await redis.set(FRENZY_POST_PREFIX + postId, JSON.stringify({
+      ownerId: currentUserId(),
+      ownerUsername,
+      rarity,
+      subredditName,
+      adminTest,
+      inGame: true,
+      createdAt: Date.now(),
+      consumedAt: null,
+    }));
+
+    s.lastFrenzyDate = today;
+    s.lastRollAt = Date.now();
+    s.lastSeenAt = Date.now();
+    await save(s);
+    await appendPlayerSpyLog('frenzy-start', {
+      rarity,
+      postId,
+      forcedRarity: forcedRarity ?? null,
+      adminTest,
+      snapshot: playerSpySnapshot(s),
+    });
+
+    return {
+      state: s,
+      postId,
+      rarity,
+      url: `https://reddit.com/r/${subredditName}/comments/${postId}`,
+    };
   });
-
-  return {
-    state: s,
-    postId: context.postId ?? '',
-    rarity: result.bestOrb.rarity,
-    url: '',
-  };
-
-  });}
+}
 
 export async function getOrbFrenzyInfo(): Promise<{
   rarity: number;
@@ -3486,223 +3557,221 @@ export async function claimOrbFrenzy(options: {
   postId?: string;
 } = {}): Promise<RollResponse> {
   return withPlayerMutationLock(async () => {
-  const postId = options.postId ?? context.postId;
-  if (options.postId && options.allowAdminTestOwner !== true) {
-    throw new Error('Explicit Frenzy post targeting is admin-only.');
-  }
-  if (!postId) throw new Error('This is not an Orb Frenzy post.');
-  const raw = await redis.get(FRENZY_POST_PREFIX + postId);
-  if (!raw) throw new Error('Orb Frenzy post data was not found.');
-
-  const data = parseStoredJson<{
-    ownerId: string;
-    ownerUsername: string;
-    rarity: number;
-    subredditName: string;
-    adminTest?: boolean;
-    inGame?: boolean;
-    consumedAt?: number;
-  }>(raw);
-  if (!data) throw new Error('Orb Frenzy data is corrupted.');
-
-  if (data.inGame === true) {
-    if (data.ownerId !== currentUserId()) {
-      throw new Error('This in-game Orb Frenzy belongs to another player.');
+    const postId = options.postId ?? context.postId;
+    if (options.postId && options.allowAdminTestOwner !== true) {
+      throw new Error('Explicit Frenzy post targeting is admin-only.');
     }
-    if (data.consumedAt) {
-      throw new Error('This Orb Frenzy has already been unleashed.');
+    if (!postId) throw new Error('This is not an Orb Frenzy post.');
+
+    const raw = await redis.get(FRENZY_POST_PREFIX + postId);
+    if (!raw) throw new Error('Orb Frenzy post data was not found.');
+
+    const data = parseStoredJson<{
+      ownerId: string;
+      ownerUsername: string;
+      rarity: number;
+      subredditName: string;
+      adminTest?: boolean;
+      inGame?: boolean;
+      consumedAt?: number | null;
+    }>(raw);
+    if (!data) throw new Error('Orb Frenzy data is corrupted.');
+
+    const isOwner = data.ownerId === currentUserId();
+    const ownerSelfClaimAllowed =
+      isOwner &&
+      data.adminTest === true &&
+      (isFrenzyTestAdmin() || options.allowAdminTestOwner === true);
+
+    if (isOwner && !ownerSelfClaimAllowed) {
+      throw new Error('You cannot claim your own Orb Frenzy.');
     }
-  } else if (
-    data.ownerId === currentUserId() &&
-    !(options.allowAdminTestOwner === true && data.adminTest === true)
-  ) {
-    throw new Error('You cannot claim your own Orb Frenzy.');
-  }
 
-  const s = await settleOffline(await loadRaw());
-  const today = new Date().toISOString().slice(0, 10);
-  if (s.lastFrenzyClaimDate === today) {
-    throw new Error('You already claimed a Frenzy reward today.');
-  }
+    const s = await settleOffline(await loadRaw());
+    const today = new Date().toISOString().slice(0, 10);
+    if (s.lastFrenzyClaimDate === today) {
+      throw new Error('You already claimed a Frenzy reward today.');
+    }
 
-  const baseCount = frenzyOrbCountForRarity(data.rarity);
-  const frenzyVolleyEfficiency = (s.prestigeUpgrades?.frenzyVolley ?? 0) > 0
-    ? Math.max(0, rollsPerActivation(s) - 1) * 0.20
-    : 0;
-  const count = Math.max(
-    1,
-    Math.min(50_000_000, Math.floor(baseCount * (1 + frenzyVolleyEfficiency))),
-  );
-
-  const critChance = Math.min(
-    1,
-    (s.upgrades.critChance ?? 0) * 0.03 +
-    (s.masterySkills?.critMastery ?? 0) * 0.03 +
-    (s.guildPerks?.critRank ?? 0) * 0.015 +
-    globalBoosterCritChanceBonus(s.globalBoosters?.crit),
-  );
-  const critCount = sampleBinomial(count, critChance);
-
-  const supernovaLevel = s.prestigeUpgrades?.supernova ?? 0;
-  const supernovaCount = supernovaLevel > 0
-    ? sampleBinomial(critCount, Math.min(1, supernovaLevel * 0.10))
-    : 0;
-
-  const normalCritCount = Math.max(0, critCount - supernovaCount);
-  const normalCritRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s)));
-  const supernovaRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s) * 2.5));
-
-  const groups = [
-    { count: count - critCount, rarity: data.rarity },
-    { count: normalCritCount, rarity: normalCritRarity },
-    { count: supernovaCount, rarity: supernovaRarity },
-  ].filter(group => group.count > 0);
-
-  const valueMul =
-    1 +
-    (s.upgrades.valueBonus ?? 0) * 0.10 +
-    (s.prestigeUpgrades?.cosmicValuation ?? 0) * 0.05;
-  const maxSafe = Number.MAX_SAFE_INTEGER;
-  const safeMultiplyAdd = (sum: number, count: number, value: number): number => {
-    if (sum >= maxSafe || count <= 0 || value <= 0) return Math.min(maxSafe, sum);
-    if (count > Math.floor((maxSafe - sum) / value)) return maxSafe;
-    return sum + count * value;
-  };
-  const rawValue = groups.reduce(
-    (sum, group) => safeMultiplyAdd(sum, group.count, group.rarity),
-    0,
-  );
-  const finalValue = rawValue >= maxSafe / valueMul
-    ? maxSafe
-    : Math.min(maxSafe, Math.round(rawValue * valueMul));
-
-  const coinTotals = groups.reduce(
-    (sum, group) => sum + group.count * Math.max(1, Math.round(coinsForRarity(group.rarity))),
-    0,
-  );
-  const topRarity = Math.max(...groups.map(group => group.rarity));
-  const topCoin = Math.max(1, Math.round(coinsForRarity(topRarity)));
-  let coinsGained = Math.max(
-    1,
-    Math.round(topCoin + Math.max(0, coinTotals - topCoin) * 0.20),
-  );
-
-  const levelBenefits = getLevelBenefits(s.level || 1);
-  coinsGained = Math.round(
-    coinsGained *
-    levelBenefits.coinsMultiplier *
-    (1 + (s.upgrades.coinBonus ?? 0) * 0.15) *
-    (1 + (s.masterySkills?.prosperity ?? 0) * 0.12) *
-    (1 + (s.guildPerks?.coinRank ?? 0) * 0.10) *
-    (isPremiumBoosterActive(s, 'prosperity') ? 10 : 1),
-  );
-
-  const xpForRarity = (rarity: number) =>
-    Math.round(
-      Math.min(300, 12 + Math.floor(Math.log10(rarity + 1) * 12)) *
-      (1 + (s.upgrades.xpBonus ?? 0) * 0.20) *
-      levelBenefits.xpMultiplier *
-      (isPremiumBoosterActive(s, 'ascension') ? 10 : 1),
+    const multiRolls = rollsPerActivation(s);
+    const count = frenzyClaimCountForRarity(
+      data.rarity,
+      multiRolls,
+      s.prestigeUpgrades?.frenzyVolley ?? 0,
     );
-  const xpGained = Math.min(
-    Number.MAX_SAFE_INTEGER,
-    groups.reduce((sum, group) => sum + group.count * xpForRarity(group.rarity), 0),
-  );
 
-  const shardChance = Math.min(
-    1,
-    (s.upgrades.shardChance ?? 0) * 0.0015 +
-    (s.masterySkills?.shardAttunement ?? 0) * 0.001 +
-    (s.guildPerks?.shardRank ?? 0) * 0.0005 +
-    (s.prestigeUpgrades?.shardResonator ?? 0) * 0.0025 +
-    levelBenefits.shardChance,
-  );
-  const procShards = sampleBinomial(count, shardChance);
-  const rarityShards = groups.reduce((sum, group) => {
-    if (group.rarity >= 1_000_000) return sum + group.count * 10;
-    if (group.rarity >= 100_000) return sum + group.count * 5;
-    if (group.rarity >= 10_000) return sum + group.count * 2;
-    if (group.rarity >= 1_000) return sum + group.count;
-    return sum;
-  }, 0);
-  const shardsGained = grantFreeShards(s, rarityShards + procShards);
+    const critChance = Math.min(
+      1,
+      (s.upgrades.critChance ?? 0) * 0.03 +
+      (s.masterySkills?.critMastery ?? 0) * 0.03 +
+      (s.guildPerks?.critRank ?? 0) * 0.015 +
+      globalBoosterCritChanceBonus(s.globalBoosters?.crit),
+    );
+    const critCount = sampleBinomial(count, critChance);
 
-  const previousHighest = s.highestRarity;
-  s.totalRolls += count;
-  s.currentRunRolls = (s.currentRunRolls ?? 0) + count;
-  s.collectionValue = Math.min(Number.MAX_SAFE_INTEGER, (s.collectionValue ?? 0) + finalValue);
-  s.lifetimeCollectionValue = Math.min(Number.MAX_SAFE_INTEGER, (s.lifetimeCollectionValue ?? 0) + finalValue);
-  s.totalCrits = (s.totalCrits ?? 0) + critCount;
-  const guildTax = await applyGuildTax(coinsGained);
-  coinsGained = Math.max(0, coinsGained - guildTax.taxedCoins);
-  s.coins += coinsGained;
-  s.lifetimeCoins = (s.lifetimeCoins ?? 0) + coinsGained;
-  s.lastFrenzyClaimDate = today;
+    const supernovaLevel = s.prestigeUpgrades?.supernova ?? 0;
+    const supernovaCount = supernovaLevel > 0
+      ? sampleBinomial(critCount, Math.min(1, supernovaLevel * 0.10))
+      : 0;
 
-  if (data.inGame === true) {
-    await redis.set(FRENZY_POST_PREFIX + postId, JSON.stringify({
-      ...data,
-      consumedAt: Date.now(),
-    }));
-  }
+    const normalCritCount = Math.max(0, critCount - supernovaCount);
+    const normalCritRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s)));
+    const supernovaRarity = Math.min(1_000_000_000_000_000, Math.round(data.rarity * critMultiplier(s) * 2.5));
 
-  const bestRarity = topRarity;
-  const newRarityKeys = groups.filter(
-    group => (s.collection[String(group.rarity)] ?? 0) <= 0,
-  );
-  const uniqueGained = newRarityKeys.length;
+    const groups = [
+      { count: count - critCount, rarity: data.rarity },
+      { count: normalCritCount, rarity: normalCritRarity },
+      { count: supernovaCount, rarity: supernovaRarity },
+    ].filter(group => group.count > 0);
 
-  for (const group of groups) {
-    const keyForRarity = String(group.rarity);
-    s.collection[keyForRarity] = (s.collection[keyForRarity] ?? 0) + group.count;
-  }
-  s.highestRarity = Math.max(s.highestRarity, bestRarity);
-  s.rollsSinceBest = bestRarity > previousHighest ? 0 : (s.rollsSinceBest ?? 0) + count;
+    const valueMul =
+      1 +
+      (s.upgrades.valueBonus ?? 0) * 0.10 +
+      (s.prestigeUpgrades?.cosmicValuation ?? 0) * 0.05;
+    const maxSafe = Number.MAX_SAFE_INTEGER;
+    const safeMultiplyAdd = (sum: number, groupCount: number, value: number): number => {
+      if (sum >= maxSafe || groupCount <= 0 || value <= 0) return Math.min(maxSafe, sum);
+      if (groupCount > Math.floor((maxSafe - sum) / value)) return maxSafe;
+      return sum + groupCount * value;
+    };
+    const rawValue = groups.reduce(
+      (sum, group) => safeMultiplyAdd(sum, group.count, group.rarity),
+      0,
+    );
+    const finalValue = rawValue >= maxSafe / valueMul
+      ? maxSafe
+      : Math.min(maxSafe, Math.round(rawValue * valueMul));
 
-  const oldLevel = Math.max(1, s.level || 1);
-  s.xp += xpGained;
-  const earnedLevel = calculateLevelFromXp(s.xp).level;
-  const newLevel = Math.max(oldLevel, Math.min(oldLevel + 1, earnedLevel));
-  s.level = newLevel;
-  if (newLevel > oldLevel) {
-    s.masteryPoints = (s.masteryPoints ?? 0) + 1;
-  }
+    const coinTotals = groups.reduce(
+      (sum, group) => sum + group.count * Math.max(1, Math.round(coinsForRarity(group.rarity))),
+      0,
+    );
+    let coinsGained = Math.min(maxSafe, Math.round(coinTotals * (
+      getLevelBenefits(s.level || 1).coinsMultiplier *
+      (1 + (s.upgrades.coinBonus ?? 0) * 0.15) *
+      (1 + (s.masterySkills?.prosperity ?? 0) * 0.12) *
+      (1 + (s.guildPerks?.coinRank ?? 0) * 0.10)
+    )));
 
-  advanceQuestProgress(s, 'roll', count);
-  advanceQuestProgress(s, 'rare', bestRarity);
-  advanceQuestProgress(s, 'value', finalValue);
-  advanceQuestProgress(s, 'unique', uniqueGained);
-  await contribute(finalValue, count, bestRarity);
-  await addCommunityRolls(count);
+    const lowRarityCoins = groups
+      .filter(group => group.rarity < 100)
+      .reduce(
+        (sum, group) => sum + group.count * Math.max(1, Math.round(coinsForRarity(group.rarity))),
+        0,
+      );
+    if ((s.prestigeUpgrades?.autoFilter ?? 0) > 0) {
+      coinsGained = Math.min(maxSafe, coinsGained + Math.round(lowRarityCoins * 0.25));
+    }
 
-  await save(s);
+    const transLevel = s.prestigeUpgrades?.transmutation ?? 0;
+    let procShards = 0;
+    if (transLevel > 0) {
+      coinsGained = Math.min(maxSafe, coinsGained + Math.round(lowRarityCoins * (transLevel * 0.15)));
+      procShards = sampleBinomial(count, Math.min(1, 0.01 * transLevel));
+    }
 
-  const orbInfo = getOrbInfo(bestRarity);
-  const bestOrb: Orb = {
-    rarity: bestRarity,
-    rolledAt: Date.now(),
-    tier: orbInfo.tier,
-    name: orbInfo.name,
-    isNew: newRarityKeys.some(group => group.rarity === bestRarity),
-    isCrit: bestRarity > data.rarity,
-  };
+    const baseShardGain = groups.reduce((sum, group) => {
+      if (group.rarity >= 1_000_000) return sum + group.count * 10;
+      if (group.rarity >= 100_000) return sum + group.count * 5;
+      if (group.rarity >= 10_000) return sum + group.count * 2;
+      if (group.rarity >= 1_000) return sum + group.count;
+      return sum;
+    }, 0);
+    const shardsGained = grantFreeShards(s, baseShardGain + procShards);
 
-  return {
-    orb: bestOrb,
-    batch: [bestOrb],
-    totalValueGained: finalValue,
-    totalRollValue: finalValue,
-    coinsGained,
-    shardsGained,
-    xpGained,
-    state: s,
-    rollsRemainingUntilNext: cooldownMs(s),
-    dramaticReveal: bestRarity >= 100,
-    frenzyCount: count,
-  };
+    const previousHighest = s.highestRarity;
+    s.totalRolls += count;
+    s.currentRunRolls = (s.currentRunRolls ?? 0) + count;
+    s.collectionValue = Math.min(maxSafe, (s.collectionValue ?? 0) + finalValue);
+    s.lifetimeCollectionValue = Math.min(maxSafe, (s.lifetimeCollectionValue ?? 0) + finalValue);
+    s.totalCrits = (s.totalCrits ?? 0) + critCount;
 
-  });}
+    const guildTax = await applyGuildTax(coinsGained);
+    coinsGained = Math.max(0, coinsGained - guildTax.taxedCoins);
+    s.coins += coinsGained;
+    s.lifetimeCoins = (s.lifetimeCoins ?? 0) + coinsGained;
+    s.lastFrenzyClaimDate = today;
 
+    const bestRarity = Math.max(
+      data.rarity,
+      normalCritCount > 0 ? normalCritRarity : data.rarity,
+      supernovaCount > 0 ? supernovaRarity : data.rarity,
+    );
+    const newRarityKeys = groups.filter(
+      group => (s.collection[String(group.rarity)] ?? 0) <= 0,
+    );
+    const uniqueGained = newRarityKeys.length;
+
+    for (const group of groups) {
+      const keyForRarity = String(group.rarity);
+      s.collection[keyForRarity] = (s.collection[keyForRarity] ?? 0) + group.count;
+    }
+    s.highestRarity = Math.max(s.highestRarity, bestRarity);
+    s.rollsSinceBest = bestRarity > previousHighest ? 0 : (s.rollsSinceBest ?? 0) + count;
+
+    const oldLevel = Math.max(1, s.level || 1);
+    const baseXp = groups.reduce(
+      (sum, group) => sum + group.count * Math.round(
+        Math.min(300, 12 + Math.floor(Math.log10(group.rarity + 1) * 12)) *
+        (1 + (s.upgrades.xpBonus ?? 0) * 0.20) *
+        getLevelBenefits(s.level || 1).xpMultiplier,
+      ),
+      0,
+    );
+    const xpGained = isPremiumBoosterActive(s, 'ascension') ? baseXp * 10 : baseXp;
+    s.xp += xpGained;
+    const earnedLevel = calculateLevelFromXp(s.xp).level;
+    const newLevel = Math.max(oldLevel, Math.min(oldLevel + 1, earnedLevel));
+    s.level = newLevel;
+    if (newLevel > oldLevel) s.masteryPoints = (s.masteryPoints ?? 0) + 1;
+
+    advanceQuestProgress(s, 'roll', count);
+    advanceQuestProgress(s, 'rare', bestRarity);
+    advanceQuestProgress(s, 'value', finalValue);
+    advanceQuestProgress(s, 'unique', uniqueGained);
+    await contribute(finalValue, count, bestRarity);
+    await addCommunityRolls(count);
+
+    if (isOwner) grantFrenzyOwnerShards(s, FRENZY_OWNER_SHARD_REWARD);
+
+    await save(s);
+
+    let ownerRewardShards = 0;
+    if (!isOwner) {
+      try {
+        ownerRewardShards = await grantFrenzyOwnerReward(data.ownerId, FRENZY_OWNER_SHARD_REWARD);
+      } catch (error) {
+        console.error('[Orb Frenzy] Failed to grant owner Shards:', error);
+      }
+    } else {
+      ownerRewardShards = FRENZY_OWNER_SHARD_REWARD;
+    }
+
+    const orbInfo = getOrbInfo(bestRarity);
+    const bestOrb: Orb = {
+      rarity: bestRarity,
+      rolledAt: Date.now(),
+      tier: orbInfo.tier,
+      name: orbInfo.name,
+      isNew: newRarityKeys.some(group => group.rarity === bestRarity),
+      isCrit: bestRarity > data.rarity,
+    };
+
+    return {
+      orb: bestOrb,
+      batch: [bestOrb],
+      totalValueGained: finalValue,
+      totalRollValue: finalValue,
+      coinsGained,
+      shardsGained: shardsGained + (isOwner ? ownerRewardShards : 0),
+      xpGained,
+      state: s,
+      rollsRemainingUntilNext: cooldownMs(s),
+      dramaticReveal: bestRarity >= 100,
+      frenzyCount: count,
+    };
+  });
+}
 
 function sampleBinomial(n: number, p: number): number {
   if (n <= 0 || p <= 0) return 0;
