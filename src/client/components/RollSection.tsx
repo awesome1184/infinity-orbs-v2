@@ -47,6 +47,7 @@ interface RollSectionProps {
   onToggleAutoRoll: () => void;
   onRoll: () => Promise<void>;
   onOrbFrenzy: () => Promise<void>;
+  frenzyArmed: boolean;
   onOpenShareModal: (rarity: number) => void;
   onNewBest?: (orb: Orb, prevBest: number) => void;
 }
@@ -61,6 +62,21 @@ function formatTimeLeft(ms: number): string {
   return `${hours}h ${mins}m`;
 }
 
+function nextFrenzyResetAt(now: number): number {
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  return next.getTime();
+}
+
+function formatFrenzyCooldown(ms: number): string {
+  if (ms <= 0) return 'READY';
+  const totalSecs = Math.ceil(ms / 1000);
+  const hours = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 export const RollSection: React.FC<RollSectionProps> = ({
   state,
   lastOrb,
@@ -73,6 +89,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
   onToggleAutoRoll,
   onRoll,
   onOrbFrenzy,
+  frenzyArmed,
   onOpenShareModal,
   onNewBest,
 }) => {
@@ -139,6 +156,8 @@ export const RollSection: React.FC<RollSectionProps> = ({
   const cd = cooldownMs(state, false);
   const remain = Math.max(0, readyAt - now);
   const canRoll = remain <= 0 && !busy;
+  const frenzyUsedToday = Boolean(state.lastFrenzyDate && state.lastFrenzyDate === new Date(now).toISOString().slice(0, 10));
+  const frenzyCooldownRemain = frenzyUsedToday ? Math.max(0, nextFrenzyResetAt(now) - now) : 0;
   const multi = rollsPerActivation(state);
   const luck = luckMultiplier(state);
   const isAutoUnlocked = (state.upgrades.auto ?? 0) > 0;
@@ -413,43 +432,57 @@ export const RollSection: React.FC<RollSectionProps> = ({
       <div className="roll-controls flex flex-col items-center gap-3 w-full max-w-sm">
         <button
           onClick={handleRollClick}
-          className={`roll-button ${canRoll ? 'is-ready' : 'is-waiting'} w-full py-4 px-6 rounded-2xl font-black text-base sm:text-lg tracking-wide shadow-xl transition-all transform duration-150 active:scale-95 flex items-center justify-center gap-2 cursor-pointer ${
-            canRoll
+          className={'roll-button ' + (frenzyArmed ? 'frenzy-supercharged' : canRoll ? 'is-ready' : 'is-waiting') + ' w-full py-4 px-6 rounded-2xl font-black text-base sm:text-lg tracking-wide shadow-xl transition-all transform duration-150 active:scale-95 flex items-center justify-center gap-2 cursor-pointer ' +
+            (frenzyArmed
+              ? 'bg-fuchsia-700 hover:bg-fuchsia-600 text-white border border-fuchsia-300/40 shadow-[0_0_36px_rgba(217,70,239,0.38)]'
+              : canRoll
               ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-950/30'
               : busy
               ? 'bg-slate-800 text-slate-400 cursor-wait'
-              : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700'
-          }`}
+              : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700')}
+          aria-label={frenzyArmed ? 'Release Frenzy roll' : 'Roll'}
         >
-          <Sparkles className="w-5 h-5 text-cyan-300" />
+          {frenzyArmed && (
+            <>
+              <Zap className='frenzy-lightning frenzy-lightning-left w-5 h-5' />
+              <Zap className='frenzy-lightning frenzy-lightning-right w-5 h-5' />
+            </>
+          )}
+          <Sparkles className={'w-5 h-5 ' + (frenzyArmed ? 'text-yellow-200 frenzy-spark' : 'text-cyan-300')} />
           <span>
             {busy
               ? 'ROLLING...'
+              : frenzyArmed
+              ? remain > 0
+                ? 'WAIT ' + (remain / 1000).toFixed(1) + 's'
+                : 'RELEASE FRENZY'
               : remain > 0
-              ? `WAIT ${(remain / 1000).toFixed(1)}s`
-              : `ROLL ${multi > 1 ? `×${multi}` : ''}`}
+              ? 'WAIT ' + (remain / 1000).toFixed(1) + 's'
+              : 'ROLL ' + (multi > 1 ? '×' + multi : '')}
           </span>
-        </button>
+        </button>>
 
         <button
           onClick={() => void onOrbFrenzy()}
-          disabled={busy || Boolean(state.lastFrenzyDate && state.lastFrenzyDate === new Date().toISOString().slice(0, 10))}
+          disabled={busy || frenzyArmed || frenzyUsedToday}
           className={
-            busy || Boolean(state.lastFrenzyDate && state.lastFrenzyDate === new Date().toISOString().slice(0, 10))
+            busy || frenzyArmed || frenzyUsedToday
               ? 'w-full px-4 py-2.5 rounded-xl text-xs font-black bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'
               : 'w-full px-4 py-2.5 rounded-xl text-xs font-black bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-200 hover:bg-fuchsia-500/20 active:scale-95'
           }
-          title='Once per day. A starter roll creates a public Frenzy that scales with your Multi Roll when someone claims it.'
+          title={frenzyUsedToday ? 'Orb Frenzy returns at the next daily reset.' : 'Arm Orb Frenzy, then use your next manual Roll to submit it.'}
         >
-          <span className='inline-flex items-center justify-center gap-2'>
+          <span className='inline-flex items-center justify-center gap-2 w-full'>
             <Sparkles className='w-4 h-4 text-fuchsia-300' />
             <span>
-              {state.lastFrenzyDate === new Date().toISOString().slice(0, 10)
-                ? 'Orb Frenzy Used Today'
-                : 'Orb Frenzy • Start Frenzy'}
+              {frenzyArmed
+                ? 'Frenzy Armed · Roll Now'
+                : frenzyUsedToday
+                ? 'Frenzy Cooldown · ' + formatFrenzyCooldown(frenzyCooldownRemain)
+                : 'Orb Frenzy · Charge Next Roll'}
             </span>
           </span>
-        </button>
+        </button>>
 
         <details className='w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5 text-left'>
           <summary className='flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold text-slate-300'>
@@ -460,9 +493,8 @@ export const RollSection: React.FC<RollSectionProps> = ({
             <span className='text-[10px] font-medium text-slate-500'>How it works</span>
           </summary>
           <div className='mt-2 text-[11px] leading-relaxed text-slate-400'>
-            Once per day, your starter roll becomes a public Frenzy. The displayed rarity sets the base size,
-            then your Multi Roll multiplies the claim. When someone claims it, you receive <span className='font-semibold text-fuchsia-300'>+5 Shards</span>,
-            even if you are already at the 50 Shard daily cap.
+            Once per day, charge a Frenzy, then use your next manual Roll to submit it. The displayed rarity sets the base size,
+            then your Multi Roll multiplies the claim. You can claim one public Frenzy each day.
           </div>
         </details>
 
