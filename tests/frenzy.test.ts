@@ -72,7 +72,7 @@ test('posted Frenzy opens the actual game entrypoint from the claim button', () 
   assert.doesNotMatch(source, /When someone claims this Frenzy/);
   assert.doesNotMatch(source, /That \+5 Shard reward bypasses/);
   assert.doesNotMatch(source, /Self-claim is enabled for admin testing/);
-  assert.match(source, /io-frenzy-orb-ball/);
+  assert.match(source, /io-frenzy-orb-visual/);
 });
 
 test('posted Frenzy rarity uses the rarity color and roll-up animation', () => {
