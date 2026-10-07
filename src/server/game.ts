@@ -1992,7 +1992,7 @@ export async function applyRolls(
   const effectiveCritChance = Math.min(0.40, critChance);
 
   for (let i = 0; i < rollCount; i++) {
-    // New-player hype: the third ball this account ever rolls is guaranteed
+    // New-player hype: the third Orb this account ever rolls is guaranteed
     // to land in the 1/101 through 1/120 range. It cannot crit upward, so the
     // guarantee is the exact advertised range.
     const isGuaranteedThirdBall = forcedRarity == null && s.totalRolls + i === 2;
@@ -2009,7 +2009,7 @@ export async function applyRolls(
 
     // Continuum RNG generation with effective luck. Luck reshapes the tail;
     // it does not multiply the final rarity directly.
-    // The third lifetime ball overrides the random result with a guaranteed beginner drop.
+    // The third lifetime Orb overrides the random result with a guaranteed beginner drop.
     const minimumRarity = 2 + (s.prestigeUpgrades?.luckyFloor ?? 0);
     const beginnerRarity = 101 + Math.floor(rng() * 20);
     const rolledRarity = isGuaranteedThirdBall
@@ -3471,14 +3471,14 @@ export async function startOrbFrenzy(options: {
       .replace(/^u\//i, '') || 'Redditor';
     const rarity = result.bestOrb.rarity;
     const postText =
-      `u/${ownerUsername} got a 1/${formatRarity(rarity)} ball in their Frenzy.\n\n` +
+      `u/${ownerUsername} got a 1/${formatRarity(rarity)} Orb in their Frenzy.\n\n` +
       `Click below to claim it! You can only claim one a day.\n\n` +
       `When someone claims your Frenzy, you receive +${FRENZY_OWNER_SHARD_REWARD} Shards. ` +
       `This reward bypasses the 50 Shard daily cap.`;
     const post = await reddit.submitCustomPost({
       runAs: 'USER',
       subredditName,
-      title: `u/${ownerUsername} got a 1/${formatRarity(rarity)} ball in their Frenzy`,
+      title: `u/${ownerUsername} got a 1/${formatRarity(rarity)} Orb in their Frenzy`,
       entry: 'frenzy',
       userGeneratedContent: { text: postText },
     });
@@ -3779,19 +3779,38 @@ export async function claimOrbFrenzy(options: {
     }
   }
 
+  const rolledAt = Date.now();
+  const visibleBatch: Orb[] = [];
+  for (const group of groups) {
+    const groupInfo = getOrbInfo(group.rarity);
+    const groupIsNew = newRarityKeys.some(item => item.rarity === group.rarity);
+    const visibleCount = Math.min(group.count, Math.max(0, 8 - visibleBatch.length));
+    for (let i = 0; i < visibleCount; i += 1) {
+      visibleBatch.push({
+        rarity: group.rarity,
+        rolledAt,
+        tier: groupInfo.tier,
+        name: groupInfo.name,
+        isNew: groupIsNew,
+        isCrit: group.rarity > data.rarity,
+      });
+    }
+  }
+
   const orbInfo = getOrbInfo(bestRarity);
   const bestOrb: Orb = {
     rarity: bestRarity,
-    rolledAt: Date.now(),
+    rolledAt,
     tier: orbInfo.tier,
     name: orbInfo.name,
     isNew: newRarityKeys.some(group => group.rarity === bestRarity),
     isCrit: bestRarity > data.rarity,
   };
+  if (visibleBatch.length === 0) visibleBatch.push(bestOrb);
 
   return {
     orb: bestOrb,
-    batch: [bestOrb],
+    batch: visibleBatch,
     totalValueGained: finalValue,
     totalRollValue: finalValue,
     coinsGained,
