@@ -1091,6 +1091,7 @@ debugRouter.post('/state', async (req, res) => {
       s.lastRollAt = body.lastRollAt === null ? null : nonNegativeInteger(body.lastRollAt);
     }
     if ('lastSeenAt' in body) s.lastSeenAt = nonNegativeInteger(body.lastSeenAt);
+    if ('autoRollEnabled' in body) s.autoRollEnabled = Boolean(body.autoRollEnabled);
     for (const field of ['lastFrenzyDate', 'lastFrenzyClaimDate', 'lastDailyReset', 'lastWeeklyReset', 'lastFreeShardReset']) {
       if (typeof body[field] === 'string') (s as any)[field] = body[field];
     }
