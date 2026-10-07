@@ -626,6 +626,7 @@ export function App() {
 
           setFrenzyRunTriggered(true);
           setBusy(true);
+          setIsRolling(true);
           const res = await getJson<RollResponse>('/api/frenzy/claim', { method: 'POST' });
 
           if (cancelled) return;
@@ -652,7 +653,10 @@ export function App() {
     };
 
     void resolveFrenzy().finally(() => {
-      if (!cancelled) setBusy(false);
+      if (!cancelled) {
+        setIsRolling(false);
+        setBusy(false);
+      }
     });
 
     return () => {
