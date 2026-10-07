@@ -175,8 +175,8 @@ function FrenzyPost() {
             <AnimatedRarity rarity={info.rarity} color={orb.color} />
 
             <div
-              className="io-frenzy-orb-ball"
-              aria-label={orb.name + ' ball'}
+              className="io-frenzy-orb-visual"
+              aria-label={orb.name + ' orb'}
               style={{
                 background: orb.bgGradient,
                 borderColor: orb.color + '88',
@@ -187,7 +187,7 @@ function FrenzyPost() {
               <div className="io-frenzy-orb-core" style={{ background: orb.color }} />
             </div>
 
-            <p className="io-frenzy-ball-label">ball in their Frenzy</p>
+            <p className="io-frenzy-orb-label">orb in their Frenzy</p>
             <p className="io-frenzy-instruction">
               Click below to claim it. You can only claim one a day.
             </p>
