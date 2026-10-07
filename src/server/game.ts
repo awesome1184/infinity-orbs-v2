@@ -762,11 +762,12 @@ export async function getCcuPeaks(): Promise<{
 
 const FRENZY_POST_PREFIX = 'io:frenzy:post:';
 
-function isFrenzyTestAdmin(): boolean {
-  return String(context.username ?? '')
+function isFrenzyTestAdmin(username?: string): boolean {
+  const candidate = String(username ?? context.username ?? '')
     .trim()
     .replace(/^u\//i, '')
-    .toLowerCase() === 'shadow_fen';
+    .toLowerCase();
+  return candidate === 'shadow_fen';
 }
 
 async function grantFrenzyOwnerReward(
@@ -3484,7 +3485,7 @@ export async function startOrbFrenzy(options: {
     const postId = String(post?.id ?? '').trim();
     if (!postId) throw new Error('Could not create the Frenzy post.');
 
-    const adminTest = options.adminTest === true || isFrenzyTestAdmin();
+    const adminTest = options.adminTest === true || isFrenzyTestAdmin(s.username) || isFrenzyTestAdmin(ownerUsername);
     await redis.set(FRENZY_POST_PREFIX + postId, JSON.stringify({
       ownerId: currentUserId(),
       ownerUsername,
@@ -3496,6 +3497,8 @@ export async function startOrbFrenzy(options: {
       consumedAt: null,
     }));
 
+    s.manualRolls = Math.min(10, (s.manualRolls ?? 0) + 1);
+    if (s.manualRolls >= 3) s.upgrades.auto = 1;
     s.lastFrenzyDate = today;
     s.lastRollAt = Date.now();
     s.lastSeenAt = Date.now();
@@ -3513,6 +3516,16 @@ export async function startOrbFrenzy(options: {
       postId,
       rarity,
       url: `https://reddit.com/r/${subredditName}/comments/${postId}`,
+      orb: result.bestOrb,
+      batch: result.batch,
+      totalValueGained: result.totalVal,
+      totalRollValue: result.totalVal,
+      coinsGained: result.coinsGained,
+      shardsGained: result.shardsGained,
+      xpGained: result.xpGained,
+      rollsRemainingUntilNext: cooldownMs(s),
+      rollsProcessed: result.rollCount,
+      dramaticReveal: rarity >= 100,
     };
   });
 }
@@ -3551,7 +3564,7 @@ export async function getOrbFrenzyInfo(): Promise<{
   const selfClaimTest =
     isOwner &&
     data.adminTest === true &&
-    isFrenzyTestAdmin();
+    isFrenzyTestAdmin(s.username);
 
   return {
     rarity: data.rarity,
@@ -3559,7 +3572,7 @@ export async function getOrbFrenzyInfo(): Promise<{
     createdAt: data.createdAt,
     claimedToday,
     isOwner,
-    canClaim: !claimedToday && (!isOwner || selfClaimTest),
+    canClaim: (!claimedToday || selfClaimTest) && (!isOwner || selfClaimTest),
     selfClaimTest,
     postId,
     inGame: data.inGame === true,
@@ -3591,18 +3604,20 @@ export async function claimOrbFrenzy(options: {
   if (!data) throw new Error('Orb Frenzy data is corrupted.');
 
   const isOwner = data.ownerId === currentUserId();
+
+  const s = await settleOffline(await loadRaw());
+  const today = new Date().toISOString().slice(0, 10);
   const ownerSelfClaimAllowed =
     isOwner &&
     data.adminTest === true &&
-    (isFrenzyTestAdmin() || options.allowAdminTestOwner === true);
+    (isFrenzyTestAdmin(s.username) || options.allowAdminTestOwner === true);
 
   if (isOwner && !ownerSelfClaimAllowed) {
     throw new Error('You cannot claim your own Orb Frenzy.');
   }
 
-  const s = await settleOffline(await loadRaw());
-  const today = new Date().toISOString().slice(0, 10);
-  if (s.lastFrenzyClaimDate === today) {
+  const selfClaimTest = isOwner && ownerSelfClaimAllowed;
+  if (s.lastFrenzyClaimDate === today && !selfClaimTest) {
     throw new Error('You already claimed a Frenzy reward today.');
   }
 
