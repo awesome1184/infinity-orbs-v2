@@ -46,6 +46,9 @@ import {
   createInitialState,
   grantFreeShards,
   todayKey,
+  canShowDailyFrenzyPrompt,
+  FRENZY_PROMPT_DELAY_MS,
+  FRENZY_OWNER_SHARD_REWARD,
   rollsPerActivation,
   upgradeCost,
   prestigeUpgradeCost,
@@ -275,6 +278,7 @@ export function App() {
   });
   const [newBestModalData, setNewBestModalData] = useState<{ orb: Orb; prevBest: number } | null>(null);
   const [frenzyRunTriggered, setFrenzyRunTriggered] = useState(false);
+  const [showFrenzyPrompt, setShowFrenzyPrompt] = useState(false);
   const stateRevisionRef = useRef(0);
   const appliedServerRevisionRef = useRef(-1);
   const stateRef = useRef<PlayerState | null>(null);
@@ -608,12 +612,15 @@ export function App() {
             createdAt: number;
             claimedToday: boolean;
             isOwner: boolean;
+            canClaim: boolean;
+            selfClaimTest: boolean;
             postId: string;
             inGame?: boolean;
-            consumedAt?: number | null;
           }>('/api/frenzy/info');
 
-          if (!info.inGame || !info.isOwner || info.consumedAt) return;
+          // Any posted Frenzy opens directly into the full game entrypoint.
+          // The game claims it here so the player gets the normal game UI/result.
+          if (!info.inGame || !info.canClaim) return;
 
           setFrenzyRunTriggered(true);
           setBusy(true);
@@ -632,7 +639,7 @@ export function App() {
           });
           setReadyAt(Date.now() + res.rollsRemainingUntilNext);
           showToast(
-            `⚡ Orb Frenzy unleashed! ${formatNumber(res.frenzyCount ?? 0)} Orbs rolled.`,
+            `⚡ Orb Frenzy claimed! ${formatNumber(res.frenzyCount ?? 0)} Orbs rolled.`,
             'success',
           );
           return;
@@ -649,7 +656,34 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [state, frenzyRunTriggered]);
+  }, [state, frenzyRunTriggered, applyPlayerState, showToast]);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+
+    const checkPrompt = () => {
+      const now = Date.now();
+      const current = stateRef.current;
+      if (!current || now - startedAt < FRENZY_PROMPT_DELAY_MS) return;
+      if (!canShowDailyFrenzyPrompt(current.lastFrenzyDate, now)) return;
+      if (showFrenzyPrompt) return;
+
+      const storageKey = `io-frenzy-prompt-shown-${todayKey(now)}`;
+      try {
+        if (window.localStorage.getItem(storageKey) === '1') return;
+        window.localStorage.setItem(storageKey, '1');
+      } catch {
+        // Storage can be unavailable in embedded webviews. The in-memory
+        // state still prevents repeated prompts during this session.
+      }
+
+      setShowFrenzyPrompt(true);
+    };
+
+    const interval = window.setInterval(checkPrompt, 15_000);
+    checkPrompt();
+    return () => window.clearInterval(interval);
+  }, [showFrenzyPrompt]);
 
   // Social quests count only when the player actually opens the social area.
   // Background leaderboard/guild refreshes must not award the visit quest.
@@ -966,44 +1000,25 @@ export function App() {
   };
 
   // Daily Orb Frenzy
-  const handleStartOrbFrenzy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleStartOrbFrenzy = async () => {
     setBusy(true);
-
-    // Expansion must be requested synchronously from the trusted click event.
-    // Start the server-side Frenzy request without awaiting it first.
-    const startRequest = getJson<{ state: PlayerState; postId: string; url: string; rarity: number }>('/api/frenzy/start', {
-      method: 'POST',
-    });
-
     try {
-      if (getWebViewMode() === 'inline') {
-        requestExpandedMode(event.nativeEvent, 'game');
-      }
-    } catch (e: any) {
-      console.error('Could not enter the expanded game window:', e);
-    }
-
-    try {
-      const res = await startRequest;
+      const res = await getJson<{ state: PlayerState; postId: string; url: string; rarity: number }>('/api/frenzy/start', {
+        method: 'POST',
+      });
       applyPlayerState(res.state);
       sound.playEpicFanfare();
-
-      // In expanded mode the current game window is already open, so the
-      // pending Frenzy effect below will immediately roll the full volley.
-      if (getWebViewMode() === 'expanded') {
-        showToast(`⚡ Orb Frenzy ready: 1/${formatRarity(res.rarity)} baseline roll.`, 'success');
-      }
+      showToast(
+        `🔥 Frenzy posted: 1/${formatRarity(res.rarity)}. When someone claims it, you get +${FRENZY_OWNER_SHARD_REWARD} Shards.`,
+        'success',
+      );
+      setShowFrenzyPrompt(false);
     } catch (e: any) {
-      showToast(e.message || 'Could not start Orb Frenzy', 'warn');
+      showToast(e.message || 'Could not post your Frenzy', 'warn');
+    } finally {
       setBusy(false);
-      return;
     }
-
-    // Do not clear busy here when expansion was requested. The reloaded game
-    // view will consume the pending Frenzy and clear its own busy state.
-    if (getWebViewMode() === 'expanded') setBusy(false);
   };
-
 
   const handleActivateGlobalBooster = async (id: GlobalBoosterId, useCredit: boolean) => {
     setBusy(true);
@@ -2265,6 +2280,48 @@ export function App() {
           />
         )}
       </main>
+
+      {showFrenzyPrompt && (
+        <div className="fixed inset-0 z-[70] io-modal-backdrop flex items-center justify-center p-4">
+          <section className="io-modal-card io-frenzy-prompt w-full max-w-md bg-slate-950/95">
+            <div className="io-frenzy-prompt-kicker">
+              <Flame className="w-4 h-4" />
+              Daily Frenzy
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-white">Post today’s Frenzy</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Turn today’s best roll into a public Frenzy that someone else can claim.
+              Every player can claim one Frenzy a day.
+            </p>
+            <div className="io-frenzy-prompt-reward">
+              <div className="text-3xl font-black text-fuchsia-200">+{FRENZY_OWNER_SHARD_REWARD} Shards</div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-400">
+                When someone claims your Frenzy, you receive these Shards. This reward
+                <strong className="text-slate-200"> bypasses the 50 Shard daily cap</strong>.
+              </div>
+            </div>
+            <div className="io-modal-actions">
+              <button
+                onClick={() => void handleStartOrbFrenzy()}
+                disabled={busy}
+                className="io-public-button io-public-button-primary"
+              >
+                <Flame className="w-4 h-4" />
+                {busy ? 'Posting…' : 'Post My Frenzy'}
+              </button>
+              <button
+                onClick={() => setShowFrenzyPrompt(false)}
+                className="io-public-button io-public-button-secondary"
+              >
+                Not now
+              </button>
+            </div>
+            <div className="mt-3 text-[10px] text-slate-600">
+              You can post another Frenzy tomorrow.
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* New Best Ball Celebration Modal */}
       {newBestModalData && (
