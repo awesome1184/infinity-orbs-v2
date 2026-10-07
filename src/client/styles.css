@@ -1569,3 +1569,53 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
   0%, 100% { transform: scale(.9); opacity: .65; }
   50% { transform: scale(1.25); opacity: 1; }
 }
+
+
+.io-frenzy-orb-ball {
+  position: relative;
+  width: clamp(82px, 13vw, 118px);
+  height: clamp(82px, 13vw, 118px);
+  margin: 20px auto 7px;
+  border: 2px solid;
+  border-radius: 50%;
+  overflow: hidden;
+  transform: translateZ(0);
+  animation: io-frenzy-orb-float 2.8s ease-in-out infinite;
+}
+
+.io-frenzy-orb-ball::after {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 50%;
+  box-shadow: inset 0 0 16px rgba(255,255,255,.08);
+}
+
+.io-frenzy-orb-highlight {
+  position: absolute;
+  width: 29%;
+  height: 20%;
+  top: 14%;
+  left: 17%;
+  border-radius: 50%;
+  background: rgba(255,255,255,.32);
+  filter: blur(2px);
+  transform: rotate(-28deg);
+}
+
+.io-frenzy-orb-core {
+  position: absolute;
+  width: 18%;
+  height: 18%;
+  right: 16%;
+  bottom: 17%;
+  border-radius: 50%;
+  opacity: .38;
+  filter: blur(7px);
+}
+
+@keyframes io-frenzy-orb-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-5px) scale(1.025); }
+}
