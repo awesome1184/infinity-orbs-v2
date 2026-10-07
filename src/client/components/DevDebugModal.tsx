@@ -5,7 +5,7 @@ import {
   Ban, UserX, CheckCircle2, RefreshCw, Flame,
   Database, Wand2, Trash2, Gauge, ListRestart, Save, Power, Copy, ClipboardCheck,
 } from 'lucide-react';
-import { PRESTIGE_UPGRADES, CONTINUUM_TIERS, getOrbInfo, visibleContinuumTiers, formatRarity, formatNumber } from '../../shared/game.js';
+import { PRESTIGE_UPGRADES, CONTINUUM_TIERS, getOrbInfo, visibleContinuumTiers, formatRarity, formatNumber, frenzyOrbCountForRarity } from '../../shared/game.js';
 import type { RollResponse } from '../../shared/game.js';
 import { sound } from '../sound.js';
 
@@ -1065,6 +1065,15 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
       `1/${formatRarity(result.orb?.rarity)} · processed=${shortNumber(result.rollsProcessed, 0)} · coins +${shortNumber(result.coinsGained, 0)} · XP +${shortNumber(result.xpGained, 0)}`;
 
     try {
+      // The test runs inside the live game UI. Disable any pre-existing Auto Roll
+      // first, then refresh the App so its watcher cannot race the test.
+      try {
+        await request('/api/auto-roll', { enabled: false });
+      } catch {
+        // Auto Roll may not be unlocked yet. That is already a safe disabled state.
+      }
+      await onRefresh();
+
       await step(
         '1. Wipe save',
         () => request('/api/dev/reset-all', {}),
@@ -1088,6 +1097,7 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
           lastRollAt: 0,
           lastSeenAt: Date.now(),
           onlinePlayers: 1,
+          autoRollEnabled: false,
         }),
         result => `coins=1,000 · shards=50 · XP=100,000`,
       );
@@ -1216,6 +1226,16 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
           'Auto Roll execution',
           () => rollOnce(true),
           rollDetail,
+        );
+
+        await step(
+          'Disable Auto Roll after test',
+          async () => {
+            const result = await request<{ state: any }>('/api/auto-roll', { enabled: false });
+            await onRefresh();
+            return result;
+          },
+          stateSummary,
         );
       }
 
@@ -1379,6 +1399,7 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
             lastSeenAt: Date.now(),
             onlinePlayers: 1,
             turboRollUntil: 0,
+            autoRollEnabled: false,
             upgrades: zeroUpgrades,
             prestigeUpgrades: { ...zeroPrestige, ...prestigeOverrides },
             masterySkills: zeroMastery,
@@ -1890,12 +1911,26 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
             const volleyClaim = await request<any>('/api/dev/frenzy/claim', { postId: volleyStart.postId });
             const volleyCount = Number(volleyClaim.state?.totalRolls ?? 0) - volleyBeforeClaim;
 
-            if (normalCount !== 100 || volleyCount !== 120) {
-              throw new Error('Frenzy Volley expected 100 → 120 bonus rolls, got ' + normalCount + ' → ' + volleyCount + '.');
+            const baseCount = frenzyOrbCountForRarity(100);
+            const expectedNormal = baseCount * 2;
+            const expectedVolley = Math.floor(baseCount * 1.20);
+            const normalVisible = Array.isArray(normalClaim.batch) ? normalClaim.batch.length : 0;
+            const volleyVisible = Array.isArray(volleyClaim.batch) ? volleyClaim.batch.length : 0;
+            if (normalCount !== expectedNormal || volleyCount !== expectedVolley) {
+              throw new Error(
+                'Frenzy Volley expected ' + expectedNormal + ' → ' + expectedVolley +
+                ' rolls, got ' + normalCount + ' → ' + volleyCount + '.'
+              );
             }
-            return { normalCount, volleyCount };
+            if (normalVisible !== Math.min(normalCount, 8) || volleyVisible !== Math.min(volleyCount, 8)) {
+              throw new Error(
+                'Frenzy claim did not return the visible Orb volley: ' +
+                normalVisible + ' → ' + volleyVisible + ' displayed Orbs.'
+              );
+            }
+            return { normalCount, volleyCount, normalVisible, volleyVisible };
           },
-          result => 'Frenzy claim rolls ' + result.normalCount + ' → ' + result.volleyCount,
+          result => 'Frenzy claim Orbs ' + result.normalCount + ' → ' + result.volleyCount + ' · visible ' + result.normalVisible + ' → ' + result.volleyVisible,
         );
 
         await step(
