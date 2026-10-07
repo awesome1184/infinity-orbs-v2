@@ -460,7 +460,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
               ? 'WAIT ' + (remain / 1000).toFixed(1) + 's'
               : 'ROLL ' + (multi > 1 ? '×' + multi : '')}
           </span>
-        </button>>
+        </button>
 
         <button
           onClick={() => void onOrbFrenzy()}
@@ -482,7 +482,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
                 : 'Orb Frenzy · Charge Next Roll'}
             </span>
           </span>
-        </button>>
+        </button>
 
         <details className='w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5 text-left'>
           <summary className='flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold text-slate-300'>
