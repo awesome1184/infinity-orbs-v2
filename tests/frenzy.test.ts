@@ -146,3 +146,13 @@ test('admin self-claim works even when the normal daily claim is already used', 
   assert.match(source, /Claim Your Frenzy · Test/);
   assert.match(source, /if \(s\.lastFrenzyClaimDate === today && !selfClaimTest\)/);
 });
+
+
+test('Frenzy submission returns the starter roll and marks it as a manual roll', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
+  assert.match(source, /s\.manualRolls = Math\.min\(10, \(s\.manualRolls \?\? 0\) \+ 1\)/);
+  assert.match(source, /if \(s\.manualRolls >= 3\) s\.upgrades\.auto = 1/);
+  assert.match(source, /orb: result\.bestOrb/);
+  assert.match(source, /rollsProcessed: result\.rollCount/);
+  assert.match(source, /lastFrenzyDate = today/);
+});
