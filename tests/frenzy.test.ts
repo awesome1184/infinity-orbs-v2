@@ -139,12 +139,13 @@ test('Frenzy button shows a ticking daily cooldown after submission', () => {
 });
 
 test('admin self-claim works even when the normal daily claim is already used', () => {
-  const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
-  assert.match(source, /isFrenzyTestAdmin\(s\.username\)/);
-  assert.match(source, /data\.adminTest === true/);
-  assert.match(source, /const canClaim = info\.canClaim && !openedGame/);
-  assert.match(source, /Claim Your Frenzy · Test/);
-  assert.match(source, /if \(s\.lastFrenzyClaimDate === today && !selfClaimTest\)/);
+  const serverSource = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
+  const clientSource = readFileSync(resolve(process.cwd(), 'src/client/frenzy.tsx'), 'utf8');
+  assert.match(serverSource, /isFrenzyTestAdmin\(s\.username\)/);
+  assert.match(serverSource, /data\.adminTest === true/);
+  assert.match(clientSource, /const canClaim = info\.canClaim && !openedGame/);
+  assert.match(clientSource, /Claim Your Frenzy · Test/);
+  assert.match(serverSource, /if \(s\.lastFrenzyClaimDate === today && !selfClaimTest\)/);
 });
 
 
