@@ -1571,7 +1571,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 }
 
 
-.io-frenzy-orb-ball {
+.io-frenzy-orb-visual {
   position: relative;
   width: clamp(82px, 13vw, 118px);
   height: clamp(82px, 13vw, 118px);
@@ -1583,7 +1583,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
   animation: io-frenzy-orb-float 2.8s ease-in-out infinite;
 }
 
-.io-frenzy-orb-ball::after {
+.io-frenzy-orb-visual::after {
   content: '';
   position: absolute;
   inset: 9%;
