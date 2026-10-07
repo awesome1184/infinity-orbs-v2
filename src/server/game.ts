@@ -3526,29 +3526,46 @@ export async function getOrbFrenzyInfo(): Promise<{
   createdAt: number;
   claimedToday: boolean;
   isOwner: boolean;
+  canClaim: boolean;
+  selfClaimTest: boolean;
   postId: string;
   inGame?: boolean;
-  consumedAt?: number | null;
 }> {
   const postId = context.postId;
   if (!postId) throw new Error('This is not an Orb Frenzy post.');
+
   const raw = await redis.get(FRENZY_POST_PREFIX + postId);
   if (!raw) throw new Error('Orb Frenzy post data was not found.');
+
   const data = parseStoredJson<{
-    ownerId: string; ownerUsername: string; rarity: number; createdAt: number; inGame?: boolean; consumedAt?: number;
+    ownerId: string;
+    ownerUsername: string;
+    rarity: number;
+    createdAt: number;
+    adminTest?: boolean;
+    inGame?: boolean;
   }>(raw);
   if (!data) throw new Error('Orb Frenzy data is corrupted.');
+
   const today = new Date().toISOString().slice(0, 10);
   const s = await getMe();
+  const claimedToday = s.lastFrenzyClaimDate === today;
+  const isOwner = data.ownerId === currentUserId();
+  const selfClaimTest =
+    isOwner &&
+    data.adminTest === true &&
+    isFrenzyTestAdmin();
+
   return {
     rarity: data.rarity,
     ownerUsername: data.ownerUsername,
     createdAt: data.createdAt,
-    claimedToday: s.lastFrenzyClaimDate === today,
-    isOwner: data.ownerId === currentUserId(),
+    claimedToday,
+    isOwner,
+    canClaim: !claimedToday && (!isOwner || selfClaimTest),
+    selfClaimTest,
     postId,
     inGame: data.inGame === true,
-    consumedAt: data.consumedAt ?? null,
   };
 }
 
