@@ -91,6 +91,14 @@ test('starting a Frenzy creates a dedicated public Frenzy post', () => {
   assert.match(source, /FRENZY_OWNER_SHARD_REWARD/);
 });
 
+test('Frenzy posts use Orb terminology and claims return a visible Orb volley', () => {
+  const server = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
+  assert.doesNotMatch(server, /got a 1\/\$\{formatRarity\(rarity\)\} ball in their Frenzy/);
+  assert.match(server, /got a 1\/\$\{formatRarity\(rarity\)\} Orb in their Frenzy/);
+  assert.match(server, /const visibleBatch: Orb\[\] = \[\]/);
+  assert.match(server, /batch: visibleBatch/);
+});
+
 test('Frenzy claims expose one-per-day eligibility and test self-claim', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/server/game.ts'), 'utf8');
   assert.match(source, /canClaim: \(!claimedToday \|\| selfClaimTest\)/);
