@@ -147,7 +147,7 @@ function FrenzyPost() {
   }
 
   const orb = getOrbInfo(info.rarity);
-  const canClaim = info.canClaim && !claimed && !openedGame;
+  const canClaim = info.canClaim && !openedGame;
 
   return (
     <main className="io-public">
@@ -217,10 +217,10 @@ function FrenzyPost() {
               <ArrowRight className="w-4 h-4" />
               {loading
                 ? 'Opening Game…'
-                : claimed
-                  ? 'Already Claimed Today'
-                  : info.selfClaimTest
-                    ? 'Claim Your Frenzy · Test'
+                : info.selfClaimTest
+                  ? 'Claim Your Frenzy · Test'
+                  : claimed
+                    ? 'Already Claimed Today'
                     : info.isOwner
                       ? 'Your Frenzy'
                       : 'Claim Frenzy · Open Game'}
