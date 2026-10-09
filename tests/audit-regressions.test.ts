@@ -121,3 +121,19 @@ test('CCU peak recording uses a monotonic watched update', () => {
   assert.match(game, /await updateCcuPeak\(hourKey, ccu\)/);
   assert.match(game, /await updateCcuPeak\(CCU_ALL_TIME_KEY, ccu\)/);
 });
+
+test('offline claim persists the reward before clearing reminders and does not fail on leaderboard projection errors', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('export async function claimOffline');
+  const end = game.indexOf('\nexport async function buyUpgrade', start);
+  assert.ok(start >= 0 && end > start, 'claimOffline function must exist');
+  const claim = game.slice(start, end);
+  const saveIndex = claim.indexOf('await save(s)');
+  const notificationDeleteIndex = claim.indexOf('redis.del(OFFLINE_FULL_NOTIFICATION_PREFIX');
+  const jobDeleteIndex = claim.indexOf('redis.del(OFFLINE_FULL_JOB_PREFIX');
+  assert.ok(saveIndex >= 0, 'offline claim must durably save the reward');
+  assert.ok(notificationDeleteIndex > saveIndex, 'notification must only be cleared after the save commits');
+  assert.ok(jobDeleteIndex > saveIndex, 'scheduled job must only be cleared after the save commits');
+  assert.match(claim, /void recordLeaderboard\(s\)\.catch/);
+  assert.doesNotMatch(claim, /await recordLeaderboard\(s\)/);
+});
