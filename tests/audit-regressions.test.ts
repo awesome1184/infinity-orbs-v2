@@ -431,3 +431,10 @@ test('player lock release checks ownership atomically with WATCH and EXEC', () =
   assert.match(release, /if \(committed !== null\) return/);
   assert.doesNotMatch(lock, /if \(currentOwner === token\)\s*\{\s*await redis\.del\(lockKey\)/);
 });
+
+test('game-ban mutations fail closed on empty or malformed records', () => {
+  const game = source('src/server/game.ts');
+  assert.match(game, /function isValidGameBanRecord\(value: unknown, key: string\)/);
+  assert.match(game, /raw === ''[\s\S]*?Object\.entries\(parsed as Record<string, unknown>\)\.every/);
+  assert.match(game, /ban\.userId === key[\s\S]*?Number\.isFinite\(ban\.bannedAt\)[\s\S]*?typeof ban\.reason === 'string'/);
+});
