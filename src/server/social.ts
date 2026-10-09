@@ -83,8 +83,11 @@ function parseGuildList(raw: unknown): Guild[] {
 }
 
 function parseLeaderboardList(raw: unknown): LeaderboardEntry[] {
+  if (raw == null || raw === '') return [];
   const parsed = parseStoredJson<unknown>(raw);
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error('Leaderboard data could not be read safely. No changes were written.');
+  }
   return parsed.filter(item => item && typeof item === 'object') as LeaderboardEntry[];
 }
 const COMMUNITY_EVENT_KEY = key('community_event');
@@ -1443,7 +1446,14 @@ export async function leaderboards(): Promise<import('../shared/social.js').Lead
 
   const eligible: LeaderboardEntry[] = [];
   const legacyRaw = await redis.get(key('leaderboard'));
-  const legacyBoard = parseLeaderboardList(legacyRaw);
+  let legacyBoard: LeaderboardEntry[] = [];
+  try {
+    legacyBoard = parseLeaderboardList(legacyRaw);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('Leaderboard data could not be read safely.')) throw error;
+    // The leaderboard can be reconstructed from player saves; leave corrupt legacy bytes untouched.
+    console.error('[Leaderboard] Legacy board is unavailable; rebuilding from player saves:', error.message);
+  }
   const legacyById = new Map<string, LeaderboardEntry>();
   for (const entry of legacyBoard) {
     if (entry.userId) legacyById.set(entry.userId, entry);
