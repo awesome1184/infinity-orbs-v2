@@ -666,6 +666,16 @@ export interface GameBanStatus extends GameBanRecord {
   active: true;
 }
 
+function isValidGameBanRecord(value: unknown, key: string): value is GameBanRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const ban = value as Record<string, unknown>;
+  return typeof ban.userId === 'string' && ban.userId === key &&
+    typeof ban.username === 'string' && ban.username.length > 0 &&
+    Number.isFinite(ban.bannedAt) && Number(ban.bannedAt) >= 0 &&
+    (ban.bannedUntil === null || (Number.isFinite(ban.bannedUntil) && Number(ban.bannedUntil) >= Number(ban.bannedAt))) &&
+    typeof ban.reason === 'string' && typeof ban.bannedBy === 'string';
+}
+
 function parseStoredJson<T>(raw: unknown): T | null {
   if (raw == null) return null;
   if (typeof raw === 'object') return raw as T;
@@ -705,9 +715,13 @@ async function mutateGameBans<T>(
     const txn = await redis.watch(GAME_BANS_KEY);
     const raw = await redis.get(GAME_BANS_KEY);
     let bans: Record<string, GameBanRecord> = {};
-    if (raw != null && raw !== '') {
+    if (raw != null) {
       const parsed = parseStoredJson<unknown>(raw);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      if (
+        !parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        raw === '' ||
+        !Object.entries(parsed as Record<string, unknown>).every(([userId, ban]) => isValidGameBanRecord(ban, userId))
+      ) {
         await txn.unwatch();
         throw new Error('Game ban list could not be read safely. No changes were applied.');
       }
