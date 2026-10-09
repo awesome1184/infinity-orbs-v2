@@ -3,12 +3,18 @@
 
 const store = new Map<string, string>();
 const expirations = new Map<string, number>();
+const versions = new Map<string, number>();
+
+function bumpVersion(key: string): void {
+  versions.set(key, (versions.get(key) ?? 0) + 1);
+}
 
 function readStore(key: string): string | undefined {
   const expiresAt = expirations.get(key);
   if (expiresAt !== undefined && expiresAt <= Date.now()) {
     store.delete(key);
     expirations.delete(key);
+    bumpVersion(key);
   }
   return store.get(key);
 }
@@ -69,6 +75,7 @@ const localRedis = {
       values[field] = value;
     }
     store.set(key, JSON.stringify(values));
+    bumpVersion(key);
     return added;
   },
   hGetAll: async (key: string): Promise<Record<string, string>> => {
@@ -90,15 +97,21 @@ const localRedis = {
     } else {
       expirations.delete(key);
     }
+    bumpVersion(key);
     return 'OK';
   },
   del: async (key: string): Promise<boolean> => {
     expirations.delete(key);
-    return store.delete(key);
+    const deleted = store.delete(key);
+    if (deleted) bumpVersion(key);
+    return deleted;
   },
   watch: async (...keys: string[]) => {
-    const snapshot = new Map(keys.map(key => [key, readStore(key)]));
-    const staged: Array<[string, string]> = [];
+    const snapshot = new Map(keys.map(key => {
+      readStore(key); // Expiration itself is a key-version change.
+      return [key, versions.get(key) ?? 0] as const;
+    }));
+    const staged: Array<{ kind: 'set' | 'del'; key: string; value?: string }> = [];
     return {
       // TxClient is intentionally modeled without a read method. In Devvit,
       // reads after WATCH must go through redis.get(), while this object queues
@@ -106,25 +119,27 @@ const localRedis = {
       // passing local tests while failing in production.
       multi: async () => undefined,
       set: async (key: string, value: string) => {
-        staged.push([key, value]);
+        staged.push({ kind: 'set', key, value });
         return 'QUEUED';
       },
       del: async (key: string) => {
-        staged.push([key, '']);
+        staged.push({ kind: 'del', key });
         return 'QUEUED';
       },
       exec: async () => {
         for (const key of keys) {
-          if ((readStore(key) ?? null) !== (snapshot.get(key) ?? null)) return null;
+          readStore(key);
+          if ((versions.get(key) ?? 0) !== snapshot.get(key)) return null;
         }
-        for (const [key, value] of staged) {
-          if (value === '' && key !== undefined) {
-            store.delete(key);
-            expirations.delete(key);
+        for (const item of staged) {
+          if (item.kind === 'del') {
+            expirations.delete(item.key);
+            if (store.delete(item.key)) bumpVersion(item.key);
           } else {
-            store.set(key, value);
+            store.set(item.key, item.value ?? '');
             // Redis SET clears an existing TTL unless one is provided.
-            expirations.delete(key);
+            expirations.delete(item.key);
+            bumpVersion(item.key);
           }
         }
         return [];
@@ -135,6 +150,7 @@ const localRedis = {
   incr: async (key: string): Promise<number> => {
     const value = Number.parseInt(readStore(key) ?? '0', 10) + 1;
     store.set(key, String(value));
+    bumpVersion(key);
     return value;
   },
   zAdd: async (key: string, ...entries: Array<{ member: string; score: number }>): Promise<number> => {
@@ -146,6 +162,7 @@ const localRedis = {
       values[entry.member] = entry.score;
     }
     store.set(key, JSON.stringify(values));
+    bumpVersion(key);
     return added;
   },
   zRemRangeByScore: async (key: string, min: number, max: number): Promise<number> => {
@@ -160,6 +177,7 @@ const localRedis = {
       }
     }
     store.set(key, JSON.stringify(values));
+    if (removed > 0) bumpVersion(key);
     return removed;
   },
   zCard: async (key: string): Promise<number> => {
