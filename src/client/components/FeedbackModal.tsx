@@ -46,7 +46,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
         aria-modal="true"
         aria-labelledby="feedback-modal-title"
         aria-describedby="feedback-modal-description"
-        className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4"
+        className="relative w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4"
       >
         <button
           onClick={onClose}
