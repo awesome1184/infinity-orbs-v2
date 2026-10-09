@@ -281,3 +281,14 @@ test('direct API routes match their parent feature gates', () => {
   assert.match(app, /path === '\/leaderboards'/);
   assert.doesNotMatch(app, /path === '\/online' \|\| path === '\/world-event'/);
 });
+
+test('Frenzy handoff retries successful unarmed reads during startup race', () => {
+  const main = source('src/client/main.tsx');
+  const start = main.indexOf('const resolveFrenzy = async () => {');
+  const end = main.indexOf('frenzyClaimActiveRef.current = true', start);
+  assert.ok(start >= 0 && end > start, 'Frenzy handoff preflight must exist');
+  const preflight = main.slice(start, end);
+  assert.match(preflight, /if \(!handoff\.armed\)\s*\{[\s\S]*?setTimeout\(resolve, 150\)[\s\S]*?continue/);
+  assert.doesNotMatch(preflight, /if \(!handoff\.armed\) return/);
+  assert.match(preflight, /Retry only the read-only handoff\/info checks/);
+});
