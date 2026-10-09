@@ -83,10 +83,10 @@ test('global booster debit and shared activation are committed through one save 
   const end = server.indexOf('export async function activateGlobalBooster', start);
   assert.ok(start >= 0 && end > start);
   const claim = server.slice(start, end);
-  assert.match(claim, /await save\\(s, \\{/);
+  assert.match(claim, /await save\(s, \{/);
   assert.match(claim, /key: GLOBAL_BOOSTERS_KEY/);
   assert.match(claim, /expectedValue: globalRaw/);
-  assert.doesNotMatch(claim, /await updateGlobalBooster\\(id\\)/);
+  assert.doesNotMatch(claim, /await updateGlobalBooster\(id\)/);
   assert.match(claim, /announcement write failed/);
 });
 
@@ -96,7 +96,15 @@ test('admin booster state mutation uses watched compare-and-set rather than stal
   const end = server.indexOf('function playerKeyFor', start);
   assert.ok(start >= 0 && end > start);
   const setter = server.slice(start, end);
-  assert.match(setter, /await redis\\.watch\\(GLOBAL_BOOSTERS_KEY\\)/);
-  assert.match(setter, /await txn\\.exec\\(\\)/);
-  assert.doesNotMatch(setter, /await redis\\.set\\(GLOBAL_BOOSTERS_KEY/);
+  assert.match(setter, /await redis\.watch\(GLOBAL_BOOSTERS_KEY\)/);
+  assert.match(setter, /await txn\.exec\(\)/);
+  assert.doesNotMatch(setter, /await redis\.set\(GLOBAL_BOOSTERS_KEY/);
+});
+
+test('Global Booster activation rejects inherited object keys at the service boundary', () => {
+  const server = source('src/server/game.ts');
+  const start = server.indexOf('export async function activateGlobalBooster(');
+  const end = server.indexOf('export async function activatePremiumBooster(', start);
+  assert.ok(start >= 0 && end > start);
+  assert.match(server.slice(start, end), /hasOwnProperty\.call\(GLOBAL_BOOSTERS, id\)/);
 });

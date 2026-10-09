@@ -3683,8 +3683,8 @@ export async function activateGlobalBooster(
     activatedAt: number;
   };
 }> {
+  if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(GLOBAL_BOOSTERS, id)) throw new Error('Unknown Global Booster.');
   return withPlayerMutationLock(async () => {
-  if (!GLOBAL_BOOSTERS[id]) throw new Error('Unknown Global Booster.');
 
   const userId = currentUserId();
   await appendGlobalBoosterDebugLog('player:request', {
