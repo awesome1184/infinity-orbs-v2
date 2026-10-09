@@ -339,7 +339,7 @@ test('corrupt Daily Streak projection does not block core player loads or partia
   const load = game.slice(loadStart, loadEnd);
   const claim = game.slice(claimStart, claimEnd);
   assert.match(load, /getDailyStreakCommunity\(\)\.catch\(error =>/);
-  assert.match(load, /cached \?\? createInitialDailyStreakCommunity\(\)/);
+  assert.match(load, /return createInitialDailyStreakCommunity\(\)/);
   assert.match(claim, /const community = await addDailyStreakCommunityProgress\(nextStreakCount\)/);
   assert.ok(claim.indexOf('await addDailyStreakCommunityProgress') < claim.indexOf('s.streak.count = nextStreakCount'));
 });
