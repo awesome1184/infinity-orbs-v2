@@ -106,22 +106,33 @@ function FrenzyPost() {
     setLoading(true);
     setError(null);
 
+    // Expanded mode must be requested synchronously in the trusted click turn.
+    // Start the handoff request concurrently; the expanded game retries its
+    // read-only preflight while this request finishes.
+    let expansionPromise: Promise<void>;
     try {
-      // Arm a short-lived server-side handoff before opening the game. The main
-      // game entrypoint may only auto-claim a Frenzy after this explicit action.
-      const arm = await fetch('/api/frenzy/arm', { method: 'POST' });
+      expansionPromise = Promise.resolve(requestExpandedMode(event.nativeEvent, 'game'));
+    } catch (error) {
+      expansionPromise = Promise.reject(error);
+    }
+    const armPromise = fetch('/api/frenzy/arm', { method: 'POST' }).then(async arm => {
       const armData = await arm.json().catch(() => ({}));
       if (!arm.ok) throw new Error(armData.error || 'Could not arm Frenzy.');
+    });
+    const [expansionResult, armResult] = await Promise.allSettled([expansionPromise, armPromise]);
 
-      // Let the actual game entrypoint perform the claim. That keeps the Frenzy
-      // result, best orb, and reward summary inside the normal game UI.
-      await requestExpandedMode(event.nativeEvent, 'game');
-      setOpenedGame(true);
+    if (expansionResult.status === 'fulfilled') {
+      if (armResult.status === 'fulfilled') {
+        setOpenedGame(true);
+      } else {
+        setError(armResult.reason instanceof Error ? armResult.reason.message : 'Could not arm Frenzy. Return to the post and retry.');
+        setLoading(false);
+      }
       return;
-    } catch {
-      // Some previews cannot expand. Finish the claim on this screen instead.
     }
 
+    // Some previews cannot expand. Finish the claim on this screen instead.
+    // The claim endpoint is called exactly once, regardless of arm outcome.
     try {
       const res = await fetch('/api/frenzy/claim', { method: 'POST' });
       const data = await res.json();
