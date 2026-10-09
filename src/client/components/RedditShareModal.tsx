@@ -49,7 +49,7 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
 
   return (
     <div className="io-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="io-modal-card bg-slate-900 text-slate-100 relative w-full max-w-xl">
+      <div className="io-modal-card bg-slate-900 text-slate-100 relative w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
         <button onClick={onClose} className="io-modal-close" aria-label="Close share dialog">
           <X className="w-4 h-4" />
         </button>
