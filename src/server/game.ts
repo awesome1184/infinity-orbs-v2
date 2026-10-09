@@ -1881,8 +1881,6 @@ async function processAutomation(s: PlayerState): Promise<void> {
     s.offlineRolls = 0;
     await applyRolls(s, batches, undefined, 'offline');
     s.lastRollAt = Date.now();
-    await redis.del(OFFLINE_FULL_NOTIFICATION_PREFIX + currentUserId());
-    await redis.del(OFFLINE_FULL_JOB_PREFIX + currentUserId());
   }
 
   if (s.automations?.autoUpgrade) {
@@ -2186,6 +2184,19 @@ export async function save(
     const committed = await txn.exec();
     if (committed !== null) {
       Object.assign(s, nextState);
+      // Clear offline-full reminders only after the save that consumes the
+      // rolls commits. This also covers automation paths that mutate rolls
+      // during settlement and may otherwise throw before their caller saves.
+      if (latest && Number(latest.offlineRolls ?? 0) > 0 && Number(nextState.offlineRolls ?? 0) <= 0) {
+        await Promise.all([
+          redis.del(OFFLINE_FULL_NOTIFICATION_PREFIX + userId).catch(error => {
+            console.error('[Offline Rolls] Could not clear full notification after save:', error);
+          }),
+          redis.del(OFFLINE_FULL_JOB_PREFIX + userId).catch(error => {
+            console.error('[Offline Rolls] Could not clear scheduled job after save:', error);
+          }),
+        ]);
+      }
       // Flair is cosmetic and must never hold the gameplay request hostage.
       void syncRarityFlair(s).catch(error => {
         console.error('[Rarity Flair] Background update failed:', error);
