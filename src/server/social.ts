@@ -74,8 +74,11 @@ async function ensureRedisStringKey(keyName: string, fallback: string): Promise<
 }
 
 function parseGuildList(raw: unknown): Guild[] {
+  if (raw == null || raw === '') return [];
   const parsed = parseStoredJson<unknown>(raw);
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error('Guild data could not be read safely. No changes were written.');
+  }
   return normalizeGuilds(parsed.filter(item => item && typeof item === 'object') as Guild[]);
 }
 
@@ -234,11 +237,64 @@ function guildPerkCost(perk: GuildPerkId, currentRank: number): number {
   return Math.max(1, Math.round(base * Math.pow(currentRank + 1, exponent)));
 }
 
+async function runGuildResetMigration(
+  markerKey: string,
+  reset: (guilds: Guild[]) => void,
+): Promise<void> {
+  await ensureRedisStringKey(GUILDS_KEY, '[]');
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const txn = await redis.watch(GUILDS_KEY, markerKey);
+    const marker = await redis.get(markerKey);
+    if (marker) {
+      await txn.unwatch();
+      return;
+    }
+    const raw = await redis.get(GUILDS_KEY);
+    const parsed = parseStoredJson<unknown>(raw);
+    if (!Array.isArray(parsed)) {
+      await txn.unwatch();
+      throw new Error('Guild data could not be read safely. No changes were written.');
+    }
+    const guilds = normalizeGuilds(parsed.filter(item => item && typeof item === 'object') as Guild[]);
+    reset(guilds);
+    await txn.multi();
+    await txn.set(GUILDS_KEY, JSON.stringify(guilds));
+    // Reset data and completion marker commit atomically, even for an empty guild list.
+    await txn.set(markerKey, '1');
+    const committed = await txn.exec();
+    if (committed !== null) return;
+  }
+  throw new Error('Guild migration changed while processing the request. Please retry.');
+}
+
+async function ensureGuildMigrations(): Promise<void> {
+  await runGuildResetMigration(GUILD_UPGRADE_RESET_KEY, guilds => {
+    for (const guild of guilds) {
+      guild.perks = {
+        luckRank: 0,
+        speedRank: 0,
+        vaultRank: 0,
+        shardRank: 0,
+        critRank: 0,
+        coinRank: 0,
+        memberCapacityRank: 0,
+        tokenYieldRank: 0,
+        taskBountyRank: 0,
+        comboRank: 0,
+        guildXpRank: 0,
+      };
+    }
+  });
+  await runGuildResetMigration(GUILD_TOKEN_RESET_KEY, guilds => {
+    for (const guild of guilds) guild.tokens = 0;
+  });
+}
+
 async function updateGuilds<T>(mutator: (guilds: Guild[]) => Promise<T> | T): Promise<T> {
-  // The transaction client queues the pre-MULTI GET for EXEC. If the key does not
-  // exist, Valkey returns nil for that command and the adapter cannot transform
-  // the transaction result. Initialize the collection once so the watched GET
-  // always has a concrete string reply.
+  // Every normal Guild writer completes one-time migrations before its own
+  // mutation. Migration writes use their own WATCH transaction and never call
+  // this helper, avoiding recursive migration/update loops.
+  await ensureGuildMigrations();
   await ensureRedisStringKey(GUILDS_KEY, '[]');
 
   for (let attempt = 0; attempt < 6; attempt++) {
@@ -274,56 +330,13 @@ async function loadGuilds(): Promise<Guild[]> {
     return tier > 0 && endsAt > 0 && endsAt <= now;
   });
 
-  // One-time update migration: reset every Guild Upgrade rank to its base value.
-  // A shared lock plus a fresh marker check prevents a request that observed the
-  // old missing marker from running this destructive migration a second time.
-  const upgradeResetDone = await redis.get(GUILD_UPGRADE_RESET_KEY);
-  if (!upgradeResetDone && guilds.length > 0) {
-    const migrated = await withPlayerMutationLockFor('__guild-upgrade-reset-migration__', async () => {
-      if (await redis.get(GUILD_UPGRADE_RESET_KEY)) return false;
-      const latestGuilds = parseGuildList(await redis.get(GUILDS_KEY));
-      if (latestGuilds.length === 0) return false;
-      await updateGuilds(current => {
-        for (const guild of current) {
-          guild.perks = {
-            luckRank: 0,
-            speedRank: 0,
-            vaultRank: 0,
-            shardRank: 0,
-            critRank: 0,
-            coinRank: 0,
-            memberCapacityRank: 0,
-            tokenYieldRank: 0,
-            taskBountyRank: 0,
-            comboRank: 0,
-            guildXpRank: 0,
-          };
-        }
-        return current;
-      });
-      await redis.set(GUILD_UPGRADE_RESET_KEY, '1');
-      return true;
-    });
-    if (migrated) return parseGuildList(await redis.get(GUILDS_KEY));
-  }
-
-  // One-time economy migration: clear all existing Guild Token treasury balances.
-  // Serialize the migration and re-check its marker after acquiring the lock so
-  // a delayed request cannot erase tokens earned after another request migrated.
-  const resetDone = await redis.get(GUILD_TOKEN_RESET_KEY);
-  if (!resetDone && guilds.length > 0) {
-    const migrated = await withPlayerMutationLockFor('__guild-token-reset-migration__', async () => {
-      if (await redis.get(GUILD_TOKEN_RESET_KEY)) return false;
-      const latestGuilds = parseGuildList(await redis.get(GUILDS_KEY));
-      if (latestGuilds.length === 0) return false;
-      await updateGuilds(current => {
-        for (const guild of current) guild.tokens = 0;
-        return current;
-      });
-      await redis.set(GUILD_TOKEN_RESET_KEY, '1');
-      return true;
-    });
-    if (migrated) return parseGuildList(await redis.get(GUILDS_KEY));
+  try {
+    await ensureGuildMigrations();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('Guild data could not be read safely.')) throw error;
+    // A corrupt shared Guild key must not overwrite the stored bytes or block
+    // core player loading. Reads return an empty projection; mutations fail closed.
+    console.error('[Guilds] Shared Guild data is unavailable:', error.message);
   }
 
   if (expiredCombo) {
