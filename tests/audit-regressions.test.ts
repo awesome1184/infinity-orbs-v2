@@ -15,6 +15,8 @@ test('follow reward save and its idempotency marker commit through the same save
   assert.match(reward, /await save\(s, \{[\s\S]*?key: rewardKey,[\s\S]*?expectedValue: null,[\s\S]*?nextValue: rewardMarker/);
   assert.match(reward, /if \(await redis\.get\(rewardKey\) !== rewardMarker\)/);
   assert.doesNotMatch(reward, /await redis\.set\(rewardKey,/);
+  assert.match(reward, /void recordLeaderboard\(s\)\.catch/);
+  assert.doesNotMatch(reward, /await recordLeaderboard\(s\)/);
 });
 
 test('Frenzy client retries read-only preflight but does not retry the claim POST', () => {
