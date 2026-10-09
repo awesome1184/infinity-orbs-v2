@@ -292,3 +292,13 @@ test('Frenzy handoff retries successful unarmed reads during startup race', () =
   assert.doesNotMatch(preflight, /if \(!handoff\.armed\) return/);
   assert.match(preflight, /Retry only the read-only handoff\/info checks/);
 });
+
+test('share endpoint does not await a duplicate leaderboard projection after commit', () => {
+  const app = source('src/server/app.ts');
+  const start = app.indexOf("app.post('/api/share'");
+  const end = app.indexOf('\n  return app;', start);
+  assert.ok(start >= 0 && end > start, 'share endpoint must exist');
+  const route = app.slice(start, end);
+  assert.match(route, /await recordShareAction\(s\)/);
+  assert.doesNotMatch(route, /await recordLeaderboard\(s\)/);
+});
