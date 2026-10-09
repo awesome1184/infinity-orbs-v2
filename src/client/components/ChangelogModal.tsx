@@ -23,7 +23,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <section className="io-modal-card w-full max-w-lg bg-slate-950/95 border border-purple-500/30 shadow-2xl shadow-purple-950/30">
+      <section className="io-modal-card w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-slate-950/95 border border-purple-500/30 shadow-2xl shadow-purple-950/30">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] font-black text-purple-300">
