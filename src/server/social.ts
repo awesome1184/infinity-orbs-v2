@@ -74,7 +74,7 @@ async function ensureRedisStringKey(keyName: string, fallback: string): Promise<
 }
 
 function parseGuildList(raw: unknown): Guild[] {
-  if (raw == null || raw === '') return [];
+  if (raw == null) return [];
   const parsed = parseStoredJson<unknown>(raw);
   if (!Array.isArray(parsed) || !parsed.every(isGuildRowShape)) {
     throw new Error('Guild data could not be read safely. No changes were written.');
@@ -97,7 +97,7 @@ function isLeaderboardRowShape(value: unknown): value is LeaderboardEntry {
 }
 
 function parseLeaderboardList(raw: unknown): LeaderboardEntry[] {
-  if (raw == null || raw === '') return [];
+  if (raw == null) return [];
   const parsed = parseStoredJson<unknown>(raw);
   if (!Array.isArray(parsed) || !parsed.every(isLeaderboardRowShape)) {
     throw new Error('Leaderboard data could not be read safely. No changes were written.');
