@@ -302,3 +302,13 @@ test('share endpoint does not await a duplicate leaderboard projection after com
   assert.match(route, /await recordShareAction\(s\)/);
   assert.doesNotMatch(route, /await recordLeaderboard\(s\)/);
 });
+
+test('Daily Streak rejects non-finite player counters and progress deltas', () => {
+  const game = source('src/server/game.ts');
+  const social = source('src/server/social.ts');
+  assert.match(game, /Number\.isSafeInteger\(s\.streak\.count\)[\s\S]*?s\.streak\.count < 0/);
+  assert.match(social, /const contribution = Number\(amount\)/);
+  assert.match(social, /!Number\.isSafeInteger\(contribution\) \|\| contribution < 0/);
+  assert.match(social, /const nextProgress = event\.currentProgress \+ contribution/);
+  assert.match(social, /Number\.isSafeInteger\(nextProgress\)/);
+});
