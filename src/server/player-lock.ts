@@ -106,11 +106,11 @@ export function createPlayerMutationLockRuntime(
 
     await previous;
 
-    const client = getRedis();
     const lockKey = PLAYER_MUTATION_LOCK_PREFIX + id;
     const token = `lock-${Date.now().toString(36)}-${randomUint32().toString(36)}`;
 
     try {
+      const client = getRedis();
       for (let attempt = 0; attempt < acquisitionAttempts; attempt++) {
         await client.set(lockKey, token, {
           nx: true,
