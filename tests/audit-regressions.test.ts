@@ -244,3 +244,12 @@ test('owned high-rarity Orbs remain shareable and render on the public entrypoin
   assert.match(splash, /Number\.isInteger\(data\.rarity\) && Number\(data\.rarity\) > 0 && Number\(data\.rarity\) <= MAX_ORB_RARITY/);
   assert.doesNotMatch(splash, /Number\.isSafeInteger\(data\.rarity\)/);
 });
+
+test('polled online count survives optimistic and authoritative player-state updates', () => {
+  const main = source('src/client/main.tsx');
+  assert.match(main, /if \(current\) stateRef\.current = \{ \.\.\.current, onlinePlayers \}/);
+  assert.match(main, /const onlinePlayers = stateRef\.current\?\.onlinePlayers/);
+  assert.match(main, /const appliedState = Number\.isFinite\(onlinePlayers\)[\s\S]*?\{ \.\.\.nextState, onlinePlayers \}/);
+  assert.match(main, /stateRef\.current = appliedState/);
+  assert.match(main, /setState\(appliedState\)/);
+});
