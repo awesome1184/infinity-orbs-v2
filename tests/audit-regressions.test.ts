@@ -236,9 +236,11 @@ test('switching to reduced motion clears an in-flight same-Orb reveal state', ()
 });
 
 test('owned high-rarity Orbs remain shareable and render on the public entrypoint', () => {
+  const shared = source('src/shared/game.ts');
   const app = source('src/server/app.ts');
   const splash = source('src/client/splash.tsx');
-  assert.match(app, /if \(!Number\.isInteger\(value\) \|\| value <= 0 \|\| \(s\.collection\[String\(value\)\] \?\? 0\) <= 0\)/);
-  assert.match(splash, /Number\.isInteger\(data\.rarity\) && Number\(data\.rarity\) > 0/);
+  assert.match(shared, /export const MAX_ORB_RARITY = 1_000_000_000_000_000_000/);
+  assert.match(app, /Number\.isInteger\(value\)[\s\S]*?value > MAX_ORB_RARITY[\s\S]*?s\.collection\[String\(value\)\]/);
+  assert.match(splash, /Number\.isInteger\(data\.rarity\) && Number\(data\.rarity\) > 0 && Number\(data\.rarity\) <= MAX_ORB_RARITY/);
   assert.doesNotMatch(splash, /Number\.isSafeInteger\(data\.rarity\)/);
 });
