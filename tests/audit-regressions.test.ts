@@ -393,3 +393,11 @@ test('global toast uses a persistent live region for announcements', () => {
   assert.match(main, /aria-atomic="true"[\s\S]*?\{toast\?\.msg \?\? ''\}/);
   assert.doesNotMatch(main, /\{toast && \([\s\S]*?role=\{toast\.type === 'warn'/);
 });
+
+test('empty-string Guild and leaderboard keys fail closed instead of initializing empty collections', () => {
+  const social = source('src/server/social.ts');
+  assert.match(social, /function parseGuildList\(raw: unknown\): Guild\[\]\s*\{\s*if \(raw == null\) return \[\]/);
+  assert.match(social, /function parseLeaderboardList\(raw: unknown\): LeaderboardEntry\[\]\s*\{\s*if \(raw == null\) return \[\]/);
+  assert.doesNotMatch(social, /function parseGuildList[\s\S]*?raw == null \|\| raw === ''/);
+  assert.doesNotMatch(social, /function parseLeaderboardList[\s\S]*?raw == null \|\| raw === ''/);
+});
