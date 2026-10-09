@@ -312,3 +312,17 @@ test('Daily Streak rejects non-finite player counters and progress deltas', () =
   assert.match(social, /const nextProgress = event\.currentProgress \+ contribution/);
   assert.match(social, /Number\.isSafeInteger\(nextProgress\)/);
 });
+
+test('auto-offline claim clears reminder keys only after a committed zero-roll save', () => {
+  const game = source('src/server/game.ts');
+  const automationStart = game.indexOf('async function processAutomation');
+  const automationEnd = game.indexOf('\nfunction flairTextColorForBackground', automationStart);
+  const saveStart = game.indexOf('export async function save(');
+  const saveEnd = game.indexOf('\nfunction serverRandom()', saveStart);
+  assert.ok(automationStart >= 0 && automationEnd > automationStart);
+  assert.ok(saveStart >= 0 && saveEnd > saveStart);
+  const automation = game.slice(automationStart, automationEnd);
+  const save = game.slice(saveStart, saveEnd);
+  assert.doesNotMatch(automation, /redis\.del\(OFFLINE_FULL_(?:NOTIFICATION|JOB)_PREFIX/);
+  assert.match(save, /if \(committed !== null\)[\s\S]*?latest\.offlineRolls[\s\S]*?nextState\.offlineRolls[\s\S]*?redis\.del\(OFFLINE_FULL_NOTIFICATION_PREFIX/);
+});
