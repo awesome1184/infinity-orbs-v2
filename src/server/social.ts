@@ -1573,8 +1573,11 @@ export async function getDailyStreakCommunity(): Promise<DailyStreakCommunityEve
 }
 
 export async function addDailyStreakCommunityProgress(amount: number): Promise<DailyStreakCommunityEvent> {
-  const contribution = Math.max(0, Math.floor(Number(amount) || 0));
-  if (contribution <= 0) return getDailyStreakCommunity();
+  const contribution = Number(amount);
+  if (!Number.isSafeInteger(contribution) || contribution < 0) {
+    throw new Error('Daily Streak progress is invalid. Please retry later.');
+  }
+  if (contribution === 0) return getDailyStreakCommunity();
   await ensureRedisStringKey(DAILY_STREAK_COMMUNITY_KEY, JSON.stringify(createInitialDailyStreakCommunity()));
   for (let attempt = 0; attempt < 6; attempt++) {
     const txn = await redis.watch(DAILY_STREAK_COMMUNITY_KEY);
@@ -1591,7 +1594,12 @@ export async function addDailyStreakCommunityProgress(amount: number): Promise<D
       event = createInitialDailyStreakCommunity(now);
       event.id = `daily-streak-w${currentWeek}`;
     }
-    event.currentProgress += contribution;
+    const nextProgress = event.currentProgress + contribution;
+    if (!Number.isSafeInteger(nextProgress)) {
+      await txn.unwatch();
+      throw new Error('Daily Streak progress is out of range. Please retry later.');
+    }
+    event.currentProgress = nextProgress;
     while (event.currentProgress >= event.goal) {
       event.completedTier = Math.max(event.completedTier ?? 0, event.tier);
       event.tier += 1;
