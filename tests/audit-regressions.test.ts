@@ -379,3 +379,10 @@ test('removed Achievements feature has no mounted reward API routes', () => {
   assert.doesNotMatch(app, /app\.post\('\/api\/achievements\/claim'/);
   assert.doesNotMatch(app, /\bachievements,\s*\n\s*claimAchievement,/);
 });
+
+test('chat report Modmail uses actual Markdown newlines', () => {
+  const social = source('src/server/social.ts');
+  assert.match(social, /String\(message\.text \?\? ''\)\.split\(\/\\r\?\\n\/\)/);
+  assert.match(social, /\]\.join\('\n'\)/);
+  assert.doesNotMatch(social, /\]\.join\('\\\\n'\)/);
+});
