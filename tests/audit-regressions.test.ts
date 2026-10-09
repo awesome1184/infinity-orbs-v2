@@ -409,3 +409,14 @@ test('empty-string Guild and leaderboard keys fail closed instead of initializin
   assert.doesNotMatch(social, /function parseGuildList[\s\S]*?raw == null \|\| raw === ''/);
   assert.doesNotMatch(social, /function parseLeaderboardList[\s\S]*?raw == null \|\| raw === ''/);
 });
+
+test('player activity registry read-modify-write uses a distinct per-user lock', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('async function touchPlayerActivity');
+  const end = game.indexOf('\nasync function registerPlayer', start);
+  assert.ok(start >= 0 && end > start, 'activity helper must exist');
+  const helper = game.slice(start, end);
+  assert.match(helper, /withPlayerMutationLockFor\(.+activity:/);
+  assert.match(helper, /redis\.hGet\(PLAYER_REGISTRY_KEY, userId\)[\s\S]*?redis\.hSet\(PLAYER_REGISTRY_KEY/);
+  assert.match(helper, /Math\.max\(now, Date\.now\(\), previousActivityAt\)/);
+});
