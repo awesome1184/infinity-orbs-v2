@@ -2,6 +2,43 @@
 // In production, src/server/index.ts swaps these live bindings for Devvit's real services.
 
 const store = new Map<string, string>();
+const expirations = new Map<string, number>();
+const keyRevisions = new Map<string, number>();
+
+function bumpRevision(key: string): void {
+  keyRevisions.set(key, (keyRevisions.get(key) ?? 0) + 1);
+}
+
+function readValue(key: string): string | undefined {
+  const expiresAt = expirations.get(key);
+  if (expiresAt !== undefined && expiresAt <= Date.now()) {
+    if (store.delete(key)) bumpRevision(key);
+    expirations.delete(key);
+    return undefined;
+  }
+  return store.get(key);
+}
+
+function writeValue(key: string, value: string, expiration?: Date): void {
+  store.set(key, value);
+  if (expiration instanceof Date && Number.isFinite(expiration.getTime())) {
+    expirations.set(key, expiration.getTime());
+  } else {
+    expirations.delete(key);
+  }
+  bumpRevision(key);
+}
+
+function deleteValue(key: string): boolean {
+  if (readValue(key) === undefined) {
+    expirations.delete(key);
+    return false;
+  }
+  store.delete(key);
+  expirations.delete(key);
+  bumpRevision(key);
+  return true;
+}
 
 const initialGuilds = [
   {
@@ -39,86 +76,113 @@ const initialLeaderboard = [
   { username: 'OrbMaster', value: 0, highestRarity: 2, totalRolls: 0 },
 ];
 
-store.set('io:guilds', JSON.stringify(initialGuilds));
-store.set('io:leaderboard', JSON.stringify(initialLeaderboard));
+writeValue('io:guilds', JSON.stringify(initialGuilds));
+writeValue('io:leaderboard', JSON.stringify(initialLeaderboard));
 
 const localRedis = {
-  get: async (key: string): Promise<string | null> => store.get(key) ?? null,
+  get: async (key: string): Promise<string | null> => readValue(key) ?? null,
   hGet: async (key: string, field: string): Promise<string | undefined> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     if (!raw) return undefined;
     const values = JSON.parse(raw) as Record<string, string>;
     return values[field];
   },
   hSet: async (key: string, fieldValues: Record<string, string>): Promise<number> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     const values = raw ? JSON.parse(raw) as Record<string, string> : {};
     let added = 0;
     for (const [field, value] of Object.entries(fieldValues)) {
       if (!(field in values)) added++;
       values[field] = value;
     }
-    store.set(key, JSON.stringify(values));
+    writeValue(key, JSON.stringify(values));
     return added;
   },
   hGetAll: async (key: string): Promise<Record<string, string>> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     return raw ? JSON.parse(raw) as Record<string, string> : {};
   },
-  mGet: async (keys: string[]): Promise<Array<string | null>> => keys.map(key => store.get(key) ?? null),
-  set: async (key: string, value: string): Promise<string> => {
-    store.set(key, value);
+  mGet: async (keys: string[]): Promise<Array<string | null>> => keys.map(key => readValue(key) ?? null),
+  set: async (
+    key: string,
+    value: string,
+    options?: { nx?: boolean; xx?: boolean; expiration?: Date },
+  ): Promise<string | null> => {
+    if (options?.nx && options?.xx) {
+      throw new Error('invalid Set: nx and xx cannot both be true');
+    }
+    const existing = readValue(key);
+    if (options?.nx && existing !== undefined) return null;
+    if (options?.xx && existing === undefined) return null;
+    writeValue(key, value, options?.expiration);
     return 'OK';
   },
-  del: async (key: string): Promise<boolean> => store.delete(key),
+  del: async (...keys: string[]): Promise<boolean> => {
+    let deleted = false;
+    for (const key of keys) deleted = deleteValue(key) || deleted;
+    return deleted;
+  },
   watch: async (...keys: string[]) => {
-    const snapshot = new Map(keys.map(key => [key, store.get(key)]));
-    const staged: Array<[string, string]> = [];
+    // Redis WATCH detects any mutation since WATCH, including an ABA change
+    // where a value is replaced and later restored to the same string.
+    for (const key of keys) readValue(key);
+    const snapshot = new Map(keys.map(key => [key, keyRevisions.get(key) ?? 0]));
+    const staged: Array<
+      | { type: 'set'; key: string; value: string; expiration?: Date }
+      | { type: 'del'; key: string }
+    > = [];
+    let watched = true;
     return {
       // TxClient is intentionally modeled without a read method. In Devvit,
       // reads after WATCH must go through redis.get(), while this object queues
-      // writes for MULTI/EXEC. Keeping the mock honest prevents SDK misuse from
-      // passing local tests while failing in production.
+      // writes for MULTI/EXEC.
       multi: async () => undefined,
-      set: async (key: string, value: string) => {
-        staged.push([key, value]);
+      set: async (key: string, value: string, options?: { expiration?: Date }) => {
+        staged.push({ type: 'set', key, value, expiration: options?.expiration });
         return 'QUEUED';
       },
-      del: async (key: string) => {
-        staged.push([key, '']);
+      del: async (...deleteKeys: string[]) => {
+        for (const key of deleteKeys) staged.push({ type: 'del', key });
         return 'QUEUED';
       },
       exec: async () => {
-        for (const key of keys) {
-          if ((store.get(key) ?? null) !== (snapshot.get(key) ?? null)) return null;
+        if (watched) {
+          for (const key of keys) {
+            readValue(key);
+            if ((keyRevisions.get(key) ?? 0) !== snapshot.get(key)) return null;
+          }
         }
-        for (const [key, value] of staged) {
-          if (value === '' && key !== undefined) store.delete(key);
-          else store.set(key, value);
+        for (const command of staged) {
+          if (command.type === 'del') deleteValue(command.key);
+          else writeValue(command.key, command.value, command.expiration);
         }
+        watched = false;
         return [];
       },
-      unwatch: async () => undefined,
+      unwatch: async () => {
+        watched = false;
+        return undefined;
+      },
     };
   },
   incr: async (key: string): Promise<number> => {
-    const value = Number.parseInt(store.get(key) ?? '0', 10) + 1;
-    store.set(key, String(value));
+    const value = Number.parseInt(readValue(key) ?? '0', 10) + 1;
+    writeValue(key, String(value));
     return value;
   },
   zAdd: async (key: string, ...entries: Array<{ member: string; score: number }>): Promise<number> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     const values: Record<string, number> = raw ? JSON.parse(raw) : {};
     let added = 0;
     for (const entry of entries) {
       if (!(entry.member in values)) added++;
       values[entry.member] = entry.score;
     }
-    store.set(key, JSON.stringify(values));
+    writeValue(key, JSON.stringify(values));
     return added;
   },
   zRemRangeByScore: async (key: string, min: number, max: number): Promise<number> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     if (!raw) return 0;
     const values: Record<string, number> = JSON.parse(raw);
     let removed = 0;
@@ -128,11 +192,11 @@ const localRedis = {
         removed++;
       }
     }
-    store.set(key, JSON.stringify(values));
+    writeValue(key, JSON.stringify(values));
     return removed;
   },
   zCard: async (key: string): Promise<number> => {
-    const raw = store.get(key);
+    const raw = readValue(key);
     return raw ? Object.keys(JSON.parse(raw)).length : 0;
   },
 };
