@@ -438,3 +438,12 @@ test('game-ban mutations fail closed on empty or malformed records', () => {
   assert.match(game, /raw === ''[\s\S]*?Object\.entries\(parsed as Record<string, unknown>\)\.every/);
   assert.match(game, /ban\.userId === key[\s\S]*?Number\.isFinite\(ban\.bannedAt\)[\s\S]*?typeof ban\.reason === 'string'/);
 });
+
+test('CCU peak writes are WATCH-guarded and monotonic', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('async function updateCcuPeak');
+  const end = game.indexOf('\nasync function recordCcuPeak', start);
+  assert.ok(start >= 0 && end > start, 'CCU peak updater must exist');
+  const updater = game.slice(start, end);
+  assert.match(updater, /redis\.watch\(keyName\)[\s\S]*?candidate <= current[\s\S]*?txn\.unwatch\(\)[\s\S]*?txn\.set\(keyName, String\(candidate\)\)[\s\S]*?txn\.exec\(\)/);
+});
