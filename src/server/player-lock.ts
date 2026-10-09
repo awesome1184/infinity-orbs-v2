@@ -21,6 +21,26 @@ function randomUint32(): number {
   return sample[0];
 }
 
+/**
+ * Delete the lease only if it is still ours at commit time. A plain GET
+ * followed by DEL is unsafe: the lease can expire and another runtime can
+ * acquire the same key between those commands.
+ */
+async function releaseDistributedLock(lockKey: string, token: string): Promise<void> {
+  const txn = await redis.watch(lockKey);
+  const currentOwner = await redis.get(lockKey);
+  if (currentOwner !== token) {
+    await txn.unwatch();
+    return;
+  }
+
+  await txn.multi();
+  await txn.del(lockKey);
+  // A null EXEC means the watched key changed; in that case do not retry a
+  // blind DEL, because the replacement lease may belong to another runtime.
+  await txn.exec();
+}
+
 export async function withPlayerMutationLockFor<T>(
   userId: string,
   fn: () => Promise<T>,
@@ -54,10 +74,7 @@ export async function withPlayerMutationLockFor<T>(
         try {
           return await fn();
         } finally {
-          const currentOwner = await redis.get(lockKey);
-          if (currentOwner === token) {
-            await redis.del(lockKey);
-          }
+          await releaseDistributedLock(lockKey, token);
         }
       }
 
