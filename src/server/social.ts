@@ -1510,13 +1510,38 @@ export async function recordLeaderboard(s: PlayerState) {
 
 const DAILY_STREAK_COMMUNITY_KEY = key('daily-streak-community');
 
+function isValidDailyStreakCommunityEvent(value: unknown): value is DailyStreakCommunityEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.id === 'string' &&
+    event.id.length > 0 &&
+    Number.isSafeInteger(event.goal) &&
+    Number(event.goal) > 0 &&
+    Number.isSafeInteger(event.currentProgress) &&
+    Number(event.currentProgress) >= 0 &&
+    Number.isSafeInteger(event.tier) &&
+    Number(event.tier) >= 1 &&
+    Number.isSafeInteger(event.completedTier) &&
+    Number(event.completedTier) >= 0 &&
+    Number.isFinite(event.luckMultiplier) &&
+    Number(event.luckMultiplier) > 0 &&
+    Number.isFinite(event.speedMultiplier) &&
+    Number(event.speedMultiplier) > 0 &&
+    Number.isSafeInteger(event.endsAt) &&
+    Number(event.endsAt) > 0 &&
+    Number.isSafeInteger(event.weekId)
+  );
+}
+
 export async function getDailyStreakCommunity(): Promise<DailyStreakCommunityEvent> {
   await ensureRedisStringKey(DAILY_STREAK_COMMUNITY_KEY, JSON.stringify(createInitialDailyStreakCommunity()));
   const now = Date.now();
   for (let attempt = 0; attempt < 6; attempt++) {
     const txn = await redis.watch(DAILY_STREAK_COMMUNITY_KEY);
     const raw = await redis.get(DAILY_STREAK_COMMUNITY_KEY);
-    let event = parseStoredJson<DailyStreakCommunityEvent>(raw) ?? createInitialDailyStreakCommunity(now);
+    const parsed = parseStoredJson<unknown>(raw);
+    let event = isValidDailyStreakCommunityEvent(parsed) ? parsed : createInitialDailyStreakCommunity(now);
     if (event.weekId !== weekKey(now) || now >= event.endsAt) {
       event = createInitialDailyStreakCommunity(now);
       event.id = `daily-streak-w${event.weekId}`;
@@ -1538,7 +1563,8 @@ export async function addDailyStreakCommunityProgress(amount: number): Promise<D
     const raw = await redis.get(DAILY_STREAK_COMMUNITY_KEY);
     const now = Date.now();
     const currentWeek = weekKey(now);
-    let event = raw ? parseStoredJson<DailyStreakCommunityEvent>(raw) ?? createInitialDailyStreakCommunity(now) : createInitialDailyStreakCommunity(now);
+    const parsed = parseStoredJson<unknown>(raw);
+    let event = isValidDailyStreakCommunityEvent(parsed) ? parsed : createInitialDailyStreakCommunity(now);
     if (event.weekId !== currentWeek || now >= event.endsAt) {
       event = createInitialDailyStreakCommunity(now);
       event.id = `daily-streak-w${currentWeek}`;
