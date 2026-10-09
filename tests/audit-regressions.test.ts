@@ -362,3 +362,9 @@ test('malformed shared-Orb post data falls back instead of rendering a blank ent
   assert.match(splash, /if \(!info\) return null/);
   assert.match(splash, /return <SharedOrbPost data=\{postData\} \/>/);
 });
+
+test('malformed legacy leaderboard data is not overwritten by an empty board', () => {
+  const social = source('src/server/social.ts');
+  assert.match(social, /Leaderboard data could not be read safely\. No changes were written/);
+  assert.match(social, /legacyBoard = parseLeaderboardList\(legacyRaw\)[\s\S]*?rebuilding from player saves/);
+});
