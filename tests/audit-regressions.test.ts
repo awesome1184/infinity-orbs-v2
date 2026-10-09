@@ -162,3 +162,15 @@ test('Frenzy reveal skips per-orb JavaScript delays for reduced-motion users', (
   assert.match(reveal, /if \(reduceMotion\)\s*\{\s*setLastOrb\(res\.orb\)/);
   assert.match(reveal, /else\s*\{[\s\S]*?setTimeout\(resolve, 240\)/);
 });
+
+test('roll tickets reject malformed persisted index and expiry types', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('export async function getRollTicket');
+  const end = game.indexOf('\nexport async function roll(', start);
+  assert.ok(start >= 0 && end > start, 'roll ticket helpers must exist');
+  const tickets = game.slice(start, end);
+  assert.match(tickets, /Number\.isSafeInteger\(current\.nextIndex\)/);
+  assert.match(tickets, /Number\.isSafeInteger\(current\.expiresAt\)/);
+  assert.match(tickets, /Number\.isSafeInteger\(ticket\.nextIndex\)/);
+  assert.match(tickets, /Number\.isSafeInteger\(ticket\.expiresAt\)/);
+});
