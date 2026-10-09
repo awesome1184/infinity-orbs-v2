@@ -130,7 +130,7 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
 function Splash() {
   const postData = (context.postData ?? {}) as SharedOrbPostData;
 
-  if (postData.type === 'shared-orb' && Number(postData.rarity) > 0) {
+  if (postData.type === 'shared-orb' && Number.isInteger(postData.rarity) && postData.rarity > 0 && postData.rarity <= MAX_ORB_RARITY) {
     return <SharedOrbPost data={postData} />;
   }
 
