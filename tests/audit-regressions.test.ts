@@ -329,3 +329,17 @@ test('auto-offline claim clears reminder keys only after a committed zero-roll s
   assert.doesNotMatch(automation, /redis\.del\(OFFLINE_FULL_(?:NOTIFICATION|JOB)_PREFIX/);
   assert.match(save, /if \(committed !== null\)[\s\S]*?latest\.offlineRolls[\s\S]*?nextState\.offlineRolls[\s\S]*?redis\.del\(OFFLINE_FULL_NOTIFICATION_PREFIX/);
 });
+
+test('corrupt Daily Streak projection does not block core player loads or partially mutate auto-claims', () => {
+  const game = source('src/server/game.ts');
+  const loadStart = game.indexOf('export async function loadRaw');
+  const loadEnd = game.indexOf('\nexport async function save', loadStart);
+  const claimStart = game.indexOf('async function claimDailyStreakFromState');
+  const claimEnd = game.indexOf('\nasync function claimCommunityRewardFromState', claimStart);
+  const load = game.slice(loadStart, loadEnd);
+  const claim = game.slice(claimStart, claimEnd);
+  assert.match(load, /getDailyStreakCommunity\(\)\.catch\(error =>/);
+  assert.match(load, /cached \?\? createInitialDailyStreakCommunity\(\)/);
+  assert.match(claim, /const community = await addDailyStreakCommunityProgress\(nextStreakCount\)/);
+  assert.ok(claim.indexOf('await addDailyStreakCommunityProgress') < claim.indexOf('s.streak.count = nextStreakCount'));
+});
