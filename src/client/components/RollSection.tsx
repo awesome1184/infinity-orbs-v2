@@ -181,6 +181,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
     prevOrbRef.current = lastOrb;
 
     let revealTimer: number | null = null;
+    let shakeTimer: number | null = null;
     if (!reducedMotion && (!hasInstantUpgrade || !instantRevealActive)) {
       setIsRevealing(true);
       revealTimer = window.setTimeout(() => {
@@ -194,8 +195,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
     // reduced-motion rules cannot suppress canvas-confetti or state-driven shake.
     if (lastOrb.rarity >= 1000 && !reducedMotion) {
       setIsShaking(true);
-      const shakeTimer = window.setTimeout(() => setIsShaking(false), 450);
-      void shakeTimer;
+      shakeTimer = window.setTimeout(() => setIsShaking(false), 450);
     } else {
       setIsShaking(false);
     }
@@ -242,6 +242,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
 
     return () => {
       if (revealTimer !== null) window.clearTimeout(revealTimer);
+      if (shakeTimer !== null) window.clearTimeout(shakeTimer);
       if (sonarTimer !== null) window.clearTimeout(sonarTimer);
     };
   }, [lastOrb, hasSonarUpgrade, instantRevealActive, hasInstantUpgrade, reducedMotion]);
