@@ -102,8 +102,11 @@ export const MASTERY_SKILLS: Record<MasterySkillId, MasterySkillInfo> = {
 };
 
 export function masterySkillCost(id: MasterySkillId, currentLevel: number): number {
-  const mult = MASTERY_SKILLS[id]?.costMultiplier ?? 1;
-  return Math.max(1, Math.round(mult * (1 + currentLevel * 1.5)));
+  if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(MASTERY_SKILLS, id)) throw new Error('Unknown mastery skill.');
+  if (!Number.isSafeInteger(currentLevel) || currentLevel < 0) throw new Error('Mastery skill level is invalid.');
+  const cost = Math.round(MASTERY_SKILLS[id].costMultiplier * (1 + currentLevel * 1.5));
+  if (!Number.isSafeInteger(cost) || cost < 1) throw new Error('Mastery skill cost is invalid.');
+  return cost;
 }
 
 export type PremiumBoosterId =
@@ -1124,7 +1127,7 @@ export function luckRarityExponent(_luck: number): number {
 export function rollContinuum(luck: number, random: () => number = Math.random): number {
   const sample = Number(random());
   const u = Number.isFinite(sample)
-    ? Math.min(1 - Number.EPSILON, Math.max(Number.MIN_VALUE, sample))
+    ? Math.min(1 - Number.EPSILON, Math.max(1 / 18_446_744_073_709_551_616, sample))
     : 0.5;
   const rarity = Math.floor((1 / u) * luckRarityFactor(luck));
   return Math.min(1_000_000_000_000_000_000, Math.max(2, rarity));

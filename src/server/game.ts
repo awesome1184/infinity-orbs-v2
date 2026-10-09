@@ -72,8 +72,6 @@ import {
   codexDevotionLuckPercent,
   altarCoinDevotionChancePercent,
   altarCoinFloor,
-  createSeededRandom,
-  rollTicketSeed,
 } from '../shared/game.js';
 import {
   contribute,
@@ -1953,7 +1951,6 @@ export async function getGlobalBoosterAnnouncement(): Promise<{
 
 interface RollTicket {
   id: string;
-  seed: number;
   nextIndex: number;
   expiresAt: number;
 }
@@ -1970,7 +1967,6 @@ function randomUint32(): number {
 
 export async function getRollTicket(): Promise<{
   ticketId: string;
-  seed: number;
   nextIndex: number;
   rollsRemaining: number;
   expiresAt: number;
@@ -1986,7 +1982,6 @@ export async function getRollTicket(): Promise<{
     if (
       current &&
       current.id &&
-      Number.isFinite(current.seed) &&
       current.nextIndex >= 0 &&
       current.nextIndex < ROLL_TICKET_COUNT &&
       current.expiresAt > now
@@ -1994,7 +1989,6 @@ export async function getRollTicket(): Promise<{
       await txn.unwatch();
       return {
         ticketId: current.id,
-        seed: current.seed,
         nextIndex: current.nextIndex,
         rollsRemaining: ROLL_TICKET_COUNT - current.nextIndex,
         expiresAt: current.expiresAt,
@@ -2003,7 +1997,6 @@ export async function getRollTicket(): Promise<{
 
     const ticket: RollTicket = {
       id: `rt-${now.toString(36)}-${randomUint32().toString(36)}`,
-      seed: randomUint32(),
       nextIndex: 0,
       expiresAt: now + ROLL_TICKET_TTL_MS,
     };
@@ -2014,7 +2007,6 @@ export async function getRollTicket(): Promise<{
     if (committed !== null) {
       return {
         ticketId: ticket.id,
-        seed: ticket.seed,
         nextIndex: 0,
         rollsRemaining: ROLL_TICKET_COUNT,
         expiresAt: ticket.expiresAt,
@@ -2095,19 +2087,8 @@ export async function save(
       // and adopt the fresh state already written by the wipe. Never let an
       // old request resurrect pre-wipe data, and never strand the player with
       // an avoidable invalidation error.
-      const currentRaw = await redis.get(playerKey);
-      const current = parseStoredJson<PlayerState>(currentRaw);
-      const currentGeneration = current
-        ? Math.max(0, Math.floor(Number(current.saveGeneration ?? -1)))
-        : -1;
-      const fresh = current && currentGeneration === generation
-        ? current
-        : createInitialState();
-      fresh.username = fresh.username ?? context.username ?? undefined;
-      fresh.saveGeneration = generation;
-      Object.assign(s, fresh);
       await txn.unwatch();
-      return;
+      throw new Error('Your Infinity Orbs save was invalidated by an admin wipe. Please reload.');
     }
 
     const latest = latestRaw == null ? null : parsePlayerStateValue(latestRaw);
@@ -2203,7 +2184,8 @@ function serverRandom(): number {
   const denominator = 18_446_744_073_709_551_616;
   const value = Number(sample[0]) / denominator;
   if (value >= 1) return 0.9999999999999999;
-  return Math.max(Number.MIN_VALUE, value);
+  // Clamp zero to the smallest discrete 64-bit sampling step.
+  return Math.max(1 / denominator, value);
 }
 
 function finiteNonNegativeInteger(value: unknown, fallback = 0): number {
@@ -2871,8 +2853,9 @@ export async function roll(
       }
       const loaded = await loadRollTicketForUse(ticketId, requestedTicketIndex);
       const nextTicket: RollTicket = {
-        ...loaded.ticket,
+        id: loaded.ticket.id,
         nextIndex: loaded.ticket.nextIndex + 1,
+        expiresAt: loaded.ticket.expiresAt,
       };
       ticketUse = {
         ticket: loaded.ticket,
@@ -2897,11 +2880,9 @@ export async function roll(
       s.freeRolls = Math.max(0, (s.freeRolls ?? 0) - 1);
     }
 
-    const deterministicRng = ticketUse
-      ? createSeededRandom(rollTicketSeed(ticketUse.ticket.seed, ticketUse.index))
-      : undefined;
+    // Tickets sequence requests and never determine reward outcomes.
     const { bestOrb, batch, totalVal, coinsGained, shardsGained, xpGained, rollCount } =
-      await applyRolls(s, 1, undefined, 'online', undefined, deterministicRng);
+      await applyRolls(s, 1, undefined, 'online');
 
     if (!isAuto) {
       s.manualRolls = Math.min(10, (s.manualRolls ?? 0) + 1);
@@ -3487,10 +3468,12 @@ export async function sacrificeToAltar(coins: number, shards: number): Promise<{
   });}
 
 export async function upgradeMasterySkill(skillId: MasterySkillId): Promise<PlayerState> {
+  if (typeof skillId !== 'string' || !Object.prototype.hasOwnProperty.call(MASTERY_SKILLS, skillId)) {
+    throw new Error('Unknown mastery skill.');
+  }
   return withPlayerMutationLock(async () => {
   const s = await settleOffline(await loadRaw());
   const skill = MASTERY_SKILLS[skillId];
-  if (!skill) throw new Error('Unknown mastery skill.');
 
   if (!s.masterySkills) {
     s.masterySkills = {
@@ -3508,12 +3491,14 @@ export async function upgradeMasterySkill(skillId: MasterySkillId): Promise<Play
     };
   }
 
-  const currentLevel = s.masterySkills[skillId] ?? 0;
+  const currentLevel = Number(s.masterySkills[skillId] ?? 0);
+  if (!Number.isSafeInteger(currentLevel) || currentLevel < 0) throw new Error('Saved mastery level is invalid.');
   if (currentLevel >= skill.maxLevel) {
     throw new Error(`Mastery skill ${skill.name} is already at max level (${skill.maxLevel}).`);
   }
 
   const cost = masterySkillCost(skillId, currentLevel);
+  if (!Number.isSafeInteger(cost) || cost < 1) throw new Error('Mastery skill cost is invalid.');
   if ((s.masteryPoints ?? 0) < cost) {
     throw new Error(`Requires ${cost} Mastery Points.`);
   }

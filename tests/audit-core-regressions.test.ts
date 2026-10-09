@@ -1,0 +1,66 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { masterySkillCost } from '../src/shared/game.js';
+
+function source(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), 'utf8');
+}
+
+test('ticket API has no exposed seed or client-side deterministic reward prediction', () => {
+  const server = source('src/server/game.ts');
+  const client = source('src/client/main.tsx');
+  const start = server.indexOf('export async function getRollTicket');
+  const end = server.indexOf('async function loadRollTicketForUse', start);
+  assert.ok(start >= 0 && end > start);
+  const api = server.slice(start, end);
+  assert.doesNotMatch(api, /seed\\s*:\\s*(?:current|ticket)\\.seed/);
+  assert.doesNotMatch(api, /seed:\\s*number/);
+  assert.doesNotMatch(client, /predictRollActivation|rollTicketSeed|ticket\\.seed/);
+  assert.doesNotMatch(server, /createSeededRandom\\(rollTicketSeed/);
+  assert.match(server, /await applyRolls\\(s, 1, undefined, 'online'\\)/);
+});
+
+test('wiped-generation mutations throw instead of returning discarded rewards as successful', () => {
+  const server = source('src/server/game.ts');
+  const start = server.indexOf('if (stateGeneration !== generation)');
+  const end = server.indexOf('const latest = latestRaw', start);
+  assert.ok(start >= 0 && end > start);
+  const block = server.slice(start, end);
+  assert.match(block, /invalidated by an admin wipe/);
+  assert.doesNotMatch(block, /Object\\.assign\\(s, fresh\\)|return;/);
+});
+
+test('mastery helper rejects prototype keys and invalid levels', () => {
+  assert.throws(() => masterySkillCost('constructor' as never, 0), /Unknown mastery skill/);
+  assert.throws(() => masterySkillCost('__proto__' as never, 0), /Unknown mastery skill/);
+  assert.throws(() => masterySkillCost('toString' as never, 0), /Unknown mastery skill/);
+  assert.throws(() => masterySkillCost('continuumLuck', Number.NaN), /Mastery skill level is invalid/);
+  assert.throws(() => masterySkillCost('continuumLuck', -1), /Mastery skill level is invalid/);
+});
+
+test('mastery endpoint validates skill IDs before service call', () => {
+  const app = source('src/server/app.ts');
+  assert.match(app, /hasOwnProperty\\.call\\(MASTERY_SKILLS, skillId\\)/);
+});
+
+test('ban middleware fails closed if it cannot verify a user is not banned', () => {
+  const app = source('src/server/app.ts');
+  const catchAt = app.indexOf("console.error('Game ban check failed:'");
+  const end = app.indexOf('// Reddit\'s payment callback', catchAt);
+  assert.ok(catchAt >= 0 && end > catchAt);
+  assert.match(app.slice(catchAt, end), /return res\\.status\\(503\\)\\.json/);
+});
+
+test('Prestige optimistic state preserves Shards', () => {
+  const client = source('src/client/main.tsx');
+  assert.match(client, /keptShards = current\\.shards \\?\\? 0/);
+  assert.doesNotMatch(client, /keptShards = Math\\.floor/);
+});
+
+test('game viewport permits user zoom', () => {
+  const html = source('src/client/game.html');
+  assert.match(html, /name=\"viewport\" content=\"width=device-width, initial-scale=1\\.0\"/);
+  assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1\\.0/);
+});

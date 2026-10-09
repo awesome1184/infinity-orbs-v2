@@ -60,8 +60,6 @@ import {
   AUTOMATIONS,
   COSMETICS_LIST,
   FEATURE_UNLOCK_LEVELS,
-  predictRollActivation,
-  rollTicketSeed,
 } from '../shared/game.js';
 import { sound } from './sound.js';
 import { Header } from './components/Header.js';
@@ -321,14 +319,12 @@ export function App() {
   const stateRef = useRef<PlayerState | null>(null);
   const rollTicketRef = useRef<{
     ticketId: string;
-    seed: number;
     nextIndex: number;
     rollsRemaining: number;
     expiresAt: number;
   } | null>(null);
   const rollTicketRequestRef = useRef<Promise<{
     ticketId: string;
-    seed: number;
     nextIndex: number;
     rollsRemaining: number;
     expiresAt: number;
@@ -389,7 +385,6 @@ export function App() {
     if (!rollTicketRequestRef.current) {
       rollTicketRequestRef.current = getJson<{
         ticketId: string;
-        seed: number;
         nextIndex: number;
         rollsRemaining: number;
         expiresAt: number;
@@ -858,82 +853,41 @@ export function App() {
 
         const ticket = await ensureRollTicket();
         const ticketIndex = ticket.nextIndex;
-        const prediction = predictRollActivation(
-          currentState,
-          rollTicketSeed(ticket.seed, ticketIndex),
-          isAutoRoll,
-          worldEvent?.buffMultiplier ?? 1.15,
-        );
-
-        rollTicketRef.current = {
-          ...ticket,
-          nextIndex: ticketIndex + 1,
-          rollsRemaining: Math.max(0, 30 - (ticketIndex + 1)),
-        };
-
+        rollTicketRef.current = { ...ticket, nextIndex: ticketIndex + 1, rollsRemaining: Math.max(0, 30 - (ticketIndex + 1)) };
         sound.playRollNormal();
-
-        // The complete reward/state simulation happens locally first. The server
-        // later recomputes it from the same ticketed RNG stream and replaces this
-        // prediction with authoritative state when the mutation queue catches up.
-        stateRef.current = prediction.state;
-        stateRevisionRef.current += 1;
-        setState(prediction.state);
-        setLastOrb(prediction.orb);
-        setLastBatch(prediction.batch);
-        setBatchSummary({
-          totalVal: prediction.totalValueGained,
-          coins: prediction.coinsGained,
-          shards: prediction.shardsGained,
-          xp: prediction.xpGained,
-        });
-        setReadyAt(Date.now() + cooldownMs(prediction.state, isAutoRoll));
-        setWorldEvent(prev =>
-          prev
-            ? { ...prev, currentProgress: prev.currentProgress + prediction.rollsProcessed }
-            : prev,
-        );
-        setIsRolling(false);
-
+        setIsRolling(true);
+        // Display no reward until the server confirms that the roll committed.
+        setLastOrb(null);
+        setLastBatch([]);
+        setBatchSummary(null);
         pendingMutationCountRef.current += 1;
         void enqueueMutation(async () => {
           try {
             const res = await getJson<RollResponse>('/api/roll', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                auto: isAutoRoll,
-                ticketId: ticket.ticketId,
-                ticketIndex,
-              }),
+              body: JSON.stringify({ auto: isAutoRoll, ticketId: ticket.ticketId, ticketIndex }),
             });
-
             pendingMutationCountRef.current -= 1;
             if (pendingMutationCountRef.current === 0) {
               applyPlayerState(res.state);
               setLastOrb(res.orb);
               setLastBatch(res.batch ?? [res.orb]);
-              setBatchSummary({
-                totalVal: res.totalRollValue,
-                coins: res.coinsGained,
-                shards: res.shardsGained,
-                xp: res.xpGained,
-              });
+              setBatchSummary({ totalVal: res.totalRollValue, coins: res.coinsGained, shards: res.shardsGained, xp: res.xpGained });
               setReadyAt(Date.now() + res.rollsRemainingUntilNext);
               mutationResyncNeededRef.current = false;
+              setIsRolling(false);
             }
-
             maybePromptForNotifications(currentState.totalRolls, res.state.totalRolls);
           } catch (error: any) {
             pendingMutationCountRef.current -= 1;
             mutationResyncNeededRef.current = true;
             rollTicketRef.current = null;
-
             if (pendingMutationCountRef.current === 0) {
               await refreshAll().catch(() => null);
               mutationResyncNeededRef.current = false;
+              setIsRolling(false);
             }
-
             showToast(error?.message || 'Roll verification failed. State refreshed.', 'warn');
           }
         });
@@ -1578,7 +1532,7 @@ export function App() {
       const inheritanceLevel = current.prestigeUpgrades?.cosmicInheritance ?? 0;
       const keepPct = Math.min(0.50, inheritanceLevel * 0.10);
       const keptCoins = Math.max(50, Math.floor(current.coins * keepPct));
-      const keptShards = Math.floor((current.shards ?? 0) * keepPct);
+      const keptShards = current.shards ?? 0; // Shards persist through Prestige.
 
       return {
         ...current,
