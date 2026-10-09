@@ -115,7 +115,7 @@ function FrenzyPost() {
 
       // Let the actual game entrypoint perform the claim. That keeps the Frenzy
       // result, best orb, and reward summary inside the normal game UI.
-      requestExpandedMode(event.nativeEvent, 'game');
+      await requestExpandedMode(event.nativeEvent, 'game');
       setOpenedGame(true);
       return;
     } catch {
