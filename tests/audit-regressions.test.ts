@@ -343,3 +343,10 @@ test('corrupt Daily Streak projection does not block core player loads or partia
   assert.match(claim, /const community = await addDailyStreakCommunityProgress\(nextStreakCount\)/);
   assert.ok(claim.indexOf('await addDailyStreakCommunityProgress') < claim.indexOf('s.streak.count = nextStreakCount'));
 });
+
+test('Frenzy rarity count-up cancels when reduced motion is enabled mid-animation', () => {
+  const frenzy = source('src/client/frenzy.tsx');
+  assert.match(frenzy, /reducedMotion\.addEventListener\('change', handleMotionPreference\)/);
+  assert.match(frenzy, /if \(event\.matches\)\s*\{\s*window\.cancelAnimationFrame\(frame\);\s*setDisplay\(rarity\)/);
+  assert.match(frenzy, /reducedMotion\.removeEventListener\('change', handleMotionPreference\)/);
+});
