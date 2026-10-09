@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bug, Lightbulb, Send, X } from 'lucide-react';
 import { sound } from '../sound.js';
 
@@ -12,6 +12,14 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [busy, onClose]);
 
   const submit = async () => {
     const trimmed = message.trim();
@@ -33,7 +41,13 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feedback-modal-title"
+        aria-describedby="feedback-modal-description"
+        className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4"
+      >
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800"
@@ -45,9 +59,9 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
         <div>
           <div className="flex items-center gap-2">
             <Bug className="w-5 h-5 text-amber-300" />
-            <h2 className="text-lg font-black text-white">Bug Report / Suggestion</h2>
+            <h2 id="feedback-modal-title" className="text-lg font-black text-white">Bug Report / Suggestion</h2>
           </div>
-          <p className="mt-1 text-xs text-slate-400">
+          <p id="feedback-modal-description" className="mt-1 text-xs text-slate-400">
             This goes straight to the subreddit moderators through Modmail.
           </p>
         </div>
@@ -80,6 +94,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
         </div>
 
         <textarea
+          aria-label={type === 'bug' ? 'Describe the bug' : 'Describe your suggestion'}
           value={message}
           onChange={e => setMessage(e.target.value.slice(0, 2000))}
           rows={8}
@@ -90,7 +105,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
         />
 
         <div className="flex items-center justify-between gap-3 text-[10px]">
-          <span className={error ? 'text-rose-300' : 'text-slate-600'}>
+          <span role={error ? 'alert' : undefined} className={error ? 'text-rose-300' : 'text-slate-600'}>
             {error || message.length + '/2000'}
           </span>
           <div className="flex gap-2">
