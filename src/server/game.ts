@@ -5,6 +5,7 @@ import * as notificationsModule from '@devvit/notifications';
 const notifications = (notificationsModule as any).notifications;
 import {
   createInitialState,
+  createInitialDailyStreakCommunity,
   type PlayerState,
   type RollResponse,
   type UpgradeId,
@@ -1688,7 +1689,14 @@ export async function loadRaw(): Promise<PlayerState> {
     getPlayerGuildPerks(username, userId),
     getPlayerGuildCombo(username, userId),
     getGlobalBoosters(),
-    getDailyStreakCommunity(),
+    getDailyStreakCommunity().catch(error => {
+      if (!(error instanceof Error) || !error.message.startsWith('Stored Daily Streak event is invalid.')) throw error;
+      console.error('[Player Load] Daily Streak community projection is unavailable:', error.message);
+      // Keep the corrupt global bytes untouched. This fallback is display-only;
+      // the claim/progression API continues to fail closed until repaired.
+      const cached = raw ? parsePlayerStateValue(raw)?.dailyStreakCommunity : undefined;
+      return cached ?? createInitialDailyStreakCommunity();
+    }),
   ]);
 
 
@@ -1817,21 +1825,25 @@ async function claimDailyStreakFromState(s: PlayerState): Promise<{ rewardCoins:
   if (s.streak.lastClaimDate === today) throw new Error('Already claimed daily reward for today.');
 
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  if (s.streak.lastClaimDate === yesterday) s.streak.count++;
-  else if (!s.streak.lastClaimDate) s.streak.count = 1;
-  else s.streak.count = 1;
+  const nextStreakCount = s.streak.lastClaimDate === yesterday ? s.streak.count + 1 : 1;
+  if (!Number.isSafeInteger(nextStreakCount)) {
+    throw new Error('Daily streak data is invalid. Please retry later.');
+  }
 
-  s.streak.longestStreak = Math.max(s.streak.longestStreak, s.streak.count);
-  s.streak.lastClaimDate = today;
-
-  const day = ((s.streak.count - 1) % 7) + 1;
+  // Validate/commit the shared progression before mutating player rewards. If
+  // the shared projection is corrupt, the player save remains untouched.
+  const community = await addDailyStreakCommunityProgress(nextStreakCount);
+  const day = ((nextStreakCount - 1) % 7) + 1;
   const rewardCoins = day * 100;
   const rewardShards = grantFreeShards(s, day === 7 ? 5 : day === 3 ? 1 : 0);
   const rewardFreeRolls = day * 5;
+  s.streak.count = nextStreakCount;
+  s.streak.longestStreak = Math.max(s.streak.longestStreak, nextStreakCount);
+  s.streak.lastClaimDate = today;
   s.freeRolls = (s.freeRolls ?? 0) + rewardFreeRolls;
   addCoins(s, rewardCoins);
-  s.dailyStreakCommunity = await addDailyStreakCommunityProgress(s.streak.count);
-  return { rewardCoins, rewardShards, rewardFreeRolls, day, community: s.dailyStreakCommunity };
+  s.dailyStreakCommunity = community;
+  return { rewardCoins, rewardShards, rewardFreeRolls, day, community };
 }
 
 async function claimCommunityRewardFromState(s: PlayerState): Promise<{ rewardCoins: number; rewardXp: number; nextClaimAt: number; tier: number }> {
@@ -1859,7 +1871,17 @@ async function processAutomation(s: PlayerState): Promise<void> {
   if (s.automations?.autoStreakClaim) {
     const today = new Date().toISOString().slice(0, 10);
     if (s.streak.lastClaimDate !== today) {
-      await claimDailyStreakFromState(s);
+      try {
+        await claimDailyStreakFromState(s);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Stored Daily Streak event is invalid.')) {
+          // A corrupt shared projection must not prevent unrelated game loads.
+          // The player reward was not mutated because the projection is checked first.
+          console.error('[Automation] Daily Streak auto-claim skipped:', error.message);
+        } else {
+          throw error;
+        }
+      }
     }
   }
 
