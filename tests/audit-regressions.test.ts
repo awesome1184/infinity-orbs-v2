@@ -174,3 +174,14 @@ test('roll tickets reject malformed persisted index and expiry types', () => {
   assert.match(tickets, /Number\.isSafeInteger\(ticket\.nextIndex\)/);
   assert.match(tickets, /Number\.isSafeInteger\(ticket\.expiresAt\)/);
 });
+
+test('Frenzy expanded-mode navigation rejection reaches the in-screen fallback', () => {
+  const frenzy = source('src/client/frenzy.tsx');
+  const start = frenzy.indexOf('const handleOpenGame');
+  const end = frenzy.indexOf('\n  return (', start);
+  assert.ok(start >= 0 && end > start, 'Frenzy navigation handler must exist');
+  const handler = frenzy.slice(start, end);
+  assert.match(handler, /try\s*\{[\s\S]*?await requestExpandedMode\(event\.nativeEvent, 'game'\)/);
+  assert.match(handler, /catch\s*\{[\s\S]*?Finish the claim on this screen instead/);
+  assert.match(handler, /fetch\('\/api\/frenzy\/claim'/);
+});
