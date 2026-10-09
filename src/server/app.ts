@@ -1201,9 +1201,9 @@ export function createApp() {
         postId = post.id;
       }
       await recordShareAction(s);
-      // The share itself makes the player eligible immediately, without
-      // requiring another roll before appearing on the leaderboard.
-      await recordLeaderboard(s);
+      // recordShareAction schedules the leaderboard projection best-effort.
+      // Do not report the already-published post as failed if that projection
+      // fails after the player save and Reddit post have committed.
       res.json({ success: true, id: postId, text });
       });
     } catch (e) { badRequest(res, e, 'Could not create Reddit post.'); }
