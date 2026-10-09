@@ -3118,7 +3118,9 @@ export async function claimFollowReward(): Promise<{
     if (await redis.get(rewardKey) !== rewardMarker) {
       throw new Error('FOLLOW_REWARD_SAVE_INVALIDATED');
     }
-    await recordLeaderboard(s);
+    void recordLeaderboard(s).catch(error => {
+      console.error('[Follow Reward] Leaderboard update failed:', error);
+    });
     void appendPlayerSpyLog('follow-reward-claim', {
       rollsGranted: FOLLOW_REWARD_ROLLS,
       bestRarity: result.bestOrb.rarity,
