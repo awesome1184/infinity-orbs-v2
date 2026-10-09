@@ -253,3 +253,10 @@ test('polled online count survives optimistic and authoritative player-state upd
   assert.match(main, /stateRef\.current = appliedState/);
   assert.match(main, /setState\(appliedState\)/);
 });
+
+test('feedback and notification dialogs remain scrollable on short viewports', () => {
+  const feedback = source('src/client/components/FeedbackModal.tsx');
+  const main = source('src/client/main.tsx');
+  assert.match(feedback, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
+  assert.match(main, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30/);
+});
