@@ -1555,7 +1555,11 @@ export async function getDailyStreakCommunity(): Promise<DailyStreakCommunityEve
     const txn = await redis.watch(DAILY_STREAK_COMMUNITY_KEY);
     const raw = await redis.get(DAILY_STREAK_COMMUNITY_KEY);
     const parsed = parseStoredJson<unknown>(raw);
-    let event = isValidDailyStreakCommunityEvent(parsed) ? parsed : createInitialDailyStreakCommunity(now);
+    if (raw != null && raw !== '' && !isValidDailyStreakCommunityEvent(parsed)) {
+      await txn.unwatch();
+      throw new Error('Stored Daily Streak event is invalid. Please retry later.');
+    }
+    let event = raw == null || raw === '' ? createInitialDailyStreakCommunity(now) : parsed as DailyStreakCommunityEvent;
     if (event.weekId !== weekKey(now) || now >= event.endsAt) {
       event = createInitialDailyStreakCommunity(now);
       event.id = `daily-streak-w${event.weekId}`;
