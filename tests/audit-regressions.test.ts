@@ -212,3 +212,16 @@ test('feedback modal exposes dialog semantics and a keyboard close path', () => 
   assert.match(modal, /window\.removeEventListener\('keydown', handleKeyDown\)/);
   assert.match(modal, /aria-label=\{type === 'bug' \? 'Describe the bug' : 'Describe your suggestion'\}/);
 });
+
+test('Guild reset migrations re-check completion markers under a shared lock', () => {
+  const social = source('src/server/social.ts');
+  const upgradeStart = social.indexOf('const upgradeResetDone =');
+  const tokenStart = social.indexOf('const resetDone =', upgradeStart);
+  const upgrade = social.slice(upgradeStart, tokenStart);
+  const tokenEnd = social.indexOf('if (expiredCombo)', tokenStart);
+  const tokens = social.slice(tokenStart, tokenEnd);
+  assert.match(upgrade, /withPlayerMutationLockFor\('__guild-upgrade-reset-migration__'/);
+  assert.match(upgrade, /if \(await redis\.get\(GUILD_UPGRADE_RESET_KEY\)\) return false/);
+  assert.match(tokens, /withPlayerMutationLockFor\('__guild-token-reset-migration__'/);
+  assert.match(tokens, /if \(await redis\.get\(GUILD_TOKEN_RESET_KEY\)\) return false/);
+});
