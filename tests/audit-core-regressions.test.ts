@@ -77,3 +77,26 @@ test('rarity RNG clamps zero to a real 64-bit sample step', () => {
   const shared = source('src/shared/game.ts');
   assert.match(shared, /Math.max\(1 \/ 18_446_744_073_709_551_616, sample\)/);
 });
+test('global booster debit and shared activation are committed through one save transaction', () => {
+  const server = source('src/server/game.ts');
+  const start = server.indexOf('async function claimWorldBoosterActivation');
+  const end = server.indexOf('export async function activateGlobalBooster', start);
+  assert.ok(start >= 0 && end > start);
+  const claim = server.slice(start, end);
+  assert.match(claim, /await save\\(s, \\{/);
+  assert.match(claim, /key: GLOBAL_BOOSTERS_KEY/);
+  assert.match(claim, /expectedValue: globalRaw/);
+  assert.doesNotMatch(claim, /await updateGlobalBooster\\(id\\)/);
+  assert.match(claim, /announcement write failed/);
+});
+
+test('admin booster state mutation uses watched compare-and-set rather than stale whole-snapshot SET', () => {
+  const server = source('src/server/game.ts');
+  const start = server.indexOf('export async function setGlobalBoosterDebugState');
+  const end = server.indexOf('function playerKeyFor', start);
+  assert.ok(start >= 0 && end > start);
+  const setter = server.slice(start, end);
+  assert.match(setter, /await redis\\.watch\\(GLOBAL_BOOSTERS_KEY\\)/);
+  assert.match(setter, /await txn\\.exec\\(\\)/);
+  assert.doesNotMatch(setter, /await redis\\.set\\(GLOBAL_BOOSTERS_KEY/);
+});

@@ -1116,7 +1116,11 @@ async function updateGlobalBooster(id: GlobalBoosterId): Promise<GlobalBoosterSn
       rawValue: summarizeGlobalBoosterRaw(raw),
     });
 
-    const current = parseGlobalBoosterSnapshot(raw, now) ?? createInitialGlobalBoosters(now);
+    const current = raw == null ? createInitialGlobalBoosters(now) : parseGlobalBoosterSnapshot(raw, now);
+    if (!current) {
+      await txn.unwatch();
+      throw new Error('Global Booster state could not be read safely. No changes were written.');
+    }
     const before = current[id];
     const after = activateGlobalBoosterStack(before, now, id === 'speed' ? 10 : Number.MAX_SAFE_INTEGER);
     current[id] = after;
@@ -1158,31 +1162,40 @@ export async function setGlobalBoosterDebugState(
   tier: number,
   minutes: number,
 ): Promise<{ tier: number; activationProgress: number; endsAt: number }> {
-  if (!GLOBAL_BOOSTERS[id]) throw new Error('Unknown Global Booster.');
-
-  const now = Date.now();
-  const safeTier = Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(Number(tier) || 0)));
-  const safeMinutes = Math.max(1, Math.floor(Number(minutes) || 30));
-  const snapshot = await getGlobalBoosters();
-  const previous = snapshot[id];
-  const cappedTier = id === 'speed' ? Math.min(10, safeTier) : safeTier;
-  const next = {
-    tier: cappedTier,
-    activationProgress: 0,
-    endsAt: cappedTier === 0 ? 0 : now + safeMinutes * 60_000,
-  };
-  snapshot[id] = next;
-  await redis.set(GLOBAL_BOOSTERS_KEY, JSON.stringify(snapshot));
-
-  await appendGlobalBoosterDebugLog('admin:set', {
-    id,
-    previous,
-    next,
-    minutes: safeMinutes,
-    key: GLOBAL_BOOSTERS_KEY,
-  });
-
-  return next;
+  if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(GLOBAL_BOOSTERS, id)) {
+    throw new Error('Unknown Global Booster.');
+  }
+  if (!Number.isFinite(tier) || tier < 0 || !Number.isFinite(minutes) || minutes < 1 || minutes > 10_080) {
+    throw new Error('Global Booster debug tier or duration is invalid.');
+  }
+  const safeTier = Math.floor(tier);
+  const safeMinutes = Math.floor(minutes);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const now = Date.now();
+    const txn = await redis.watch(GLOBAL_BOOSTERS_KEY);
+    const raw = await redis.get(GLOBAL_BOOSTERS_KEY);
+    const snapshot = raw == null ? createInitialGlobalBoosters(now) : parseGlobalBoosterSnapshot(raw, now);
+    if (!snapshot) {
+      await txn.unwatch();
+      throw new Error('Global Booster state could not be read safely. No changes were written.');
+    }
+    const previous = snapshot[id];
+    const cappedTier = id === 'speed' ? Math.min(10, safeTier) : safeTier;
+    const next = {
+      tier: cappedTier,
+      activationProgress: 0,
+      endsAt: cappedTier === 0 ? 0 : now + safeMinutes * 60_000,
+    };
+    snapshot[id] = { ...snapshot[id], ...next };
+    await txn.multi();
+    await txn.set(GLOBAL_BOOSTERS_KEY, JSON.stringify(snapshot));
+    const committed = await txn.exec();
+    if (committed !== null) {
+      await appendGlobalBoosterDebugLog('admin:set', { id, previous, next, minutes: safeMinutes, key: GLOBAL_BOOSTERS_KEY });
+      return next;
+    }
+  }
+  throw new Error('Global Booster state changed repeatedly. Refresh and retry.');
 }
 
 function playerKeyFor(userId: string): string {
@@ -3576,127 +3589,82 @@ async function claimWorldBoosterActivation(
   state: PlayerState;
   snapshot: GlobalBoosterSnapshot;
   usedCredit: boolean;
-  announcement: {
-    id: GlobalBoosterId;
-    name: string;
-    username: string;
-    activatedAt: number;
-  };
+  announcement: { id: GlobalBoosterId; name: string; username: string; activatedAt: number };
 }> {
   const cost = GLOBAL_BOOSTERS[id].costShards;
   const userId = currentUserId();
-
   await appendGlobalBoosterDebugLog('player:activation-start', {
-    userId,
-    username: context.username ?? null,
-    id,
-    useCredit,
-    costShards: cost,
-    currentShards: s.shards,
-    currentCredits: s.globalBoosterCredits ?? 0,
+    userId, username: context.username ?? null, id, useCredit, costShards: cost,
+    currentShards: s.shards, currentCredits: s.globalBoosterCredits ?? 0,
     playerGlobalState: s.globalBoosters ?? null,
   });
 
   if (useCredit) {
-    if ((s.globalBoosterCredits ?? 0) <= 0) {
-      await appendGlobalBoosterDebugLog('player:activation-rejected-no-credit', {
-        userId,
-        id,
-        credits: s.globalBoosterCredits ?? 0,
-      });
-      throw new Error('No free Global Booster activations remain.');
-    }
+    if ((s.globalBoosterCredits ?? 0) <= 0) throw new Error('No free Global Booster activations remain.');
     s.globalBoosterCredits = (s.globalBoosterCredits ?? 0) - 1;
   } else {
-    if ((s.shards ?? 0) < cost) {
-      await appendGlobalBoosterDebugLog('player:activation-rejected-no-shards', {
-        userId,
-        id,
-        shards: s.shards,
-        required: cost,
-      });
-    }
+    if ((s.shards ?? 0) < cost) throw new Error(`${GLOBAL_BOOSTERS[id].name} requires ${cost} Shards.`);
     spendShards(s, cost);
   }
 
-  await appendGlobalBoosterDebugLog('player:currency-deducted', {
-    userId,
-    id,
-    useCredit,
-    shardsAfter: s.shards,
-    creditsAfter: s.globalBoosterCredits ?? 0,
-  });
-
   try {
-    const snapshot = await updateGlobalBooster(id);
+    const activatedAt = Date.now();
+    const globalRaw = await redis.get(GLOBAL_BOOSTERS_KEY) as string | null;
+    const parsed = globalRaw == null ? createInitialGlobalBoosters(activatedAt) : parseGlobalBoosterSnapshot(globalRaw, activatedAt);
+    if (!parsed) throw new Error('Global Booster state could not be read safely. No changes were written.');
+    const snapshot: GlobalBoosterSnapshot = { ...parsed };
+    snapshot[id] = activateGlobalBoosterStack(snapshot[id], activatedAt, id === 'speed' ? 10 : Number.MAX_SAFE_INTEGER);
     s.globalBoosters = snapshot;
 
     await appendGlobalBoosterDebugLog('player:before-save', {
-      userId,
-      id,
-      useCredit,
-      snapshot,
-      shards: s.shards,
-      credits: s.globalBoosterCredits ?? 0,
+      userId, id, useCredit, snapshot, shards: s.shards, credits: s.globalBoosterCredits ?? 0,
     });
 
-    await save(s);
+    // Commit the player's debit and the shared booster snapshot in one watched transaction.
+    await save(s, {
+      key: GLOBAL_BOOSTERS_KEY,
+      expectedValue: globalRaw,
+      nextValue: JSON.stringify(snapshot),
+      conflictMessage: 'Global Booster state changed while activating. Refresh the game and try again.',
+    });
 
     await appendGlobalBoosterDebugLog('player:activation-success', {
-      userId,
-      id,
-      useCredit,
-      snapshot,
-      shardsAfter: s.shards,
-      creditsAfter: s.globalBoosterCredits ?? 0,
+      userId, id, useCredit, snapshot, shardsAfter: s.shards, creditsAfter: s.globalBoosterCredits ?? 0,
     });
 
-    const activatedAt = Date.now();
     const activatedBy = String(context.username ?? s.username ?? 'Redditor').trim() || 'Redditor';
-
-    await appendGlobalBoosterActivationLog({
-      timestamp: activatedAt,
-      userId,
-      username: activatedBy,
-      boosterId: id,
-      boosterName: GLOBAL_BOOSTERS[id].name,
-      usedCredit: useCredit,
-      tier: Number(snapshot[id].tier ?? 0),
-      endsAt: Number(snapshot[id].endsAt ?? 0),
-    });
-
-    await redis.set(GLOBAL_BOOSTER_ANNOUNCEMENT_KEY, JSON.stringify({
-      id,
-      name: GLOBAL_BOOSTERS[id].name,
-      username: activatedBy,
-      activatedAt,
-    }));
+    try {
+      await appendGlobalBoosterActivationLog({
+        timestamp: activatedAt, userId, username: activatedBy, boosterId: id,
+        boosterName: GLOBAL_BOOSTERS[id].name, usedCredit: useCredit,
+        tier: Number(snapshot[id].tier ?? 0), endsAt: Number(snapshot[id].endsAt ?? 0),
+      });
+    } catch (error) {
+      console.error('[Global Boosters] Activation committed but log append failed:', error);
+    }
+    try {
+      await redis.set(GLOBAL_BOOSTER_ANNOUNCEMENT_KEY, JSON.stringify({
+        id, name: GLOBAL_BOOSTERS[id].name, username: activatedBy, activatedAt,
+      }));
+    } catch (error) {
+      // The debit + booster activation already committed; announcement failure must not
+      // turn a durable success into an error that encourages a duplicate retry.
+      console.error('[Global Boosters] Activation committed but announcement write failed:', error);
+    }
 
     return {
-      state: s,
-      snapshot,
-      usedCredit: useCredit,
-      announcement: {
-        id,
-        name: GLOBAL_BOOSTERS[id].name,
-        username: activatedBy,
-        activatedAt,
-      },
+      state: s, snapshot, usedCredit: useCredit,
+      announcement: { id, name: GLOBAL_BOOSTERS[id].name, username: activatedBy, activatedAt },
     };
   } catch (error) {
+    // save() did not commit the debit unless its extra-write transaction committed too.
     if (useCredit) s.globalBoosterCredits = (s.globalBoosterCredits ?? 0) + 1;
     else s.shards = (s.shards ?? 0) + cost;
-
     await appendGlobalBoosterDebugLog('player:activation-failed', {
-      userId,
-      id,
-      useCredit,
-      errorName: error instanceof Error ? error.name : null,
+      userId, id, useCredit, errorName: error instanceof Error ? error.name : null,
       errorMessage: error instanceof Error ? error.message : String(error),
-      refundedShards: useCredit ? 0 : cost,
-      refundedCredit: useCredit,
+      refundedShards: useCredit ? 0 : cost, refundedCredit: useCredit,
     });
-
     throw error;
   }
 }
