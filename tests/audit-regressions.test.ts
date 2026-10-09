@@ -420,3 +420,14 @@ test('player activity registry read-modify-write uses a distinct per-user lock',
   assert.match(helper, /redis\.hGet\(PLAYER_REGISTRY_KEY, userId\)[\s\S]*?redis\.hSet\(PLAYER_REGISTRY_KEY/);
   assert.match(helper, /Math\.max\(now, Date\.now\(\), previousActivityAt\)/);
 });
+
+test('player lock release checks ownership atomically with WATCH and EXEC', () => {
+  const lock = source('src/server/player-lock.ts');
+  const start = lock.indexOf('async function releaseOwnedLock');
+  const end = lock.indexOf('\nexport async function withPlayerMutationLockFor', start);
+  assert.ok(start >= 0 && end > start, 'atomic lock release helper must exist');
+  const release = lock.slice(start, end);
+  assert.match(release, /redis\.watch\(lockKey\)[\s\S]*?redis\.get\(lockKey\)[\s\S]*?txn\.del\(lockKey\)[\s\S]*?txn\.exec\(\)/);
+  assert.match(release, /if \(committed !== null\) return/);
+  assert.doesNotMatch(lock, /if \(currentOwner === token\)\s*\{\s*await redis\.del\(lockKey\)/);
+});
