@@ -146,3 +146,9 @@ test('roll celebrations respect the live reduced-motion preference', () => {
   assert.match(roll, /if \(!reducedMotion\)\s*\{\s*confetti\(/);
   assert.match(roll, /\[lastOrb, hasSonarUpgrade, instantRevealActive, hasInstantUpgrade, reducedMotion\]/);
 });
+
+test('default splash entrypoint does not disable user zoom', () => {
+  const splash = source('src/client/splash.html');
+  assert.match(splash, /name="viewport" content="width=device-width, initial-scale=1\.0"/);
+  assert.doesNotMatch(splash, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1(?:\.0)?/i);
+});
