@@ -229,3 +229,8 @@ test('Guild reset migrations re-check completion markers under a shared lock', (
   assert.match(tokens, /withPlayerMutationLockFor\('__guild-token-reset-migration__'/);
   assert.match(tokens, /if \(await redis\.get\(GUILD_TOKEN_RESET_KEY\)\) return false/);
 });
+
+test('switching to reduced motion clears an in-flight same-Orb reveal state', () => {
+  const roll = source('src/client/components/RollSection.tsx');
+  assert.match(roll, /if \(prevOrbRef\.current === lastOrb\)\s*\{[\s\S]*?if \(reducedMotion\)\s*\{\s*setIsRevealing\(false\);\s*setIsShaking\(false\);\s*setSonarPinging\(false\)/);
+});
