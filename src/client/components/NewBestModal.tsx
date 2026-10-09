@@ -94,7 +94,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
   if (isMinorDiscovery) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="relative z-10 w-full max-w-sm bg-slate-900 border border-slate-700/80 rounded-2xl p-5 shadow-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+        <div className="relative z-10 w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-slate-900 border border-slate-700/80 rounded-2xl p-5 shadow-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold">
             <Star className="w-3.5 h-3.5 text-amber-400" />
             <span>NEW PERSONAL BEST</span>
@@ -153,7 +153,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
       </div>
 
       {/* Main Record Card */}
-      <div className="relative z-10 w-full max-w-lg bg-gradient-to-b from-slate-900/95 to-slate-950/95 border-2 border-amber-400/60 rounded-3xl p-6 sm:p-8 shadow-[0_0_80px_rgba(251,191,36,0.35)] text-center space-y-6 animate-in zoom-in-95 duration-400">
+      <div className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-gradient-to-b from-slate-900/95 to-slate-950/95 border-2 border-amber-400/60 rounded-3xl p-6 sm:p-8 shadow-[0_0_80px_rgba(251,191,36,0.35)] text-center space-y-6 animate-in zoom-in-95 duration-400">
         {/* Crown & Title */}
         <div className="space-y-1.5">
           <div className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black tracking-widest uppercase shadow-md animate-bounce">
