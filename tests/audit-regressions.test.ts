@@ -152,3 +152,13 @@ test('default splash entrypoint does not disable user zoom', () => {
   assert.match(splash, /name="viewport" content="width=device-width, initial-scale=1\.0"/);
   assert.doesNotMatch(splash, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1(?:\.0)?/i);
 });
+
+test('Frenzy reveal skips per-orb JavaScript delays for reduced-motion users', () => {
+  const main = source('src/client/main.tsx');
+  const start = main.indexOf('const reduceMotion = window.matchMedia');
+  const end = main.indexOf('sound.playMythicFanfare()', start);
+  assert.ok(start >= 0 && end > start, 'Frenzy reveal must check reduced-motion preference');
+  const reveal = main.slice(start, end);
+  assert.match(reveal, /if \(reduceMotion\)\s*\{\s*setLastOrb\(res\.orb\)/);
+  assert.match(reveal, /else\s*\{[\s\S]*?setTimeout\(resolve, 240\)/);
+});
