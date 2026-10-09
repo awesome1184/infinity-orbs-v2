@@ -874,7 +874,7 @@ export function App() {
         setLastBatch([]);
         setBatchSummary(null);
         pendingMutationCountRef.current += 1;
-        void enqueueMutation(async () => {
+        await enqueueMutation(async () => {
           try {
             const res = await getJson<RollResponse>('/api/roll', {
               method: 'POST',
