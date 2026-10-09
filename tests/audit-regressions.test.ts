@@ -177,15 +177,18 @@ test('roll tickets reject malformed persisted index and expiry types', () => {
   assert.match(tickets, /Number\.isSafeInteger\(ticket\.expiresAt\)/);
 });
 
-test('Frenzy expanded-mode navigation rejection reaches the in-screen fallback', () => {
+test('Frenzy expansion is requested in the trusted click turn and failed expansion falls back once', () => {
   const frenzy = source('src/client/frenzy.tsx');
-  const start = frenzy.indexOf('const handleOpenGame');
-  const end = frenzy.indexOf('\n  return (', start);
-  assert.ok(start >= 0 && end > start, 'Frenzy navigation handler must exist');
+  const start = frenzy.indexOf('const claim = async (event: React.MouseEvent');
+  const end = frenzy.indexOf('\n  if (error && !info)', start);
+  assert.ok(start >= 0 && end > start, 'Frenzy claim handler must exist');
   const handler = frenzy.slice(start, end);
-  assert.match(handler, /try\s*\{[\s\S]*?await requestExpandedMode\(event\.nativeEvent, 'game'\)/);
-  assert.match(handler, /catch\s*\{[\s\S]*?Finish the claim on this screen instead/);
-  assert.match(handler, /fetch\('\/api\/frenzy\/claim'/);
+  const expansionCall = handler.indexOf('requestExpandedMode(event.nativeEvent, \'game\')');
+  const armFetch = handler.indexOf('fetch(\'/api/frenzy/arm\'');
+  assert.ok(expansionCall >= 0 && armFetch > expansionCall, 'expanded mode must be requested before the first network await');
+  assert.match(handler, /Promise\.allSettled\(\[expansionPromise, armPromise\]\)/);
+  assert.match(handler, /Some previews cannot expand\. Finish the claim on this screen instead/);
+  assert.equal((handler.match(/fetch\('\/api\/frenzy\/claim'/g) ?? []).length, 1);
 });
 
 test('daily streak community progression validates stored goal before looping', () => {
