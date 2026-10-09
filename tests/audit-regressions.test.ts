@@ -191,11 +191,12 @@ test('Frenzy expansion is requested in the trusted click turn and failed expansi
   assert.equal((handler.match(/fetch\('\/api\/frenzy\/claim'/g) ?? []).length, 1);
 });
 
-test('daily streak community progression validates stored goal before looping', () => {
+test('daily streak community progression validates stored goal and fails closed on corrupt data', () => {
   const social = source('src/server/social.ts');
   assert.match(social, /function isValidDailyStreakCommunityEvent\(value: unknown\)/);
   assert.match(social, /Number\.isSafeInteger\(event\.goal\)[\s\S]*?Number\(event\.goal\) > 0/);
-  assert.match(social, /isValidDailyStreakCommunityEvent\(parsed\) \? parsed : createInitialDailyStreakCommunity\(now\)/);
+  assert.match(social, /if \(raw != null && raw !== '' && !isValidDailyStreakCommunityEvent\(parsed\)\)/);
+  assert.match(social, /Stored Daily Streak event is invalid/);
   assert.match(social, /while \(event\.currentProgress >= event\.goal\)/);
 });
 
