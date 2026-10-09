@@ -272,9 +272,12 @@ test('roll action lock stays held until the queued roll mutation settles', () =>
   assert.doesNotMatch(handler, /void enqueueMutation\(async \(\) => \{/);
 });
 
-test('direct streak, global booster, and cosmetic endpoints use their feature gates', () => {
+test('direct API routes match their parent feature gates', () => {
   const app = source('src/server/app.ts');
   assert.match(app, /path === '\/quests\/claim' \|\| path === '\/streak\/claim'\) return 'quests'/);
-  assert.match(app, /path === '\/global-boosters\/activate'\) return 'boosters'/);
-  assert.match(app, /path === '\/cosmetics\/buy'\) return 'shop'/);
+  assert.match(app, /path === '\/global-boosters\/activate'[\s\S]*?path === '\/community\/reward\/claim'\) return 'boosters'/);
+  assert.match(app, /path === '\/cosmetics\/buy'\) return 'prestige'/);
+  assert.match(app, /path === '\/upgrade' \|\| path === '\/upgrade\/all' \|\| path === '\/turbo\/activate'\) return 'upgrades'/);
+  assert.match(app, /path === '\/leaderboards'/);
+  assert.doesNotMatch(app, /path === '\/online' \|\| path === '\/world-event'/);
 });
