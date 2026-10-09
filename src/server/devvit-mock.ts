@@ -2,6 +2,16 @@
 // In production, src/server/index.ts swaps these live bindings for Devvit's real services.
 
 const store = new Map<string, string>();
+const expirations = new Map<string, number>();
+
+function readStore(key: string): string | undefined {
+  const expiresAt = expirations.get(key);
+  if (expiresAt !== undefined && expiresAt <= Date.now()) {
+    store.delete(key);
+    expirations.delete(key);
+  }
+  return store.get(key);
+}
 
 const initialGuilds = [
   {
@@ -43,7 +53,7 @@ store.set('io:guilds', JSON.stringify(initialGuilds));
 store.set('io:leaderboard', JSON.stringify(initialLeaderboard));
 
 const localRedis = {
-  get: async (key: string): Promise<string | null> => store.get(key) ?? null,
+  get: async (key: string): Promise<string | null> => readStore(key) ?? null,
   hGet: async (key: string, field: string): Promise<string | undefined> => {
     const raw = store.get(key);
     if (!raw) return undefined;
@@ -66,8 +76,19 @@ const localRedis = {
     return raw ? JSON.parse(raw) as Record<string, string> : {};
   },
   mGet: async (keys: string[]): Promise<Array<string | null>> => keys.map(key => store.get(key) ?? null),
-  set: async (key: string, value: string): Promise<string> => {
+  set: async (
+    key: string,
+    value: string,
+    options?: { nx?: boolean; expiration?: Date },
+): Promise<string> => {
+    const current = readStore(key);
+    if (options?.nx && current !== undefined) return null as unknown as string;
     store.set(key, value);
+    if (options?.expiration instanceof Date) {
+      expirations.set(key, options.expiration.getTime());
+    } else {
+      expirations.delete(key);
+    }
     return 'OK';
   },
   del: async (key: string): Promise<boolean> => store.delete(key),
