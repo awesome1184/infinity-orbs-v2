@@ -346,9 +346,12 @@ export function App() {
     // Online presence is polled independently and is not authoritative player
     // save data. Preserve the freshest UI-only count when applying a server save.
     const onlinePlayers = stateRef.current?.onlinePlayers;
-    const appliedState = Number.isFinite(onlinePlayers)
-      ? { ...nextState, onlinePlayers }
-      : nextState;
+    const globalBoosters = stateRef.current?.globalBoosters;
+    const appliedState = {
+      ...nextState,
+      ...(Number.isFinite(onlinePlayers) ? { onlinePlayers } : {}),
+      ...(globalBoosters ? { globalBoosters } : {}),
+    };
     stateRef.current = appliedState;
     stateRevisionRef.current += 1;
     setState(appliedState);
@@ -625,6 +628,8 @@ export function App() {
       void getJson<GlobalBoosterSnapshot>('/api/global-boosters')
         .then(snapshot => {
           if (snapshot) {
+            const current = stateRef.current;
+            if (current) stateRef.current = { ...current, globalBoosters: snapshot };
             setState(prev => prev ? { ...prev, globalBoosters: snapshot } : prev);
           }
         })
