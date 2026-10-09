@@ -401,10 +401,10 @@ export function createApp() {
   // the advanced economy, social systems, and prestige layers appear.
   const featureForPath = (path: string): FeatureId | null => {
     if (path === '/upgrade' || path === '/upgrade/all') return 'upgrades';
-    if (path === '/products' || path === '/payments/reconcile') return 'shop';
+    if (path === '/products' || path === '/payments/reconcile' || path === '/cosmetics/buy') return 'shop';
     if (path === '/collection') return 'collection';
-    if (path === '/quests/claim') return 'quests';
-    if (path === '/boosters/activate' || path === '/automation/buy') return 'boosters';
+    if (path === '/quests/claim' || path === '/streak/claim') return 'quests';
+    if (path === '/boosters/activate' || path === '/automation/buy' || path === '/global-boosters/activate') return 'boosters';
     if (path === '/leaderboard' || path === '/guilds' || path.startsWith('/guilds/') ||
         path === '/social/visit' || path === '/online' || path === '/world-event' ||
         path.startsWith('/community/')) return 'social';
