@@ -271,3 +271,10 @@ test('roll action lock stays held until the queued roll mutation settles', () =>
   assert.match(handler, /finally\s*\{\s*rollActionLockRef\.current = false/);
   assert.doesNotMatch(handler, /void enqueueMutation\(async \(\) => \{/);
 });
+
+test('direct streak, global booster, and cosmetic endpoints use their feature gates', () => {
+  const app = source('src/server/app.ts');
+  assert.match(app, /path === '\/quests\/claim' \|\| path === '\/streak\/claim'\) return 'quests'/);
+  assert.match(app, /path === '\/global-boosters\/activate'\) return 'boosters'/);
+  assert.match(app, /path === '\/cosmetics\/buy'\) return 'shop'/);
+});
