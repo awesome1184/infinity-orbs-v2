@@ -2084,9 +2084,8 @@ export async function save(
         caller: saveCaller(),
       }, userId);
       // This request started before an admin wipe. Discard its stale mutation
-      // and adopt the fresh state already written by the wipe. Never let an
-      // old request resurrect pre-wipe data, and never strand the player with
-      // an avoidable invalidation error.
+      // Never let an old request resurrect pre-wipe data or report a
+      // mutation that was discarded because an admin wipe changed generation.
       await txn.unwatch();
       throw new Error('Your Infinity Orbs save was invalidated by an admin wipe. Please reload.');
     }

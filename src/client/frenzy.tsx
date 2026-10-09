@@ -38,19 +38,22 @@ function AnimatedRarity({ rarity, color }: { rarity: number; color: string }) {
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (reducedMotion.matches) {
+      setDisplay(rarity);
+      return;
+    }
+
     let frame = 0;
     const started = performance.now();
     const duration = 1200;
-
     const animate = (now: number) => {
       const progress = Math.min(1, (now - started) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
       const value = progress >= 1 ? rarity : Math.floor(rarity * eased);
       setDisplay(value);
-
       if (progress < 1) frame = window.requestAnimationFrame(animate);
     };
-
     setDisplay(0);
     frame = window.requestAnimationFrame(animate);
     return () => window.cancelAnimationFrame(frame);

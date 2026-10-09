@@ -967,6 +967,25 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
   }
 }
 // Community World Event System
+function assertValidCommunityEvent(event: WorldEvent): void {
+  if (!Number.isFinite(event.goal) || event.goal < 1 ||
+      !Number.isSafeInteger(event.currentProgress) || event.currentProgress < 0 ||
+      !Number.isSafeInteger(event.tier) || event.tier < 1 || event.tier > 1_000_000 ||
+      !Number.isFinite(event.buffMultiplier) || event.buffMultiplier < 1 || event.buffMultiplier > 10 ||
+      !Number.isFinite(event.endsAt)) {
+    throw new Error('Community event data is invalid. No changes were written.');
+  }
+}
+
+function parseCommunityEventForMutation(raw: unknown): WorldEvent {
+  if (raw == null) return { ...COMMUNITY_WORLD_EVENT };
+  const event = parseStoredJson<WorldEvent>(raw);
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    throw new Error('Community event data could not be read safely. No changes were written.');
+  }
+  assertValidCommunityEvent(event);
+  return event;
+}
 export async function getCommunityEvent(): Promise<WorldEvent> {
   const eventKey = COMMUNITY_EVENT_KEY;
   const tickKey = key('community_event_tick');
@@ -976,8 +995,7 @@ export async function getCommunityEvent(): Promise<WorldEvent> {
   const raw = await redis.get(eventKey);
 
   if (raw) {
-    const current = parseStoredJson<WorldEvent>(raw);
-    if (!current) return { ...COMMUNITY_WORLD_EVENT };
+    const current = parseCommunityEventForMutation(raw);
     const lastTickRaw = await redis.get(tickKey);
     const lastTick = lastTickRaw ? Number(lastTickRaw) : now;
     const currentWeekNumber = weekKey(now);
@@ -993,9 +1011,7 @@ export async function getCommunityEvent(): Promise<WorldEvent> {
     const latestTickRaw = await redis.get(tickKey);
     const latestNow = Date.now();
     const currentWeekNumber = weekKey(latestNow);
-    const ev: WorldEvent = latestRaw
-      ? parseStoredJson<WorldEvent>(latestRaw) ?? { ...COMMUNITY_WORLD_EVENT }
-      : { ...COMMUNITY_WORLD_EVENT };
+    const ev: WorldEvent = parseCommunityEventForMutation(latestRaw);
 
     if (ev.weekId !== currentWeekNumber || latestNow >= ev.endsAt) {
       ev.weekId = currentWeekNumber;
@@ -1025,7 +1041,8 @@ export async function getCommunityEvent(): Promise<WorldEvent> {
 }
 
 export async function addCommunityRolls(rolls: number): Promise<WorldEvent> {
-  const amount = Math.max(0, Math.floor(Number(rolls)));
+  const amount = Number(rolls);
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Community roll count is invalid.');
   await ensureRedisStringKey(COMMUNITY_EVENT_KEY, JSON.stringify(COMMUNITY_WORLD_EVENT));
   if (amount <= 0) return getCommunityEvent();
 
@@ -1034,9 +1051,7 @@ export async function addCommunityRolls(rolls: number): Promise<WorldEvent> {
     const raw = await redis.get(COMMUNITY_EVENT_KEY);
     const now = Date.now();
     const currentWeekNumber = weekKey(now);
-    const ev: WorldEvent = raw
-      ? parseStoredJson<WorldEvent>(raw) ?? { ...COMMUNITY_WORLD_EVENT }
-      : { ...COMMUNITY_WORLD_EVENT };
+    const ev: WorldEvent = parseCommunityEventForMutation(raw);
     if (ev.weekId !== currentWeekNumber || now >= ev.endsAt) {
       ev.id = `world-event-w${currentWeekNumber}`;
       ev.title = 'Weekly Community Milestone';
@@ -1052,6 +1067,7 @@ export async function addCommunityRolls(rolls: number): Promise<WorldEvent> {
       ev.weekId = currentWeekNumber;
     }
     ev.currentProgress += amount;
+    assertValidCommunityEvent(ev);
     while (ev.currentProgress >= ev.goal) {
       ev.completedTier = Math.max(ev.completedTier ?? 0, ev.tier || 1);
       ev.tier = (ev.tier || 1) + 1;
@@ -1059,6 +1075,7 @@ export async function addCommunityRolls(rolls: number): Promise<WorldEvent> {
       ev.buffMultiplier = Number((1.10 + Math.min(10, ev.tier) * 0.05).toFixed(2));
       ev.buffDescription = `+${Math.round((ev.buffMultiplier - 1) * 100)}% Global Luck Active`;
     }
+    assertValidCommunityEvent(ev);
 
     await txn.multi();
     await txn.set(COMMUNITY_EVENT_KEY, JSON.stringify(ev));
@@ -1076,15 +1093,19 @@ export async function setCommunityEventConfig(config: {
   buffMultiplier?: number;
   reset?: boolean;
 }): Promise<WorldEvent> {
+  if (config.goal !== undefined && (!Number.isSafeInteger(config.goal) || config.goal < 1)) throw new Error('Community event goal must be a positive safe integer.');
+  if (config.progress !== undefined && (!Number.isSafeInteger(config.progress) || config.progress < 0)) throw new Error('Community event progress must be a nonnegative safe integer.');
+  if (config.addRolls !== undefined && (!Number.isSafeInteger(config.addRolls) || config.addRolls < 0)) throw new Error('Community roll count must be a nonnegative safe integer.');
+  if (config.tier !== undefined && (!Number.isSafeInteger(config.tier) || config.tier < 1 || config.tier > 1_000_000)) throw new Error('Community event tier is invalid.');
+  if (config.buffMultiplier !== undefined && (!Number.isFinite(config.buffMultiplier) || config.buffMultiplier < 1 || config.buffMultiplier > 10)) throw new Error('Community event buff multiplier is invalid.');
+
   await ensureRedisStringKey(COMMUNITY_EVENT_KEY, JSON.stringify(COMMUNITY_WORLD_EVENT));
   for (let attempt = 0; attempt < 6; attempt++) {
     const txn = await redis.watch(COMMUNITY_EVENT_KEY);
     const raw = await redis.get(COMMUNITY_EVENT_KEY);
     const now = Date.now();
     const currentWeekNumber = weekKey(now);
-    const ev: WorldEvent = raw
-      ? parseStoredJson<WorldEvent>(raw) ?? { ...COMMUNITY_WORLD_EVENT }
-      : { ...COMMUNITY_WORLD_EVENT };
+    const ev: WorldEvent = parseCommunityEventForMutation(raw);
 
     if (ev.weekId !== currentWeekNumber || now >= ev.endsAt) {
       ev.weekId = currentWeekNumber;
@@ -1125,6 +1146,7 @@ export async function setCommunityEventConfig(config: {
   if (typeof config.addRolls === 'number' && config.addRolls > 0) {
     ev.currentProgress += config.addRolls;
   }
+  assertValidCommunityEvent(ev);
   while (ev.currentProgress >= ev.goal) {
     ev.completedTier = Math.max(ev.completedTier ?? 0, ev.tier || 1);
     ev.tier = (ev.tier || 1) + 1;
@@ -1132,6 +1154,7 @@ export async function setCommunityEventConfig(config: {
     ev.buffMultiplier = Number((1.10 + Math.min(10, ev.tier) * 0.05).toFixed(2));
     ev.buffDescription = `+${Math.round((ev.buffMultiplier - 1) * 100)}% Global Luck Active`;
   }
+    assertValidCommunityEvent(ev);
     await txn.multi();
     await txn.set(COMMUNITY_EVENT_KEY, JSON.stringify(ev));
     const committed = await txn.exec();
