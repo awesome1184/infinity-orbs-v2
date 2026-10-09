@@ -234,3 +234,11 @@ test('switching to reduced motion clears an in-flight same-Orb reveal state', ()
   const roll = source('src/client/components/RollSection.tsx');
   assert.match(roll, /if \(prevOrbRef\.current === lastOrb\)\s*\{[\s\S]*?if \(reducedMotion\)\s*\{\s*setIsRevealing\(false\);\s*setIsShaking\(false\);\s*setSonarPinging\(false\)/);
 });
+
+test('owned high-rarity Orbs remain shareable and render on the public entrypoint', () => {
+  const app = source('src/server/app.ts');
+  const splash = source('src/client/splash.tsx');
+  assert.match(app, /if \(!Number\.isInteger\(value\) \|\| value <= 0 \|\| \(s\.collection\[String\(value\)\] \?\? 0\) <= 0\)/);
+  assert.match(splash, /Number\.isInteger\(data\.rarity\) && Number\(data\.rarity\) > 0/);
+  assert.doesNotMatch(splash, /Number\.isSafeInteger\(data\.rarity\)/);
+});
