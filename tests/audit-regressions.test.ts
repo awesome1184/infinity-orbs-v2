@@ -260,3 +260,14 @@ test('feedback and notification dialogs remain scrollable on short viewports', (
   assert.match(feedback, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
   assert.match(main, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30/);
 });
+
+test('roll action lock stays held until the queued roll mutation settles', () => {
+  const main = source('src/client/main.tsx');
+  const start = main.indexOf('const handleRoll = useCallback(async (isAutoRoll = false) => {');
+  const end = main.indexOf('// Auto roll watcher', start);
+  assert.ok(start >= 0 && end > start, 'roll handler must exist');
+  const handler = main.slice(start, end);
+  assert.match(handler, /await enqueueMutation\(async \(\) => \{/);
+  assert.match(handler, /finally\s*\{\s*rollActionLockRef\.current = false/);
+  assert.doesNotMatch(handler, /void enqueueMutation\(async \(\) => \{/);
+});
