@@ -76,21 +76,53 @@ async function ensureRedisStringKey(keyName: string, fallback: string): Promise<
 function parseGuildList(raw: unknown): Guild[] {
   if (raw == null || raw === '') return [];
   const parsed = parseStoredJson<unknown>(raw);
-  if (!Array.isArray(parsed)) {
+  if (!Array.isArray(parsed) || !parsed.every(isGuildRowShape)) {
     throw new Error('Guild data could not be read safely. No changes were written.');
   }
-  return normalizeGuilds(parsed.filter(item => item && typeof item === 'object') as Guild[]);
+  return normalizeGuilds(parsed);
+}
+
+function isLeaderboardRowShape(value: unknown): value is LeaderboardEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.username === 'string' && row.username.trim().length > 0 &&
+    Number.isFinite(Number(row.value)) && Number(row.value) >= 0 &&
+    Number.isFinite(Number(row.highestRarity)) && Number(row.highestRarity) >= 0 &&
+    Number.isFinite(Number(row.totalRolls)) && Number(row.totalRolls) >= 0 &&
+    Number.isFinite(Number(row.level)) && Number(row.level) >= 1 &&
+    Number.isFinite(Number(row.sharedAt)) && Number(row.sharedAt) > 0 &&
+    (row.userId == null || typeof row.userId === 'string') &&
+    (row.playtimeMs == null || (Number.isFinite(Number(row.playtimeMs)) && Number(row.playtimeMs) >= 0)) &&
+    (row.highestDryStreak == null || (Number.isFinite(Number(row.highestDryStreak)) && Number(row.highestDryStreak) >= 0));
 }
 
 function parseLeaderboardList(raw: unknown): LeaderboardEntry[] {
   if (raw == null || raw === '') return [];
   const parsed = parseStoredJson<unknown>(raw);
-  if (!Array.isArray(parsed)) {
+  if (!Array.isArray(parsed) || !parsed.every(isLeaderboardRowShape)) {
     throw new Error('Leaderboard data could not be read safely. No changes were written.');
   }
-  return parsed.filter(item => item && typeof item === 'object') as LeaderboardEntry[];
+  return parsed;
 }
 const COMMUNITY_EVENT_KEY = key('community_event');
+
+function isGuildRowShape(value: unknown): value is Guild {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.id !== 'string' || !row.id ||
+    typeof row.name !== 'string' || !row.name ||
+    typeof row.tag !== 'string' || !row.tag ||
+    !Number.isFinite(Number(row.level)) ||
+    !Number.isFinite(Number(row.xp)) ||
+    !Number.isFinite(Number(row.tokens)) ||
+    !Array.isArray(row.members)
+  ) return false;
+  return row.members.every(member =>
+    Boolean(member) && typeof member === 'object' && !Array.isArray(member) &&
+    typeof (member as Record<string, unknown>).username === 'string'
+  );
+}
 
 function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
   const currentWeek = weekKey(now);
@@ -254,11 +286,11 @@ async function runGuildResetMigration(
     }
     const raw = await redis.get(GUILDS_KEY);
     const parsed = parseStoredJson<unknown>(raw);
-    if (!Array.isArray(parsed)) {
+    if (!Array.isArray(parsed) || !parsed.every(isGuildRowShape)) {
       await txn.unwatch();
       throw new Error('Guild data could not be read safely. No changes were written.');
     }
-    const guilds = normalizeGuilds(parsed.filter(item => item && typeof item === 'object') as Guild[]);
+    const guilds = normalizeGuilds(parsed);
     reset(guilds);
     await txn.multi();
     await txn.set(GUILDS_KEY, JSON.stringify(guilds));
@@ -330,10 +362,12 @@ async function loadGuilds(): Promise<Guild[]> {
   }
   const raw = await redis.get(GUILDS_KEY);
   const rawParsed = parseStoredJson<unknown>(raw);
-  const rawGuilds = Array.isArray(rawParsed)
-    ? rawParsed.filter(item => item && typeof item === 'object') as Guild[]
-    : [];
-  const guilds = normalizeGuilds(rawGuilds);
+  const rawGuilds = Array.isArray(rawParsed) ? rawParsed : [];
+  if (raw && (!Array.isArray(rawParsed) || !rawGuilds.every(isGuildRowShape))) {
+    console.error('[Guilds] Shared Guild data has invalid rows; preserving stored bytes.');
+    return [];
+  }
+  const guilds = normalizeGuilds(rawGuilds as Guild[]);
   const now = Date.now();
   const expiredCombo = rawGuilds.some(g => {
     const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
