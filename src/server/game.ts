@@ -1694,8 +1694,7 @@ export async function loadRaw(): Promise<PlayerState> {
       console.error('[Player Load] Daily Streak community projection is unavailable:', error.message);
       // Keep the corrupt global bytes untouched. This fallback is display-only;
       // the claim/progression API continues to fail closed until repaired.
-      const cached = raw ? parsePlayerStateValue(raw)?.dailyStreakCommunity : undefined;
-      return cached ?? createInitialDailyStreakCommunity();
+      return createInitialDailyStreakCommunity();
     }),
   ]);
 
