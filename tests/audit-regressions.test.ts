@@ -137,3 +137,12 @@ test('offline claim persists the reward before clearing reminders and does not f
   assert.match(claim, /void recordLeaderboard\(s\)\.catch/);
   assert.doesNotMatch(claim, /await recordLeaderboard\(s\)/);
 });
+
+test('roll celebrations respect the live reduced-motion preference', () => {
+  const roll = source('src/client/components/RollSection.tsx');
+  assert.match(roll, /window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)/);
+  assert.match(roll, /media\.addEventListener\('change', updatePreference\)/);
+  assert.match(roll, /lastOrb\.rarity >= 1000 && !reducedMotion/);
+  assert.match(roll, /if \(!reducedMotion\)\s*\{\s*confetti\(/);
+  assert.match(roll, /\[lastOrb, hasSonarUpgrade, instantRevealActive, hasInstantUpgrade, reducedMotion\]/);
+});
