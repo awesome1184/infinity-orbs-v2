@@ -447,3 +447,13 @@ test('CCU peak writes are WATCH-guarded and monotonic', () => {
   const updater = game.slice(start, end);
   assert.match(updater, /redis\.watch\(keyName\)[\s\S]*?candidate <= current[\s\S]*?txn\.unwatch\(\)[\s\S]*?txn\.set\(keyName, String\(candidate\)\)[\s\S]*?txn\.exec\(\)/);
 });
+
+test('shared Redis key initialization uses NX and cannot overwrite a concurrent value', () => {
+  const social = source('src/server/social.ts');
+  const start = social.indexOf('async function ensureRedisStringKey');
+  const end = social.indexOf('\nfunction parseGuildList', start);
+  assert.ok(start >= 0 && end > start);
+  const helper = social.slice(start, end);
+  assert.match(helper, /if \(existing == null\)[\s\S]*?redis\.set\(keyName, fallback, \{ nx: true \}\)/);
+  assert.doesNotMatch(helper, /redis\.set\(keyName, fallback\);/);
+});
