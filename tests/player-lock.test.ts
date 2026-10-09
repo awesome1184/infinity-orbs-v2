@@ -25,6 +25,7 @@ class SharedLockRedis implements PlayerMutationLockRedis {
   private readonly values = new Map<string, Entry>();
   private readonly revisions = new Map<string, number>();
   beforeGetReturn?: (key: string, value: string | null) => Promise<void>;
+  failNextWatch = false;
 
   private revision(key: string): number {
     return this.revisions.get(key) ?? 0;
@@ -75,6 +76,10 @@ class SharedLockRedis implements PlayerMutationLockRedis {
   }
 
   async watch(...keys: string[]): Promise<PlayerMutationLockTransaction> {
+    if (this.failNextWatch) {
+      this.failNextWatch = false;
+      throw new Error('simulated WATCH failure');
+    }
     for (const key of keys) this.read(key);
     const snapshot = new Map(keys.map(key => [key, this.revision(key)]));
     const staged: StagedCommand[] = [];
@@ -280,6 +285,40 @@ test('acquisition timeout releases local queue state for the next attempt', asyn
     ran = true;
   });
   assert.equal(ran, true);
+});
+
+test('release failure preserves callback errors and the local queue recovers after lease expiry', async () => {
+  const sharedRedis = new SharedLockRedis();
+  const runtime = newRuntime(sharedRedis, {
+    leaseTtlMs: 35,
+    acquisitionAttempts: 100,
+    retryDelayMs: 2,
+  });
+  const originalConsoleError = console.error;
+  // The failure is intentional; keep the test output focused on assertions.
+  console.error = (...args: unknown[]) => {
+    if (args[0] !== '[Player Mutation Lock] Lease cleanup failed; relying on expiry:') {
+      originalConsoleError(...args);
+    }
+  };
+
+  try {
+    await assert.rejects(
+      runtime.withPlayerMutationLockFor('release-failure-player', async () => {
+        sharedRedis.failNextWatch = true;
+        throw new Error('original callback error');
+      }),
+      /original callback error/,
+    );
+
+    let ranAfterExpiry = false;
+    await runtime.withPlayerMutationLockFor('release-failure-player', async () => {
+      ranAfterExpiry = true;
+    });
+    assert.equal(ranAfterExpiry, true);
+  } finally {
+    console.error = originalConsoleError;
+  }
 });
 
 test('local Redis mock honors SET NX and Date-based expiration', async () => {
