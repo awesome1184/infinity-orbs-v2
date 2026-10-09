@@ -193,3 +193,10 @@ test('daily streak community progression validates stored goal before looping', 
   assert.match(social, /isValidDailyStreakCommunityEvent\(parsed\) \? parsed : createInitialDailyStreakCommunity\(now\)/);
   assert.match(social, /while \(event\.currentProgress >= event\.goal\)/);
 });
+
+test('new Orb reveal cancels the previous screen-shake timer', () => {
+  const roll = source('src/client/components/RollSection.tsx');
+  assert.match(roll, /let shakeTimer: number \| null = null/);
+  assert.match(roll, /shakeTimer = window\.setTimeout\(\(\) => setIsShaking\(false\), 450\)/);
+  assert.match(roll, /if \(shakeTimer !== null\) window\.clearTimeout\(shakeTimer\)/);
+});
