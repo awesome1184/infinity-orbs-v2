@@ -1806,6 +1806,14 @@ function applyQuestReward(s: PlayerState, quest: { rewardCoins: number; rewardSh
 
 async function claimDailyStreakFromState(s: PlayerState): Promise<{ rewardCoins: number; rewardShards: number; rewardFreeRolls: number; day: number; community: import('../shared/game.js').DailyStreakCommunityEvent }> {
   const today = new Date().toISOString().slice(0, 10);
+  if (
+    !Number.isSafeInteger(s.streak.count) ||
+    s.streak.count < 0 ||
+    !Number.isSafeInteger(s.streak.longestStreak) ||
+    s.streak.longestStreak < 0
+  ) {
+    throw new Error('Daily streak data is invalid. Please retry later.');
+  }
   if (s.streak.lastClaimDate === today) throw new Error('Already claimed daily reward for today.');
 
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
