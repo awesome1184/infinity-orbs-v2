@@ -40,15 +40,16 @@ test('mock WATCH detects ABA writes instead of comparing only final values', asy
 
 test('mock SET NX and expiration behave like the Redis lock contract', async () => {
   const key = uniqueKey('lease');
+  const expiredKey = uniqueKey('expired');
   const first = await redis.set(key, 'owner-a', {
     nx: true,
-    expiration: new Date(Date.now() + 25),
+    expiration: new Date(Date.now() + 60_000),
   });
   const second = await redis.set(key, 'owner-b', { nx: true });
   assert.equal(first, 'OK');
   assert.notEqual(second, 'OK');
   assert.equal(await redis.get(key), 'owner-a');
 
-  await new Promise(resolve => setTimeout(resolve, 40));
-  assert.equal(await redis.get(key), null);
+  await redis.set(expiredKey, 'stale', { expiration: new Date(Date.now() - 1) });
+  assert.equal(await redis.get(expiredKey), null);
 });
