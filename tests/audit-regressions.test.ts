@@ -264,11 +264,19 @@ test('polled UI-only state survives optimistic and authoritative player-state up
   assert.match(main, /setState\(appliedState\)/);
 });
 
-test('feedback and notification dialogs remain scrollable on short viewports', () => {
+test('all long-form dialogs remain scrollable on short viewports', () => {
   const feedback = source('src/client/components/FeedbackModal.tsx');
   const main = source('src/client/main.tsx');
+  const share = source('src/client/components/RedditShareModal.tsx');
+  const best = source('src/client/components/NewBestModal.tsx');
+  const rarity = source('src/client/components/RarityTableModal.tsx');
+  const changelog = source('src/client/components/ChangelogModal.tsx');
   assert.match(feedback, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
   assert.ok(main.includes('max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30'));
+  assert.match(share, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
+  assert.equal((best.match(/max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/g) ?? []).length, 2);
+  assert.match(rarity, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
+  assert.match(changelog, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
 });
 
 test('roll action lock stays held until the queued roll mutation settles', () => {
