@@ -202,3 +202,13 @@ test('new Orb reveal cancels the previous screen-shake timer', () => {
   assert.match(roll, /shakeTimer = window\.setTimeout\(\(\) => setIsShaking\(false\), 450\)/);
   assert.match(roll, /if \(shakeTimer !== null\) window\.clearTimeout\(shakeTimer\)/);
 });
+
+test('feedback modal exposes dialog semantics and a keyboard close path', () => {
+  const modal = source('src/client/components/FeedbackModal.tsx');
+  assert.match(modal, /role="dialog"/);
+  assert.match(modal, /aria-modal="true"/);
+  assert.match(modal, /aria-labelledby="feedback-modal-title"/);
+  assert.match(modal, /event\.key === 'Escape' && !busy/);
+  assert.match(modal, /window\.removeEventListener\('keydown', handleKeyDown\)/);
+  assert.match(modal, /aria-label=\{type === 'bug' \? 'Describe the bug' : 'Describe your suggestion'\}/);
+});
