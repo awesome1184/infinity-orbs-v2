@@ -39,12 +39,19 @@ function AnimatedRarity({ rarity, color }: { rarity: number; color: string }) {
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0;
+    const handleMotionPreference = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        window.cancelAnimationFrame(frame);
+        setDisplay(rarity);
+      }
+    };
+    reducedMotion.addEventListener('change', handleMotionPreference);
     if (reducedMotion.matches) {
       setDisplay(rarity);
-      return;
+      return () => reducedMotion.removeEventListener('change', handleMotionPreference);
     }
 
-    let frame = 0;
     const started = performance.now();
     const duration = 1200;
     const animate = (now: number) => {
@@ -56,7 +63,10 @@ function AnimatedRarity({ rarity, color }: { rarity: number; color: string }) {
     };
     setDisplay(0);
     frame = window.requestAnimationFrame(animate);
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      reducedMotion.removeEventListener('change', handleMotionPreference);
+    };
   }, [rarity]);
 
   return (
