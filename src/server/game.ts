@@ -3132,14 +3132,26 @@ export async function claimOffline(): Promise<RollResponse> {
   if (s.offlineRolls <= 0) throw new Error('No offline rolls waiting.');
   const batches = s.offlineRolls;
   s.offlineRolls = 0;
-  await redis.del(OFFLINE_FULL_NOTIFICATION_PREFIX + currentUserId());
-  await redis.del(OFFLINE_FULL_JOB_PREFIX + currentUserId());
   const { bestOrb, batch, totalVal, coinsGained, shardsGained, xpGained, rollCount } = await applyRolls(s, batches, undefined, 'offline');
   const now = Date.now();
   s.lastRollAt = now;
   s.lastSeenAt = now;
+  // Persist the claim before deleting its reminder/job. If the player save
+  // fails, the original offline-roll balance and notification remain intact.
   await save(s);
-  await recordLeaderboard(s);
+  await Promise.all([
+    redis.del(OFFLINE_FULL_NOTIFICATION_PREFIX + currentUserId()).catch(error => {
+      console.error('[Offline Rolls] Could not clear full notification:', error);
+    }),
+    redis.del(OFFLINE_FULL_JOB_PREFIX + currentUserId()).catch(error => {
+      console.error('[Offline Rolls] Could not clear scheduled job:', error);
+    }),
+  ]);
+  // Leaderboard is a projection, not part of the durable roll claim. A failure
+  // here must not report the already-committed reward as a failed claim.
+  void recordLeaderboard(s).catch(error => {
+    console.error('[Offline Rolls] Leaderboard update failed:', error);
+  });
 
   return {
     orb: bestOrb,
