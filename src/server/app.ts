@@ -74,7 +74,7 @@ import {
 import { context, reddit, redis } from './devvit-mock.js';
 import { withPlayerMutationLock } from './player-lock.js';
 import * as devvitServer from '@devvit/web/server';
-import { PURCHASE_PACKS, spendShards, FEATURE_UNLOCK_LEVELS, calculateLevelFromXp, formatRarity, MASTERY_SKILLS, type FeatureId } from '../shared/game.js';
+import { PURCHASE_PACKS, spendShards, FEATURE_UNLOCK_LEVELS, calculateLevelFromXp, formatRarity, MAX_ORB_RARITY, MASTERY_SKILLS, type FeatureId } from '../shared/game.js';
 import { APP_VERSION } from '../shared/version.js';
 
 const payments = (devvitServer as typeof devvitServer & {
@@ -1170,7 +1170,7 @@ export function createApp() {
       await withPlayerMutationLock(async () => {
       const s = await settleOffline(await loadRaw());
       const value = Number(req.body?.rarity);
-      if (!Number.isInteger(value) || value <= 0 || (s.collection[String(value)] ?? 0) <= 0) {
+      if (!Number.isInteger(value) || value <= 0 || value > MAX_ORB_RARITY || (s.collection[String(value)] ?? 0) <= 0) {
         return res.status(400).json({ error: 'You can only share an orb you actually own.' });
       }
       if (s.lastShareAt && Date.now() - s.lastShareAt < 30_000) {
