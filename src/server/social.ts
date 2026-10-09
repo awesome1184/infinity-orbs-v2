@@ -1582,7 +1582,11 @@ export async function addDailyStreakCommunityProgress(amount: number): Promise<D
     const now = Date.now();
     const currentWeek = weekKey(now);
     const parsed = parseStoredJson<unknown>(raw);
-    let event = isValidDailyStreakCommunityEvent(parsed) ? parsed : createInitialDailyStreakCommunity(now);
+    if (raw != null && raw !== '' && !isValidDailyStreakCommunityEvent(parsed)) {
+      await txn.unwatch();
+      throw new Error('Stored Daily Streak event is invalid. Please retry later.');
+    }
+    let event = raw == null || raw === '' ? createInitialDailyStreakCommunity(now) : parsed as DailyStreakCommunityEvent;
     if (event.weekId !== currentWeek || now >= event.endsAt) {
       event = createInitialDailyStreakCommunity(now);
       event.id = `daily-streak-w${currentWeek}`;
