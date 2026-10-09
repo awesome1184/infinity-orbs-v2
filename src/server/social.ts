@@ -1338,8 +1338,8 @@ async function submitChatReport(
     `**Sent:** ${new Date(Number(message.timestamp) || Date.now()).toISOString()}`,
     '',
     '**Reported message:**',
-    ...String(message.text ?? '').split('\\n').map(line => `> ${line}`),
-  ].join('\\n');
+    ...String(message.text ?? '').split(/\r?\n/).map(line => `> ${line}`),
+  ].join('\n');
 
   await reddit.modMail.createModInboxConversation({
     subredditId,
