@@ -343,9 +343,15 @@ export function App() {
       appliedServerRevisionRef.current = nextServerRevision;
     }
 
-    stateRef.current = nextState;
+    // Online presence is polled independently and is not authoritative player
+    // save data. Preserve the freshest UI-only count when applying a server save.
+    const onlinePlayers = stateRef.current?.onlinePlayers;
+    const appliedState = Number.isFinite(onlinePlayers)
+      ? { ...nextState, onlinePlayers }
+      : nextState;
+    stateRef.current = appliedState;
     stateRevisionRef.current += 1;
-    setState(nextState);
+    setState(appliedState);
   }, []);
   // Mutations are optimistic on the client: update the visible state immediately,
   // then let the server verify/save it. Rejections restore the exact prior state.
@@ -636,6 +642,8 @@ export function App() {
     const presenceInterval = setInterval(() => {
       void getJson<{ onlinePlayers: number }>('/api/online')
         .then(({ onlinePlayers }) => {
+          const current = stateRef.current;
+          if (current) stateRef.current = { ...current, onlinePlayers };
           setState(prev => prev ? { ...prev, onlinePlayers } : prev);
         })
         .catch(() => null);
