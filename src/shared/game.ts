@@ -1130,7 +1130,7 @@ export function rollContinuum(luck: number, random: () => number = Math.random):
     ? Math.min(1 - Number.EPSILON, Math.max(1 / 18_446_744_073_709_551_616, sample))
     : 0.5;
   const rarity = Math.floor((1 / u) * luckRarityFactor(luck));
-  return Math.min(1_000_000_000_000_000_000, Math.max(2, rarity));
+  return Math.min(MAX_ORB_RARITY, Math.max(2, rarity));
 }
 
 export interface ContinuumTierMilestone {
@@ -1162,6 +1162,8 @@ export const CONTINUUM_TIERS: ContinuumTierMilestone[] = [
   { tier: 'Beyond', minRarity: 10000000000000000, label: rarityRangeLabel(10000000000000000, 99999999999999999), approxChance: '~0.000000000000009%', coinsPerOrb: `${formatNumber(10000000000000000)} - ${formatNumber(99999999999999999)} Coins`, color: '#8b5cf6' },
   { tier: 'Endless', minRarity: 100000000000000000, label: `1 / ${formatRarity(100000000000000000)}+`, approxChance: '~0.0000000000000009%', coinsPerOrb: `${formatNumber(100000000000000000)}+ Coins`, color: '#f1f5f9' },
 ];
+
+export const MAX_ORB_RARITY = 1_000_000_000_000_000_000;
 
 export const CONTINUUM_DISCOVERY_UNLOCK_RARITY = 9;
 
