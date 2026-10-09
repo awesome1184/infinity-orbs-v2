@@ -2,7 +2,7 @@ import { requestExpandedMode, context } from '@devvit/web/client';
 import { createRoot } from 'react-dom/client';
 import type { ReactNode } from 'react';
 import { ArrowRight, BookOpen, Orbit, Share2, Trophy } from 'lucide-react';
-import { getOrbInfo, formatNumber, formatRarity } from '../shared/game.js';
+import { getOrbInfo, formatNumber, formatRarity, MAX_ORB_RARITY } from '../shared/game.js';
 import './styles.css';
 
 type SharedOrbPostData = {
@@ -41,7 +41,7 @@ function PublicShell({ children, compact = false }: { children: ReactNode; compa
 }
 
 function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
-  const rarity = Number.isInteger(data.rarity) && Number(data.rarity) > 0 ? Number(data.rarity) : 0;
+  const rarity = Number.isInteger(data.rarity) && Number(data.rarity) > 0 && Number(data.rarity) <= MAX_ORB_RARITY ? Number(data.rarity) : 0;
   const info = rarity > 0 ? getOrbInfo(rarity) : null;
   const username = String(data.username ?? '').trim().replace(/^u\//i, '') || 'a player';
   const totalRolls = Math.max(0, Math.floor(Number(data.totalRolls ?? 0)));
