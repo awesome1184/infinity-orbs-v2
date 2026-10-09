@@ -317,6 +317,14 @@ async function updateGuilds<T>(mutator: (guilds: Guild[]) => Promise<T> | T): Pr
 
 
 async function loadGuilds(): Promise<Guild[]> {
+  try {
+    await ensureGuildMigrations();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('Guild data could not be read safely.')) throw error;
+    // A corrupt shared Guild key must not overwrite the stored bytes or block
+    // core player loading. Reads return an empty projection; mutations fail closed.
+    console.error('[Guilds] Shared Guild data is unavailable:', error.message);
+  }
   const raw = await redis.get(GUILDS_KEY);
   const rawParsed = parseStoredJson<unknown>(raw);
   const rawGuilds = Array.isArray(rawParsed)
@@ -329,15 +337,6 @@ async function loadGuilds(): Promise<Guild[]> {
     const endsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
     return tier > 0 && endsAt > 0 && endsAt <= now;
   });
-
-  try {
-    await ensureGuildMigrations();
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.startsWith('Guild data could not be read safely.')) throw error;
-    // A corrupt shared Guild key must not overwrite the stored bytes or block
-    // core player loading. Reads return an empty projection; mutations fail closed.
-    console.error('[Guilds] Shared Guild data is unavailable:', error.message);
-  }
 
   if (expiredCombo) {
     // Persist the expiry reset so a later read cannot resurrect the old task tiers.
