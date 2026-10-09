@@ -2062,13 +2062,20 @@ export function App() {
         </div>
       )}
 
+      {/* Persistent live region exists before its message changes. */}
+      <div
+        className="sr-only"
+        role={toast?.type === 'warn' ? 'alert' : 'status'}
+        aria-live={toast?.type === 'warn' ? 'assertive' : 'polite'}
+        aria-atomic="true"
+      >
+        {toast?.msg ?? ''}
+      </div>
+
       {/* Ephemeral Toast Banner */}
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5 duration-300">
           <div
-            role={toast.type === 'warn' ? 'alert' : 'status'}
-            aria-live={toast.type === 'warn' ? 'assertive' : 'polite'}
-            aria-atomic="true"
             className={`px-4 py-3 rounded-2xl text-xs font-bold shadow-2xl border flex items-center gap-2 ${
               toast.type === 'success'
                 ? 'bg-slate-900 border-emerald-500/50 text-emerald-300 shadow-emerald-950/50'
