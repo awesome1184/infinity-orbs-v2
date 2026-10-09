@@ -1994,9 +1994,12 @@ export async function getRollTicket(): Promise<{
 
     if (
       current &&
-      current.id &&
+      typeof current.id === 'string' &&
+      current.id.length > 0 &&
+      Number.isSafeInteger(current.nextIndex) &&
       current.nextIndex >= 0 &&
       current.nextIndex < ROLL_TICKET_COUNT &&
+      Number.isSafeInteger(current.expiresAt) &&
       current.expiresAt > now
     ) {
       await txn.unwatch();
@@ -2037,7 +2040,16 @@ async function loadRollTicketForUse(
   const raw = await redis.get(rollTicketKey());
   const ticket = parseStoredJson<RollTicket>(raw);
 
-  if (!raw || !ticket) throw new Error('Roll prediction ticket is unavailable. Refresh the game.');
+  if (
+    !raw ||
+    !ticket ||
+    typeof ticket.id !== 'string' ||
+    ticket.id.length === 0 ||
+    !Number.isSafeInteger(ticket.nextIndex) ||
+    !Number.isSafeInteger(ticket.expiresAt)
+  ) {
+    throw new Error('Roll prediction ticket is unavailable. Refresh the game.');
+  }
   if (ticket.id !== ticketId) throw new Error('Roll prediction ticket is stale. Refresh the game.');
   if (ticket.expiresAt <= Date.now()) throw new Error('Roll prediction ticket expired. Refresh the game.');
   if (ticketIndex !== ticket.nextIndex) throw new Error('Roll prediction ticket is out of order. Refresh the game.');
