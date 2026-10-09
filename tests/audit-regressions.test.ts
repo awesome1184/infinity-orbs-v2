@@ -355,3 +355,10 @@ test('Frenzy rarity count-up cancels when reduced motion is enabled mid-animatio
   assert.match(frenzy, /if \(event\.matches\)\s*\{\s*window\.cancelAnimationFrame\(frame\);\s*setDisplay\(rarity\)/);
   assert.match(frenzy, /reducedMotion\.removeEventListener\('change', handleMotionPreference\)/);
 });
+
+test('malformed shared-Orb post data falls back instead of rendering a blank entrypoint', () => {
+  const splash = source('src/client/splash.tsx');
+  assert.match(splash, /postData\.type === 'shared-orb' && Number\.isInteger\(postData\.rarity\) && postData\.rarity > 0 && postData\.rarity <= MAX_ORB_RARITY/);
+  assert.match(splash, /if \(!info\) return null/);
+  assert.match(splash, /return <SharedOrbPost data=\{postData\} \/>/);
+});
