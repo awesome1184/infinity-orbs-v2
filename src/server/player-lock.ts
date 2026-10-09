@@ -21,6 +21,25 @@ function randomUint32(): number {
   return sample[0];
 }
 
+async function releaseOwnedLock(lockKey: string, token: string): Promise<void> {
+  // WATCH + MULTI/EXEC makes ownership verification and deletion atomic. A lease
+  // may expire/reacquire between GET and EXEC; in that case EXEC returns null
+  // and this loop re-reads the owner instead of deleting someone else's lease.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const txn = await redis.watch(lockKey);
+    const currentOwner = await redis.get(lockKey);
+    if (currentOwner !== token) {
+      await txn.unwatch();
+      return;
+    }
+    await txn.multi();
+    await txn.del(lockKey);
+    const committed = await txn.exec();
+    if (committed !== null) return;
+  }
+}
+
+
 export async function withPlayerMutationLockFor<T>(
   userId: string,
   fn: () => Promise<T>,
@@ -54,10 +73,11 @@ export async function withPlayerMutationLockFor<T>(
         try {
           return await fn();
         } finally {
-          const currentOwner = await redis.get(lockKey);
-          if (currentOwner === token) {
-            await redis.del(lockKey);
-          }
+          // A failed cleanup must not replace the callback's result/error. The
+          // lease expires naturally if Redis is temporarily unavailable.
+          await releaseOwnedLock(lockKey, token).catch(error => {
+            console.error('[Player Mutation Lock] Could not release owned lease:', error);
+          });
         }
       }
 
