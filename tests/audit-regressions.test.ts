@@ -386,9 +386,10 @@ test('chat report Modmail uses actual Markdown newlines', () => {
   assert.ok(social.includes("].join('\\n')"));
 });
 
-test('global toast exposes live status and alert semantics', () => {
+test('global toast uses a persistent live region for announcements', () => {
   const main = source('src/client/main.tsx');
-  assert.match(main, /role=\{toast\.type === 'warn' \? 'alert' : 'status'\}/);
-  assert.match(main, /aria-live=\{toast\.type === 'warn' \? 'assertive' : 'polite'\}/);
-  assert.match(main, /aria-atomic="true"/);
+  assert.match(main, /className="sr-only"[\s\S]*?role=\{toast\?\.type === 'warn' \? 'alert' : 'status'\}/);
+  assert.match(main, /aria-live=\{toast\?\.type === 'warn' \? 'assertive' : 'polite'\}/);
+  assert.match(main, /aria-atomic="true"[\s\S]*?\{toast\?\.msg \?\? ''\}/);
+  assert.doesNotMatch(main, /\{toast && \([\s\S]*?role=\{toast\.type === 'warn'/);
 });
