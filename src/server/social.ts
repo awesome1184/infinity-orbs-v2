@@ -275,41 +275,55 @@ async function loadGuilds(): Promise<Guild[]> {
   });
 
   // One-time update migration: reset every Guild Upgrade rank to its base value.
-  // The migration key ensures newly purchased upgrades are never wiped on later reads.
+  // A shared lock plus a fresh marker check prevents a request that observed the
+  // old missing marker from running this destructive migration a second time.
   const upgradeResetDone = await redis.get(GUILD_UPGRADE_RESET_KEY);
   if (!upgradeResetDone && guilds.length > 0) {
-    await updateGuilds(current => {
-      for (const guild of current) {
-        guild.perks = {
-          luckRank: 0,
-          speedRank: 0,
-          vaultRank: 0,
-          shardRank: 0,
-          critRank: 0,
-          coinRank: 0,
-          memberCapacityRank: 0,
-          tokenYieldRank: 0,
-          taskBountyRank: 0,
-          comboRank: 0,
-          guildXpRank: 0,
-        };
-      }
-      return current;
+    const migrated = await withPlayerMutationLockFor('__guild-upgrade-reset-migration__', async () => {
+      if (await redis.get(GUILD_UPGRADE_RESET_KEY)) return false;
+      const latestGuilds = parseGuildList(await redis.get(GUILDS_KEY));
+      if (latestGuilds.length === 0) return false;
+      await updateGuilds(current => {
+        for (const guild of current) {
+          guild.perks = {
+            luckRank: 0,
+            speedRank: 0,
+            vaultRank: 0,
+            shardRank: 0,
+            critRank: 0,
+            coinRank: 0,
+            memberCapacityRank: 0,
+            tokenYieldRank: 0,
+            taskBountyRank: 0,
+            comboRank: 0,
+            guildXpRank: 0,
+          };
+        }
+        return current;
+      });
+      await redis.set(GUILD_UPGRADE_RESET_KEY, '1');
+      return true;
     });
-    await redis.set(GUILD_UPGRADE_RESET_KEY, '1');
-    return parseGuildList(await redis.get(GUILDS_KEY));
+    if (migrated) return parseGuildList(await redis.get(GUILDS_KEY));
   }
 
   // One-time economy migration: clear all existing Guild Token treasury balances.
-  // The migration key prevents future loads from deleting newly earned task tokens.
+  // Serialize the migration and re-check its marker after acquiring the lock so
+  // a delayed request cannot erase tokens earned after another request migrated.
   const resetDone = await redis.get(GUILD_TOKEN_RESET_KEY);
   if (!resetDone && guilds.length > 0) {
-    await updateGuilds(current => {
-      for (const guild of current) guild.tokens = 0;
-      return current;
+    const migrated = await withPlayerMutationLockFor('__guild-token-reset-migration__', async () => {
+      if (await redis.get(GUILD_TOKEN_RESET_KEY)) return false;
+      const latestGuilds = parseGuildList(await redis.get(GUILDS_KEY));
+      if (latestGuilds.length === 0) return false;
+      await updateGuilds(current => {
+        for (const guild of current) guild.tokens = 0;
+        return current;
+      });
+      await redis.set(GUILD_TOKEN_RESET_KEY, '1');
+      return true;
     });
-    await redis.set(GUILD_TOKEN_RESET_KEY, '1');
-    return parseGuildList(await redis.get(GUILDS_KEY));
+    if (migrated) return parseGuildList(await redis.get(GUILDS_KEY));
   }
 
   if (expiredCombo) {
