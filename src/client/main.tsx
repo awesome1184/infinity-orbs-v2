@@ -2108,7 +2108,7 @@ export function App() {
 
       {showNotificationPrompt && !notificationsEnabled && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-3xl border border-fuchsia-500/30 bg-slate-900 p-6 shadow-2xl">
+          <div className="w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30 bg-slate-900 p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[10px] uppercase tracking-wider font-black text-fuchsia-300">Notification Setup</div>
