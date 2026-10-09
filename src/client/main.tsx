@@ -664,7 +664,13 @@ export function App() {
       for (let attempt = 0; attempt < 12; attempt++) {
         try {
           const handoff = await getJson<{ armed: boolean }>('/api/frenzy/handoff');
-          if (!handoff.armed) return;
+          if (!handoff.armed) {
+            // Expansion is requested in the trusted click turn while the public
+            // page arms the handoff concurrently. A successful early read can
+            // legitimately race that POST, so retry this read-only check.
+            if (attempt < 11) await new Promise(resolve => window.setTimeout(resolve, 150));
+            continue;
+          }
 
           const info = await getJson<{
             rarity: number;
