@@ -266,7 +266,7 @@ test('feedback and notification dialogs remain scrollable on short viewports', (
   const feedback = source('src/client/components/FeedbackModal.tsx');
   const main = source('src/client/main.tsx');
   assert.match(feedback, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain/);
-  assert.match(main, /max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30/);
+  assert.ok(main.includes('max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-fuchsia-500/30'));
 });
 
 test('roll action lock stays held until the queued roll mutation settles', () => {
