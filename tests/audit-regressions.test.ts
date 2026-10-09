@@ -233,6 +233,8 @@ test('Guild migrations atomically commit resets with markers before normal write
   assert.match(migration, /const committed = await txn\.exec\(\)/);
   assert.match(update, /await ensureGuildMigrations\(\)/);
   assert.match(social, /Guild data could not be read safely\. No changes were written/);
+  assert.match(social, /parsed\.every\(isGuildRowShape\)/);
+  assert.match(social, /row\.members\.every\(member =>/);
 });
 
 test('switching to reduced motion clears an in-flight same-Orb reveal state', () => {
@@ -367,4 +369,6 @@ test('malformed legacy leaderboard data is not overwritten by an empty board', (
   const social = source('src/server/social.ts');
   assert.match(social, /Leaderboard data could not be read safely\. No changes were written/);
   assert.match(social, /legacyBoard = parseLeaderboardList\(legacyRaw\)[\s\S]*?rebuilding from player saves/);
+  assert.match(social, /parsed\.every\(isLeaderboardRowShape\)/);
+  assert.match(social, /typeof row\.username === 'string'[\s\S]*?Number\.isFinite\(Number\(row\.sharedAt\)\)/);
 });
