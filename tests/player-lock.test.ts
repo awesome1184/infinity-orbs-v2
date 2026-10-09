@@ -5,6 +5,7 @@ import {
   createPlayerMutationLockRuntime,
   withPlayerMutationLockFor,
   type PlayerMutationLockRedis,
+  type PlayerMutationLockRuntimeOptions,
   type PlayerMutationLockTransaction,
 } from '../src/server/player-lock.js';
 import { redis as mockRedis } from '../src/server/devvit-mock.js';
@@ -121,7 +122,7 @@ class SharedLockRedis implements PlayerMutationLockRedis {
   }
 }
 
-function newRuntime(redis: SharedLockRedis, options = {}) {
+function newRuntime(redis: SharedLockRedis, options: PlayerMutationLockRuntimeOptions = {}) {
   return createPlayerMutationLockRuntime(() => redis, () => undefined, {
     leaseTtlMs: 2_000,
     acquisitionAttempts: 100,
