@@ -385,3 +385,10 @@ test('chat report Modmail uses actual Markdown newlines', () => {
   assert.match(social, /String\(message\.text \?\? ''\)\.split\(\/\\r\?\\n\/\)/);
   assert.ok(social.includes("].join('\\n')"));
 });
+
+test('global toast exposes live status and alert semantics', () => {
+  const main = source('src/client/main.tsx');
+  assert.match(main, /role=\{toast\.type === 'warn' \? 'alert' : 'status'\}/);
+  assert.match(main, /aria-live=\{toast\.type === 'warn' \? 'assertive' : 'polite'\}/);
+  assert.match(main, /aria-atomic="true"/);
+});
