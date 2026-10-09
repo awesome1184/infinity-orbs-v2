@@ -177,7 +177,16 @@ export const RollSection: React.FC<RollSectionProps> = ({
   // Smooth or instant reveal on new roll
   useEffect(() => {
     if (!lastOrb) return;
-    if (prevOrbRef.current === lastOrb) return;
+    if (prevOrbRef.current === lastOrb) {
+      // A preference change reruns this effect for the same Orb. Cleanup may
+      // cancel an in-flight reveal timer, so clear its visual state explicitly.
+      if (reducedMotion) {
+        setIsRevealing(false);
+        setIsShaking(false);
+        setSonarPinging(false);
+      }
+      return;
+    }
     prevOrbRef.current = lastOrb;
 
     let revealTimer: number | null = null;
