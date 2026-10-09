@@ -12,7 +12,7 @@ export const RarityTableModal: React.FC<RarityTableModalProps> = ({ onClose, hig
   const visibleTiers = visibleContinuumTiers(highestRarity);
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-2xl w-full space-y-4 shadow-2xl relative max-h-[85vh] flex flex-col">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-2xl w-full space-y-4 shadow-2xl relative max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain flex flex-col">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
