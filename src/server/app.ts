@@ -400,13 +400,14 @@ export function createApp() {
   // Major systems unlock gradually so new players learn the core loop before
   // the advanced economy, social systems, and prestige layers appear.
   const featureForPath = (path: string): FeatureId | null => {
-    if (path === '/upgrade' || path === '/upgrade/all') return 'upgrades';
-    if (path === '/products' || path === '/payments/reconcile' || path === '/cosmetics/buy') return 'shop';
+    if (path === '/upgrade' || path === '/upgrade/all' || path === '/turbo/activate') return 'upgrades';
+    if (path === '/products' || path === '/payments/reconcile') return 'shop';
     if (path === '/collection') return 'collection';
     if (path === '/quests/claim' || path === '/streak/claim') return 'quests';
-    if (path === '/boosters/activate' || path === '/automation/buy' || path === '/global-boosters/activate') return 'boosters';
+    if (path === '/cosmetics/buy') return 'prestige';
+    if (path === '/boosters/activate' || path === '/automation/buy' || path === '/global-boosters/activate' || path === '/community/reward/claim') return 'boosters';
     if (path === '/leaderboard' || path === '/guilds' || path.startsWith('/guilds/') ||
-        path === '/social/visit' || path === '/online' || path === '/world-event' ||
+        path === '/social/visit' || path === '/world-event' || path === '/leaderboards' ||
         path.startsWith('/community/')) return 'social';
     if (path.startsWith('/altar/')) return 'altar';
     if (path.startsWith('/mastery/')) return 'mastery';
