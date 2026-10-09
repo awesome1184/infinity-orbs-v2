@@ -372,3 +372,10 @@ test('malformed legacy leaderboard data is not overwritten by an empty board', (
   assert.match(social, /parsed\.every\(isLeaderboardRowShape\)/);
   assert.match(social, /typeof row\.username === 'string'[\s\S]*?Number\.isFinite\(Number\(row\.sharedAt\)\)/);
 });
+
+test('removed Achievements feature has no mounted reward API routes', () => {
+  const app = source('src/server/app.ts');
+  assert.doesNotMatch(app, /app\.get\('\/api\/achievements'/);
+  assert.doesNotMatch(app, /app\.post\('\/api\/achievements\/claim'/);
+  assert.doesNotMatch(app, /\bachievements,\s*\n\s*claimAchievement,/);
+});
