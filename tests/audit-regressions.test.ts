@@ -185,3 +185,11 @@ test('Frenzy expanded-mode navigation rejection reaches the in-screen fallback',
   assert.match(handler, /catch\s*\{[\s\S]*?Finish the claim on this screen instead/);
   assert.match(handler, /fetch\('\/api\/frenzy\/claim'/);
 });
+
+test('daily streak community progression validates stored goal before looping', () => {
+  const social = source('src/server/social.ts');
+  assert.match(social, /function isValidDailyStreakCommunityEvent\(value: unknown\)/);
+  assert.match(social, /Number\.isSafeInteger\(event\.goal\)[\s\S]*?Number\(event\.goal\) > 0/);
+  assert.match(social, /isValidDailyStreakCommunityEvent\(parsed\) \? parsed : createInitialDailyStreakCommunity\(now\)/);
+  assert.match(social, /while \(event\.currentProgress >= event\.goal\)/);
+});
