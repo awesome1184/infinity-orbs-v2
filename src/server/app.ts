@@ -1170,7 +1170,7 @@ export function createApp() {
       await withPlayerMutationLock(async () => {
       const s = await settleOffline(await loadRaw());
       const value = Number(req.body?.rarity);
-      if (!Number.isSafeInteger(value) || value <= 0 || (s.collection[String(value)] ?? 0) <= 0) {
+      if (!Number.isInteger(value) || value <= 0 || (s.collection[String(value)] ?? 0) <= 0) {
         return res.status(400).json({ error: 'You can only share an orb you actually own.' });
       }
       if (s.lastShareAt && Date.now() - s.lastShareAt < 30_000) {
