@@ -1215,42 +1215,50 @@ interface PlayerRegistryEntry {
 }
 
 async function touchPlayerActivity(userId: string, username: string, now = Date.now()): Promise<number> {
-  let firstSeenAt = now;
-  let lastLoginAt = now;
-  let playtimeMs = 0;
+  // Keep the per-user registry read/modify/write serialized independently from
+  // the player-save lock so save() can call this without re-entering that lock.
+  return withPlayerMutationLockFor(`activity:${userId}`, async () => {
+    let firstSeenAt = now;
+    let lastLoginAt = now;
+    let playtimeMs = 0;
 
-  const existingRaw = await redis.hGet(PLAYER_REGISTRY_KEY, userId);
-  if (existingRaw) {
-    const existing = parseStoredJson<Partial<PlayerRegistryEntry>>(existingRaw);
-    firstSeenAt = Math.max(0, Number(existing?.firstSeenAt ?? now) || now);
+    const existingRaw = await redis.hGet(PLAYER_REGISTRY_KEY, userId);
+    let previousActivityAt = 0;
+    if (existingRaw) {
+      const existing = parseStoredJson<Partial<PlayerRegistryEntry>>(existingRaw);
+      firstSeenAt = Math.max(0, Number(existing?.firstSeenAt ?? now) || now);
+      previousActivityAt = Math.max(
+        0,
+        Number(existing?.lastActivityAt ?? existing?.lastSeenAt ?? 0) || 0,
+      );
+      const previousPlaytimeMs = Math.max(0, Number(existing?.playtimeMs ?? 0) || 0);
+      const activityAt = Math.max(now, Date.now(), previousActivityAt);
+      const activityDelta = previousActivityAt > 0
+        ? Math.min(PLAYTIME_ACTIVE_GAP_MS, Math.max(0, activityAt - previousActivityAt))
+        : 0;
 
-    const previousActivityAt = Math.max(
-      0,
-      Number(existing?.lastActivityAt ?? existing?.lastSeenAt ?? 0) || 0,
-    );
-    const previousPlaytimeMs = Math.max(0, Number(existing?.playtimeMs ?? 0) || 0);
-    const activityDelta = previousActivityAt > 0
-      ? Math.min(PLAYTIME_ACTIVE_GAP_MS, Math.max(0, now - previousActivityAt))
-      : 0;
-
-    playtimeMs = previousPlaytimeMs + activityDelta;
-    if (now - previousActivityAt <= PLAYTIME_ACTIVE_GAP_MS && Number(existing?.lastLoginAt ?? 0) > 0) {
-      lastLoginAt = Number(existing?.lastLoginAt);
+      playtimeMs = previousPlaytimeMs + activityDelta;
+      if (activityAt - previousActivityAt <= PLAYTIME_ACTIVE_GAP_MS && Number(existing?.lastLoginAt ?? 0) > 0) {
+        lastLoginAt = Number(existing?.lastLoginAt);
+      }
+      now = activityAt;
+    } else {
+      now = Math.max(now, Date.now());
     }
-  }
 
-  await redis.hSet(PLAYER_REGISTRY_KEY, {
-    [userId]: JSON.stringify({
-      username: String(username).trim().slice(0, 100),
-      firstSeenAt,
-      lastSeenAt: now,
-      lastLoginAt,
-      lastActivityAt: now,
-      playtimeMs,
-    } satisfies PlayerRegistryEntry),
+    await redis.hSet(PLAYER_REGISTRY_KEY, {
+      [userId]: JSON.stringify({
+        username: String(username).trim().slice(0, 100),
+        firstSeenAt,
+        lastSeenAt: now,
+        lastLoginAt,
+        lastActivityAt: now,
+        playtimeMs,
+      } satisfies PlayerRegistryEntry),
+    });
+
+    return playtimeMs;
   });
-
-  return playtimeMs;
 }
 
 async function registerPlayer(userId: string, username: string): Promise<void> {
