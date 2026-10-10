@@ -96,3 +96,27 @@ test('malformed stored Frenzy cooldown timestamps cannot bypass owner/claim limi
   assert.match(loader, /lastFrenzyAt:\s*[^,\n]*normalize|lastFrenzyAt:\s*finiteNonNegativeInteger/);
   assert.match(loader, /lastFrenzyClaimAt:\s*[^,\n]*normalize|lastFrenzyClaimAt:\s*finiteNonNegativeInteger/);
 });
+
+
+test('malformed lastShareAt cannot bypass the anti-spam guard before a Reddit post', () => {
+  const game = source('src/server/game.ts');
+  const loadStart = game.indexOf('export async function loadRaw');
+  const loadEnd = game.indexOf('\nfunction applyXp', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'loadRaw boundary must exist');
+  const loader = game.slice(loadStart, loadEnd);
+  assert.match(
+    loader,
+    /lastShareAt:\s*[^,\n]*finiteNonNegativeInteger/,
+    'lastShareAt must be sanitized before the API uses its cooldown',
+  );
+
+  const shareStart = game.indexOf('export async function recordShareAction');
+  const shareEnd = game.indexOf('\nexport async function ', shareStart + 1);
+  assert.ok(shareStart >= 0 && shareEnd > shareStart, 'recordShareAction boundary must exist');
+  const share = game.slice(shareStart, shareEnd);
+  assert.match(
+    share,
+    /Number\.isSafeInteger\(s\.lastShareAt\)[\s\S]*?30_000/,
+    'share cooldown must fail closed for a malformed timestamp',
+  );
+});
