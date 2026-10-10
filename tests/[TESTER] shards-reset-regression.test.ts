@@ -66,3 +66,26 @@ test('player snapshots reject older generations/revisions and same-revision Shar
     /nextServerRevision === appliedServerRevisionRef\.current[\s\S]*?\(nextState\.shards \?\? 0\) !== \(currentState\.shards \?\? 0\)/,
   );
 });
+
+test('server snapshots normalize legacy missing revisions and reject malformed revision types', () => {
+  const game = source('src/server/game.ts');
+  const parserStart = game.indexOf('function parsePlayerStateValue');
+  const parserEnd = game.indexOf('\nfunction parsePaymentPlayerState', parserStart);
+  assert.ok(parserStart >= 0 && parserEnd > parserStart, 'player state parser must exist');
+  const parser = game.slice(parserStart, parserEnd);
+  assert.match(
+    parser,
+    /record\.stateRevision == null[\s\S]*?Number\.isSafeInteger\(record\.stateRevision\)/,
+  );
+
+  const loadStart = game.indexOf('export async function loadRaw');
+  const loadEnd = game.indexOf('export async function getState', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'loadRaw function must exist');
+  const loader = game.slice(loadStart, loadEnd);
+  assert.match(loader, /s\.stateRevision = 0;/);
+  assert.match(loader, /fresh\.stateRevision = 0;/);
+  assert.match(
+    loader,
+    /stateRevision: Math\.max\(0, Math\.floor\(Number\(parsed\.stateRevision \?\? 0\)\) \|\| 0\)/,
+  );
+});
