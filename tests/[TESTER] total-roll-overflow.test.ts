@@ -35,7 +35,7 @@ test('two-orb activation at MAX_SAFE_INTEGER - 1 exposes the parser-bricking bou
 test('save refuses any core totalRolls value its own parser would reject', () => {
   const game = source('src/server/game.ts');
   const saveStart = game.indexOf('export async function save(');
-  const saveEnd = game.indexOf('\nfunction ', saveStart);
+  const saveEnd = game.indexOf('\nexport async function loadRaw', saveStart);
   assert.ok(saveStart >= 0 && saveEnd > saveStart, 'save boundary must exist');
   const save = game.slice(saveStart, saveEnd);
 
