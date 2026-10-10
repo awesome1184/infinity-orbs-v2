@@ -46,7 +46,7 @@ test('active client does not apply predicted roll rewards before the response', 
   assert.ok(start >= 0 && end > start, 'handleRoll function must exist');
   const handler = main.slice(start, end);
 
-  assert.doesNotMatch(handler, /predictRollActivation\s*\(/);
+  assert.doesNotMatch(main, /predictRollActivation\s*\(/);
   assert.match(handler, /getJson<RollResponse>\('\/api\/roll'/);
   assert.match(handler, /applyPlayerState\(res\.state\)/);
 });
