@@ -23,6 +23,11 @@ test('a client prediction can display capped Shards that the server must not gra
 
   const prediction = predictRollActivation(state, 1337, false, 1);
 
+  const sharedSource = source('src/shared/game.ts');
+  const serverSource = source('src/server/game.ts');
+  assert.match(sharedSource, /s\.shards = Math\.max\(0, \(s\.shards \?\? 0\) \+ shardsGained\)/);
+  assert.match(serverSource, /shardsGained = grantRollShards\(s, shardsGained\)/);
+
   assert.ok(prediction.shardsGained > 0, 'prediction should show a positive Shard award');
   assert.ok(prediction.state.shards > 0, 'optimistic predicted wallet should increase');
 
