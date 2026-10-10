@@ -95,7 +95,7 @@ test('an old /api/me snapshot cannot replace a newer committed Shard balance', (
   assert.ok(refreshEnd > refreshStart, 'refreshAll boundary must exist');
   const refresh = main.slice(refreshStart, refreshEnd);
   assert.match(refresh, /const revisionAtStart = stateRevisionRef\.current/);
-  assert.match(refresh, /await getJsonWithTimeout<PlayerState>\('\\/api\\/me'\\)/);
+  assert.ok(refresh.includes("await getJsonWithTimeout<PlayerState>('/api/me')"));
   assert.match(refresh, /if \(revisionAtStart !== stateRevisionRef\.current\) return;[\s\S]*?applyPlayerState\(me\)/);
 });
 
