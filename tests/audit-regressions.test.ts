@@ -161,7 +161,7 @@ test('player mutation lock renews its lease and releases only its own token', ()
   assert.match(lock, /renewOwnedLock\(lockKey, token\)/);
   assert.match(lock, /PLAYER_MUTATION_LOCK_TTL_MS \/ 3/);
   const releaseStart = lock.indexOf('async function releaseOwnedLock');
-  const releaseEnd = lock.indexOf('export async function withPlayerMutationLockFor', releaseStart);
+  const releaseEnd = lock.indexOf('async function runLocked', releaseStart);
   assert.ok(releaseStart >= 0 && releaseEnd > releaseStart);
   const release = lock.slice(releaseStart, releaseEnd);
   assert.match(release, /redis\.watch\(lockKey\)/);
@@ -293,7 +293,7 @@ test('wiped saves cannot return mutation success and offline reminder keys survi
 
 test('Global Booster activation cannot replace corrupt data with defaults', () => {
   const game = source('src/server/game.ts');
-  const start = game.indexOf('async function updateGlobalBooster');
+  const start = game.indexOf('async function prepareGlobalBoosterActivation');
   const end = game.indexOf('export async function setGlobalBoosterDebugState', start);
   assert.ok(start >= 0 && end > start);
   const updater = game.slice(start, end);
