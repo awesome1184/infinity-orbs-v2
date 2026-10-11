@@ -326,7 +326,7 @@ test('Global Booster activation decrements purchased credit provenance and resto
 test('Altar submit state matches the actual coin-floor and non-empty-offer validation', () => {
   const altar = source('src/client/components/AltarSection.tsx');
   assert.match(altar, /const canSubmitOffering =\s*\(selectedCoinOffer <= 0 \|\| coinOfferMeetsFloor\) &&\s*\(selectedCoinOffer > 0 \|\| selectedShardOffer > 0\)/);
-  assert.match(altar, /disabled={busy \|\| sacrificing \|\| !canSubmitOffering}/);
+  assert.match(altar, /disabled=\{busy \|\| sacrificing \|\| !canSubmitOffering\}/);
   assert.match(altar, /canSubmitOffering\s*\?\s*'bg-orange-600/);
   const handlerStart = altar.indexOf('const handleSacrificeSubmit');
   const handlerEnd = altar.indexOf('setSacrificing(true)', handlerStart);
