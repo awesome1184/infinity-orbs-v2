@@ -1758,6 +1758,7 @@ export async function setCommunityEventConfig(config: {
 const GLOBAL_CHAT_KEY = key('global-chat:v1');
 const GLOBAL_CHAT_MAX_MESSAGES = 100;
 const CHAT_REPORTS_KEY = key('chat-reports:v1');
+const CHAT_REPORT_RESERVATION_PREFIX = key('chat-report-reservation:v1:');
 const CHAT_COOLDOWN_PREFIX = key('chat-cooldown:v1:');
 
 async function enforceChatCooldown(scope: string, cooldownMs: number): Promise<void> {
@@ -1889,6 +1890,20 @@ async function submitChatReport(
   const reportKey = `${scope === 'Global Chat' ? 'global' : 'guild'}:${message.id}:${reporterId}`;
   if (await redis.hGet(CHAT_REPORTS_KEY, reportKey)) {
     throw new Error('You already reported this message.');
+  }
+
+  // The per-user cooldown throttles report volume, but it is not a dedupe key:
+  // a slow Modmail call can outlive it. Reserve this exact message/reporter
+  // pair for a day before the external side effect so concurrent retries cannot
+  // create a second conversation while the durable report receipt is pending.
+  const reservationKey = CHAT_REPORT_RESERVATION_PREFIX + encodeURIComponent(reportKey);
+  const reservationToken = `report-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  await redis.set(reservationKey, reservationToken, {
+    nx: true,
+    expiration: new Date(Date.now() + 24 * 60 * 60_000),
+  });
+  if (await redis.get(reservationKey) !== reservationToken) {
+    throw new Error('A report for this message was already submitted or is still being processed.');
   }
 
   const author = String(message.username ?? 'Redditor').trim().replace(/^u\//i, '') || 'Redditor';
