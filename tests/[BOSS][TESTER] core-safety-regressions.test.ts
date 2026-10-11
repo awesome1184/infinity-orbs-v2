@@ -436,3 +436,21 @@ test('local Redis mock WATCH rejects an ABA value change even when the final val
   assert.equal(await mockRedis.get(key), 'before', 'conflicted transaction must not apply staged writes');
   await mockRedis.del(key);
 });
+
+
+test('Frenzy post receipt creation and consumption both retain bounded Redis TTLs', () => {
+  const game = source('src/server/game.ts');
+  assert.ok(game.includes('const FRENZY_POST_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60_000'));
+  assert.ok(game.includes('expiration?: Date;'), 'SaveExtraWrite should support receipt expiry');
+  assert.ok(game.includes('await txn.set(write.key, write.nextValue, { expiration: write.expiration })'));
+  const start = game.indexOf('export async function startOrbFrenzy(');
+  const end = game.indexOf('export async function getOrbFrenzyInfo(', start);
+  assert.ok(start >= 0 && end > start);
+  const create = game.slice(start, end);
+  assert.ok(create.includes('expiration: new Date(expiresAt + FRENZY_POST_RECEIPT_RETENTION_MS)'));
+  const claimStart = game.indexOf('export async function claimOrbFrenzy(');
+  const claimEnd = game.indexOf('\nfunction sampleBinomial', claimStart);
+  assert.ok(claimStart >= 0 && claimEnd > claimStart);
+  const claim = game.slice(claimStart, claimEnd);
+  assert.ok(claim.includes('expiration: new Date(frenzyPostExpiresAt(createdAt) + FRENZY_POST_RECEIPT_RETENTION_MS)'));
+});
