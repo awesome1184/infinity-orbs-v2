@@ -37,6 +37,8 @@ import {
   loadRaw,
   recordSocialVisit,
   recordShareAction,
+  reserveShareCooldown,
+  recordShareQuestProgress,
   save,
   setAutoRollEnabled,
   sacrificeToAltar,
@@ -1203,9 +1205,6 @@ export function createApp() {
       if (!Number.isSafeInteger(value) || value <= 0 || (s.collection[String(value)] ?? 0) <= 0) {
         return res.status(400).json({ error: 'You can only share an orb you actually own.' });
       }
-      if (s.lastShareAt && Date.now() - s.lastShareAt < 30_000) {
-        return res.status(429).json({ error: 'Please wait before sharing another orb.' });
-      }
       const subredditName = context.subredditName;
       const username = String(context.username ?? s.username ?? 'a player').trim().replace(/^u\//i, '') || 'a player';
       const text = shareText(s, value);
@@ -1216,6 +1215,12 @@ export function createApp() {
         totalRolls: s.totalRolls,
         collectionValue: s.collectionValue,
       };
+
+      // Persist the cooldown before the irreversible external submit. If the
+      // provider succeeds but its response or the following save fails, an
+      // immediate retry cannot publish a duplicate post.
+      await reserveShareCooldown(s);
+
       let postId = `share-${Date.now()}`;
       if (subredditName) {
         const post = await reddit.submitCustomPost({
@@ -1229,7 +1234,14 @@ export function createApp() {
         });
         postId = post.id;
       }
-      await recordShareAction(s);
+      // The post and cooldown are already durable. Quest progress is a
+      // secondary projection: if it conflicts after Reddit has accepted the
+      // post, log the omission but return success to avoid encouraging retries.
+      try {
+        await recordShareQuestProgress(s);
+      } catch (progressError) {
+        console.error('[Share] Post completed but quest progress save failed; cooldown remains committed.', progressError);
+      }
       res.json({ success: true, id: postId, text });
       });
     } catch (e) { badRequest(res, e, 'Could not create Reddit post.'); }
