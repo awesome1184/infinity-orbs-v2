@@ -4940,13 +4940,55 @@ export async function startOrbFrenzy(options: {
     s.lastSeenAt = Date.now();
     // Do not publish a claimable post record unless the owner's roll rewards,
     // cooldown, Guild/community effects and post receipt all commit together.
-    await save(s, {
-      key: FRENZY_POST_PREFIX + postId,
+    const frenzyPostKey = FRENZY_POST_PREFIX + postId;
+    const frenzySaveGeneration = Math.max(0, Math.floor(Number(s.saveGeneration ?? 0)));
+    const frenzySaveRevision = Math.max(0, Math.floor(Number(s.stateRevision ?? 0)));
+    const frenzyReceiptWrite: SaveExtraWrite = {
+      key: frenzyPostKey,
       expectedValue: null,
       nextValue: frenzyPostValue,
       expiration: new Date(expiresAt + FRENZY_POST_RECEIPT_RETENTION_MS),
       conflictMessage: 'Frenzy post ID is already registered; no player state was saved.',
-    });
+    };
+    try {
+      await save(s, frenzyReceiptWrite);
+    } catch (saveError) {
+      // The post already exists at this point. Redis can return an ambiguous
+      // transaction error even when EXEC committed, so the receipt itself is the
+      // commit proof: player state and receipt were written in one transaction.
+      try {
+        const persistedReceipt = await redis.get(frenzyPostKey);
+        if (persistedReceipt != null && String(persistedReceipt) === frenzyPostValue) {
+          s.saveGeneration = frenzySaveGeneration;
+          s.stateRevision = frenzySaveRevision + 1;
+        } else {
+          // Retry the identical mutation only if the player's generation and
+          // revision have not moved. Never rebase rewards or roll state onto a
+          // newer save, and never retry after a wipe.
+          const playerRaw = await redis.get(key());
+          const persistedPlayer = playerRaw == null ? null : parsePlayerStateValue(playerRaw);
+          const generationRaw = await redis.get(saveGenerationKeyFor(currentUserId()));
+          const currentGeneration = Math.max(0, Number.parseInt(String(generationRaw ?? '0'), 10) || 0);
+          const currentRevision = playerRaw == null
+            ? 0
+            : persistedPlayer
+              ? Math.max(0, Math.floor(Number(persistedPlayer.stateRevision ?? 0)) || 0)
+              : -1;
+          if (
+            currentGeneration !== frenzySaveGeneration ||
+            currentRevision !== frenzySaveRevision
+          ) {
+            throw saveError;
+          }
+          await save(s, frenzyReceiptWrite);
+        }
+      } catch (recoveryError) {
+        if (recoveryError !== saveError) {
+          console.error('[Frenzy Start] Could not reconcile post/save outcome:', recoveryError);
+        }
+        throw saveError;
+      }
+    }
     await appendPlayerSpyLog('frenzy-start', {
       rarity,
       postId,
