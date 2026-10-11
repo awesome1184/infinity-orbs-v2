@@ -802,7 +802,13 @@ test('offline reminder clearing deletes keys so NX reservations can be recreated
   const clearEnd = game.indexOf('\nfunction currentUserId', clearStart);
   assert.ok(clearStart >= 0 && clearEnd > clearStart);
   const clear = game.slice(clearStart, clearEnd);
-  assert.match(clear, /await txn\.del\(keyName\)/);
+  const watchIndex = clear.indexOf('await redis.watch(keyName)');
+  const readIndex = clear.indexOf('const current = await redis.get(keyName)');
+  const multiIndex = clear.indexOf('await txn.multi()');
+  const deleteIndex = clear.indexOf('await txn.del(keyName)');
+  const execIndex = clear.indexOf('await txn.exec()');
+  assert.ok(watchIndex >= 0 && readIndex > watchIndex && multiIndex > readIndex);
+  assert.ok(deleteIndex > multiIndex && execIndex > deleteIndex, 'delete must stay inside the WATCH/MULTI compare-and-clear');
   assert.doesNotMatch(clear, /txn\.set\(keyName,\s*''\)/);
 
   const senderStart = game.indexOf('async function sendOfflineFullNotification');
