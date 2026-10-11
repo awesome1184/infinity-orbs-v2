@@ -31,12 +31,13 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(sender, /storedReservation !== pendingToken/);
   assert.match(helper, /pendingTtlMs = 7 \* 24 \* 60 \* 60_000/);
   assert.match(helper, /pendingAt \+ pendingTtlMs \+ 60_000/);
+  assert.match(helper, /function isPendingOfflineNotificationMarker\(marker: unknown\)/);
 
   // A normal schedule must respect a pending attempt, but a retry explicitly
   // scheduled beyond its expiry may queue without mistaking it for a sent receipt.
   assert.match(scheduler, /allowPendingReservationRetry = false/);
   assert.match(scheduler, /if \(notificationMarker === '1'\) return/);
-  assert.match(scheduler, /if \(notificationMarker != null && !allowPendingReservationRetry\) return/);
+  assert.match(scheduler, /if \(notificationMarker != null && \(!allowPendingReservationRetry \|\| !isPendingOfflineNotificationMarker\(notificationMarker\)\)\) return/);
   assert.doesNotMatch(
     scheduler,
     /if \(await redis\.get\(OFFLINE_FULL_NOTIFICATION_PREFIX \+ userId\)\) return/,
@@ -46,7 +47,8 @@ test('offline notification retries distinguish pending reservations from confirm
   // Both a false result with a surviving pending reservation and a thrown,
   // ambiguous attempt must schedule recovery after the reservation expiry.
   assert.match(worker, /if \(!sent && cleared\)[\s\S]*?offlineNotificationPendingRetryAt\(notificationMarker\)[\s\S]*?true/);
-  assert.match(worker, /markerReadFailed \|\| notificationMarker != null/);
+  assert.match(worker, /markerReadFailed \|\| isPendingOfflineNotificationMarker\(notificationMarker\)/);
+  assert.match(worker, /notificationMarker != null && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
   assert.match(worker, /scheduleOfflineFullNotification\(userId, subredditName, retryAt, hasPendingReservation\)/);
   assert.match(worker, /if \(notificationMarker === '1'\)[\s\S]*?return;/);
 });
