@@ -43,7 +43,7 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(scheduler, /if \(notificationMarker === '1'\) return/);
   assert.match(
     scheduler,
-    /if \(notificationMarker != null && \(!allowPendingReservationRetry \|\| !isPendingOfflineNotificationMarker\(notificationMarker\)\)\) return/,
+    /notificationMarker != null && notificationMarker !== '' &&/,
   );
   assert.doesNotMatch(
     scheduler,
@@ -57,9 +57,10 @@ test('offline notification retries distinguish pending reservations from confirm
     worker,
     /if \(!sent && cleared\)[\s\S]*?offlineNotificationPendingRetryAt\(notificationMarker\)[\s\S]*?true/,
   );
-  assert.match(worker, /markerReadFailed \|\| isPendingOfflineNotificationMarker\(notificationMarker\)/);
-  assert.match(worker, /const retryAt = markerReadFailed\s*\? Date\.now\(\) \+ OFFLINE_FULL_RETRY_MS/);
-  assert.match(worker, /notificationMarker != null && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
+  assert.match(worker, /markerReadFailed \\|\\| notificationMarker === '' \\|\\| isPendingOfflineNotificationMarker\\(notificationMarker\\)/);
+  assert.match(worker, /const retryAt = markerReadFailed \\|\\| notificationMarker === ''[\\s\\S]*?Date\\.now\\(\\) \\+ OFFLINE_FULL_RETRY_MS/);
+  assert.match(worker, /else if \\(notificationMarker === ''\\)[\\s\\S]*?Date\\.now\\(\\) \\+ OFFLINE_FULL_RETRY_MS[\\s\\S]*?true/);
+  assert.match(worker, /notificationMarker != null && notificationMarker !== '' && !isPendingOfflineNotificationMarker\\(notificationMarker\\)/);
   assert.match(worker, /scheduleOfflineFullNotification\(userId, subredditName, retryAt, hasPendingReservation\)/);
   assert.match(worker, /notificationMarker === '1'[\s\S]*?return;/);
 });
