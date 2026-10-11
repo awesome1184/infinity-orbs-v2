@@ -1095,10 +1095,10 @@ test('payment mutations reject malformed core state and stop before revision ove
   const parserEnd = game.indexOf('export async function hasReadablePlayerSave', parserStart);
   assert.ok(parserStart >= 0 && parserEnd > parserStart);
   const parser = game.slice(parserStart, parserEnd);
-  assert.match(parser, /'coins' in record[\\s\\S]*?typeof record\\.coins === 'number'/);
-  assert.match(parser, /'shards' in record[\\s\\S]*?Number\\.isSafeInteger\\(record\\.shards\\)/);
-  assert.match(parser, /'totalRolls' in record[\\s\\S]*?Number\\.isSafeInteger\\(record\\.totalRolls\\)/);
-  assert.match(parser, /record\\.stateRevision == null[\\s\\S]*?Number\\.isSafeInteger\\(record\\.stateRevision\\)/);
+  assert.match(parser, /'coins' in record[\s\S]*?typeof record\.coins === 'number'/);
+  assert.match(parser, /'shards' in record[\s\S]*?Number\.isSafeInteger\(record\.shards\)/);
+  assert.match(parser, /'totalRolls' in record[\s\S]*?Number\.isSafeInteger\(record\.totalRolls\)/);
+  assert.match(parser, /record\.stateRevision == null[\s\S]*?Number\.isSafeInteger\(record\.stateRevision\)/);
   assert.match(parser, /Saved player data has invalid core fields; the purchase was not applied/);
 
   const grantStart = game.indexOf('export async function grantPurchasedPack');
