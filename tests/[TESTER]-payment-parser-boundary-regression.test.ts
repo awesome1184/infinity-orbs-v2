@@ -38,7 +38,7 @@ test('payment parser does not erase malformed receipt metadata into an empty led
   // to be applied a second time.
   assert.doesNotMatch(
     parser,
-    /paymentReceipts:\s*(?:record|validatedRecord)\.paymentReceipts[\s\S]{0,180}\?[^;\n]*:\s*\{\}/,
+    /paymentReceipts:\s*(?:record|validatedRecord)\.paymentReceipts[\s\S]{0,180}\?[\s\S]{0,180}:\s*\{\}/,
     'malformed existing payment receipts must not be silently discarded',
   );
 
