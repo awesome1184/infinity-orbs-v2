@@ -797,6 +797,34 @@ test('live presence survives optimistic and authoritative state replacement, and
 });
 
 
+test('offline reminder clearing deletes keys so NX reservations can be recreated', () => {
+  const game = source('src/server/game.ts');
+  const clearStart = game.indexOf('async function clearOfflineReminderKeyIfUnchanged');
+  const clearEnd = game.indexOf('\nfunction currentUserId', clearStart);
+  assert.ok(clearStart >= 0 && clearEnd > clearStart);
+  const clear = game.slice(clearStart, clearEnd);
+  const watchIndex = clear.indexOf('await redis.watch(keyName)');
+  const readIndex = clear.indexOf('const current = await redis.get(keyName)');
+  const multiIndex = clear.indexOf('await txn.multi()');
+  const deleteIndex = clear.indexOf('await txn.del(keyName)');
+  const execIndex = clear.indexOf('await txn.exec()');
+  assert.ok(watchIndex >= 0 && readIndex > watchIndex && multiIndex > readIndex);
+  assert.ok(deleteIndex > multiIndex && execIndex > deleteIndex, 'delete must stay inside the WATCH/MULTI compare-and-clear');
+  assert.doesNotMatch(clear, /txn\.set\(keyName,\s*''\)/);
+
+  const senderStart = game.indexOf('async function sendOfflineFullNotification');
+  const senderEnd = game.indexOf('function parseOfflineFullJobMarker', senderStart);
+  assert.ok(senderStart >= 0 && senderEnd > senderStart);
+  const sender = game.slice(senderStart, senderEnd);
+  const existingIndex = sender.indexOf('const existingNotificationMarker = await redis.get(notificationKey)');
+  const legacyClearIndex = sender.indexOf("clearOfflineReminderKeyIfUnchanged(notificationKey, '')");
+  const reservationIndex = sender.indexOf('await redis.set(notificationKey, pendingToken, {');
+  assert.ok(existingIndex >= 0 && legacyClearIndex > existingIndex && reservationIndex > legacyClearIndex,
+    'legacy empty markers must be cleared before a new SET NX reservation');
+  assert.match(sender, /await redis\.set\(notificationKey, pendingToken,\s*\{\s*nx:\s*true/);
+});
+
+
 test('offline notification reservation recovers ambiguous Redis SET only after confirming its token', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('async function sendOfflineFullNotification');
