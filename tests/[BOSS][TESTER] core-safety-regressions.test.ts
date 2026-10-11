@@ -386,3 +386,22 @@ test('feedback Modmail submits require an atomic per-user cooldown reservation',
   assert.ok(route.includes("res.status(429)"));
   assert.ok(route.includes("res.status(503)"));
 });
+
+
+test('chat reports reserve the message/reporter idempotency key before Modmail', () => {
+  const social = source('src/server/social.ts');
+  const start = social.indexOf('async function submitChatReport(');
+  const end = social.indexOf('export async function getGlobalChat()', start);
+  assert.ok(start >= 0 && end > start, 'chat report mutation must exist');
+  const report = social.slice(start, end);
+  const receiptCheck = report.indexOf('redis.hGet(CHAT_REPORTS_KEY, reportKey)');
+  const reserve = report.indexOf('redis.set(reservationKey, reservationToken');
+  const verify = report.indexOf('redis.get(reservationKey) !== reservationToken');
+  const modmail = report.indexOf('reddit.modMail.createModInboxConversation');
+  const receipt = report.indexOf('redis.hSet(CHAT_REPORTS_KEY');
+  assert.ok(receiptCheck >= 0 && reserve > receiptCheck && verify > reserve);
+  assert.ok(modmail > verify && receipt > modmail, 'reserve before external create; receipt after success');
+  assert.ok(report.includes('nx: true'));
+  assert.ok(report.includes('24 * 60 * 60_000'));
+  assert.ok(report.includes('already submitted or is still being processed'));
+});
