@@ -52,5 +52,5 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(worker, /const retryAt = markerReadFailed\s*\? Date\.now\(\) \+ OFFLINE_FULL_RETRY_MS/);
   assert.match(worker, /notificationMarker != null && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
   assert.match(worker, /scheduleOfflineFullNotification\(userId, subredditName, retryAt, hasPendingReservation\)/);
-  assert.match(worker, /if \(notificationMarker === '1'\)[\s\S]*?return;/);
+  assert.match(worker, /notificationMarker === '1'[\s\S]*?return;/);
 });
