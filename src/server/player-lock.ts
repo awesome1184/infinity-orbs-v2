@@ -28,6 +28,8 @@ export interface PlayerMutationLockRuntimeOptions {
   leaseTtlMs?: number;
   acquisitionAttempts?: number;
   retryDelayMs?: number;
+  /** Override the renewal cadence for deterministic lease-renewal tests. */
+  renewalIntervalMs?: number;
 }
 
 function lockUserId(userId: string | undefined, fallbackUserId: string | undefined): string {
@@ -57,6 +59,7 @@ export function createPlayerMutationLockRuntime(
   const leaseTtlMs = options.leaseTtlMs ?? PLAYER_MUTATION_LOCK_TTL_MS;
   const acquisitionAttempts = options.acquisitionAttempts ?? PLAYER_MUTATION_LOCK_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? PLAYER_MUTATION_LOCK_RETRY_MS;
+  const renewalIntervalMs = options.renewalIntervalMs ?? Math.max(1_000, Math.floor(leaseTtlMs / 3));
 
   function getActivePlayerMutationLock(
     userId: string,
@@ -163,7 +166,7 @@ export function createPlayerMutationLockRuntime(
               .finally(() => {
                 renewalInFlight = false;
               });
-          }, Math.max(1_000, Math.floor(leaseTtlMs / 3)));
+          }, renewalIntervalMs);
 
           try {
             return await fn();
