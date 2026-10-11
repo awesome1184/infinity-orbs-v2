@@ -405,3 +405,18 @@ test('chat reports reserve the message/reporter idempotency key before Modmail',
   assert.ok(report.includes('24 * 60 * 60_000'));
   assert.ok(report.includes('already submitted or is still being processed'));
 });
+
+
+test('share endpoint validates rarity against the game cap instead of MAX_SAFE_INTEGER', () => {
+  const app = source('src/server/app.ts');
+  const shared = source('src/shared/game.ts');
+  const start = app.indexOf("app.post('/api/share'");
+  const end = app.indexOf('\n  return app;', start);
+  assert.ok(start >= 0 && end > start, 'share route must exist');
+  const route = app.slice(start, end);
+  assert.ok(app.includes('MAX_ORB_RARITY'), 'server must import the canonical rarity cap');
+  assert.ok(shared.includes('export const MAX_ORB_RARITY = 1_000_000_000_000_000_000'));
+  assert.ok(route.includes('!Number.isInteger(value) || value < 2 || value > MAX_ORB_RARITY'));
+  assert.ok(!route.includes('Number.isSafeInteger(value)'), 'valid supported rarity values can exceed MAX_SAFE_INTEGER');
+  assert.ok(route.includes('(s.collection[String(value)] ?? 0) <= 0'), 'sharing must still require ownership');
+});
