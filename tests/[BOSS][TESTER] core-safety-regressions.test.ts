@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInitialState, masterySkillCost, spendShards } from '../src/shared/game.js';
+import { redis as mockRedis } from '../src/server/devvit-mock.js';
 
 const source = (path: string): string =>
   readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -419,4 +420,19 @@ test('share endpoint validates rarity against the game cap instead of MAX_SAFE_I
   assert.ok(route.includes('!Number.isInteger(value) || value < 2 || value > MAX_ORB_RARITY'));
   assert.ok(!route.includes('Number.isSafeInteger(value)'), 'valid supported rarity values can exceed MAX_SAFE_INTEGER');
   assert.ok(route.includes('(s.collection[String(value)] ?? 0) <= 0'), 'sharing must still require ownership');
+});
+
+
+test('local Redis mock WATCH rejects an ABA value change even when the final value is restored', async () => {
+  const key = `test:watch-aba:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await mockRedis.set(key, 'before');
+  const txn = await mockRedis.watch(key);
+  await mockRedis.set(key, 'intermediate');
+  await mockRedis.set(key, 'before');
+  await txn.multi();
+  await txn.set(key, 'transaction-write');
+  const result = await txn.exec();
+  assert.equal(result, null, 'WATCH must detect writes even if the final value equals the watched value');
+  assert.equal(await mockRedis.get(key), 'before', 'conflicted transaction must not apply staged writes');
+  await mockRedis.del(key);
 });
