@@ -277,3 +277,21 @@ test('Admin console exposes a Force Frenzy Popup control', () => {
   assert.match(admin, /Force Frenzy Popup/);
   assert.match(main, /onForceFrenzyPopup=\{\(\) => \{[\s\S]*?setShowFrenzyPrompt\(true\)/);
 });
+
+
+test('public Frenzy initial load offers a deduplicated read-only retry', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/client/frenzy.tsx'), 'utf8');
+  assert.match(source, /const loadInFlightRef = useRef\\(false\\)/);
+  const loadStart = source.indexOf('const load = async () =>');
+  const loadEnd = source.indexOf('\\n  useEffect(() => { void load(); }, []);', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'read-only load function must exist');
+  const load = source.slice(loadStart, loadEnd);
+  assert.match(load, /if \\(loadInFlightRef\\.current\\) return/);
+  assert.match(load, /fetch\\('\\/api\\/frenzy\\/info'\\)/);
+  assert.doesNotMatch(load, /\\/api\\/frenzy\\/(?:arm|claim)/);
+  const errorStart = source.indexOf("if (error && !info)");
+  const errorEnd = source.indexOf("\\n  if (!info)", errorStart);
+  assert.ok(errorStart >= 0 && errorEnd > errorStart, 'initial load error panel must exist');
+  assert.match(source.slice(errorStart, errorEnd), /onClick=\\{\\(\\) => void load\\(\\)\\}/);
+  assert.match(source.slice(errorStart, errorEnd), /disabled=\\{loadingInfo\\}/);
+});
