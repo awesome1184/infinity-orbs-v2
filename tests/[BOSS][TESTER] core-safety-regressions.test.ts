@@ -454,3 +454,19 @@ test('Frenzy post receipt creation and consumption both retain bounded Redis TTL
   const claim = game.slice(claimStart, claimEnd);
   assert.ok(claim.includes('expiration: new Date(frenzyPostExpiresAt(createdAt) + FRENZY_POST_RECEIPT_RETENTION_MS)'));
 });
+
+
+test('Frenzy handoff cleanup failure cannot turn a committed claim into an error', () => {
+  const game = source('src/server/game.ts');
+  const claimStart = game.indexOf('export async function claimOrbFrenzy(');
+  const claimEnd = game.indexOf('\nfunction sampleBinomial', claimStart);
+  assert.ok(claimStart >= 0 && claimEnd > claimStart);
+  const claim = game.slice(claimStart, claimEnd);
+  const commit = claim.indexOf('await save(s, [');
+  const cleanup = claim.indexOf("redis.del(frenzyHandoffKey(claimantId))");
+  assert.ok(commit >= 0 && cleanup > commit, 'handoff cleanup must happen after durable claim settlement');
+  const cleanupLineStart = claim.lastIndexOf('if (handoff && handoff.postId === postId)', cleanup);
+  const cleanupBlock = claim.slice(cleanupLineStart, cleanup + 300);
+  assert.ok(cleanupBlock.includes('.catch(error => {'));
+  assert.ok(cleanupBlock.includes('Handoff cleanup failed after durable claim'));
+});
