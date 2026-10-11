@@ -69,6 +69,9 @@ export const AltarSection: React.FC<AltarSectionProps> = ({
   const currentCoinFloor = altarCoinFloor(altarLevel);
   const selectedCoinChance = altarCoinDevotionChancePercent(selectedCoinOffer, altarPity, altarLevel);
   const coinOfferMeetsFloor = selectedCoinOffer === 0 || selectedCoinOffer >= currentCoinFloor;
+  const canSubmitOffering =
+    (selectedCoinOffer <= 0 || coinOfferMeetsFloor) &&
+    (selectedCoinOffer > 0 || selectedShardOffer > 0);
 
   const handleSacrificeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -358,9 +361,9 @@ export const AltarSection: React.FC<AltarSectionProps> = ({
         {/* Submit Sacrifice Button */}
         <button
           type="submit"
-          disabled={busy || sacrificing || (selectedCoinOffer < 100 && selectedShardOffer <= 0)}
+          disabled={busy || sacrificing || !canSubmitOffering}
           className={`w-full py-4 px-6 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-xl ${
-            selectedCoinOffer >= 100 || selectedShardOffer > 0
+            canSubmitOffering
               ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-md active:scale-[0.99] cursor-pointer'
               : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700/50'
           }`}
