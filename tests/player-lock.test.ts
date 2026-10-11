@@ -87,6 +87,10 @@ class SharedLockRedis implements PlayerMutationLockRedis {
     let watched = true;
     const transaction: PlayerMutationLockTransaction = {
       multi: async () => undefined,
+      set: async (key: string, value: string, options?: { expiration?: Date }) => {
+        staged.push({ type: 'set', key, value, expiration: options?.expiration });
+        return 'QUEUED';
+      },
       del: async (...deleteKeys: string[]) => {
         for (const key of deleteKeys) staged.push({ type: 'del', key });
         return 'QUEUED';
