@@ -3627,7 +3627,7 @@ async function scheduleOfflineFullNotification(
   if (!subredditName || !userId) return;
   const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
   if (notificationMarker === '1') return;
-  if (notificationMarker && !allowPendingReservationRetry) return;
+  if (notificationMarker != null && !allowPendingReservationRetry) return;
   if (!(await notifications.isOptedIn(userId))) return;
 
   const jobKey = OFFLINE_FULL_JOB_PREFIX + userId;
@@ -3735,7 +3735,7 @@ export async function processOfflineFullNotification(
     const cleared = await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
     if (!sent && cleared) {
       const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
-      if (notificationMarker && notificationMarker !== '1') {
+      if (notificationMarker != null && notificationMarker !== '1') {
         await scheduleOfflineFullNotification(
           userId,
           subredditName,
