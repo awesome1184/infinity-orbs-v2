@@ -3,12 +3,35 @@
 
 const store = new Map<string, string>();
 const expirations = new Map<string, number>();
+const keyRevisions = new Map<string, number>();
+
+function bumpKeyRevision(key: string): void {
+  keyRevisions.set(key, (keyRevisions.get(key) ?? 0) + 1);
+}
+
+function writeStore(key: string, value: string, expiration?: Date): void {
+  store.set(key, value);
+  if (expiration instanceof Date && Number.isFinite(expiration.getTime())) {
+    expirations.set(key, expiration.getTime());
+  } else {
+    expirations.delete(key);
+  }
+  bumpKeyRevision(key);
+}
+
+function deleteStore(key: string): boolean {
+  expirations.delete(key);
+  const deleted = store.delete(key);
+  if (deleted) bumpKeyRevision(key);
+  return deleted;
+}
 
 function readStore(key: string): string | undefined {
   const expiresAt = expirations.get(key);
   if (expiresAt !== undefined && expiresAt <= Date.now()) {
-    store.delete(key);
+    if (store.delete(key)) bumpKeyRevision(key);
     expirations.delete(key);
+    return undefined;
   }
   return store.get(key);
 }
@@ -68,7 +91,7 @@ const localRedis = {
       if (!(field in values)) added++;
       values[field] = value;
     }
-    store.set(key, JSON.stringify(values));
+    writeStore(key, JSON.stringify(values));
     return added;
   },
   hGetAll: async (key: string): Promise<Record<string, string>> => {
@@ -84,20 +107,18 @@ const localRedis = {
     if (options?.nx && readStore(key) !== undefined) {
       return null as unknown as string;
     }
-    store.set(key, value);
-    if (options?.expiration instanceof Date) {
-      expirations.set(key, options.expiration.getTime());
-    } else {
-      expirations.delete(key);
-    }
+    writeStore(key, value, options?.expiration);
     return 'OK';
   },
   del: async (key: string): Promise<boolean> => {
-    expirations.delete(key);
-    return store.delete(key);
+    return deleteStore(key);
   },
   watch: async (...keys: string[]) => {
-    const snapshot = new Map(keys.map(key => [key, readStore(key)]));
+    // Match Redis WATCH: record mutation revisions, not just values, so an
+    // ABA transition (A -> B -> A) still invalidates a transaction.
+    for (const key of keys) readStore(key);
+    const snapshot = new Map(keys.map(key => [key, keyRevisions.get(key) ?? 0]));
+    let watched = true;
     const staged: Array<
       | { kind: 'set'; key: string; value: string; expiration?: Date }
       | { kind: 'del'; key: string }
@@ -122,34 +143,40 @@ const localRedis = {
         return 'QUEUED';
       },
       exec: async () => {
-        for (const key of keys) {
-          if ((readStore(key) ?? null) !== (snapshot.get(key) ?? null)) return null;
+        if (watched) {
+          for (const key of keys) {
+            // Expiry is also a mutation. Process it before comparing revisions.
+            readStore(key);
+            if ((keyRevisions.get(key) ?? 0) !== snapshot.get(key)) {
+              watched = false;
+              return null;
+            }
+          }
         }
         for (const write of staged) {
           if (write.kind === 'del') {
-            store.delete(write.key);
-            expirations.delete(write.key);
+            deleteStore(write.key);
           } else if (write.kind === 'set') {
-            store.set(write.key, write.value);
             // Redis SET clears an existing TTL unless one is provided.
-            if (write.expiration instanceof Date) expirations.set(write.key, write.expiration.getTime());
-            else expirations.delete(write.key);
+            writeStore(write.key, write.value, write.expiration);
           } else {
             const raw = readStore(write.key);
             const values = raw ? JSON.parse(raw) as Record<string, string> : {};
             Object.assign(values, write.fields);
-            store.set(write.key, JSON.stringify(values));
-            expirations.delete(write.key);
+            writeStore(write.key, JSON.stringify(values));
           }
         }
+        watched = false;
         return [];
       },
-      unwatch: async () => undefined,
+      unwatch: async () => {
+        watched = false;
+      },
     };
   },
   incr: async (key: string): Promise<number> => {
     const value = Number.parseInt(readStore(key) ?? '0', 10) + 1;
-    store.set(key, String(value));
+    writeStore(key, String(value));
     return value;
   },
   zAdd: async (key: string, ...entries: Array<{ member: string; score: number }>): Promise<number> => {
@@ -160,7 +187,7 @@ const localRedis = {
       if (!(entry.member in values)) added++;
       values[entry.member] = entry.score;
     }
-    store.set(key, JSON.stringify(values));
+    writeStore(key, JSON.stringify(values));
     return added;
   },
   zRemRangeByScore: async (key: string, min: number, max: number): Promise<number> => {
@@ -174,7 +201,7 @@ const localRedis = {
         removed++;
       }
     }
-    store.set(key, JSON.stringify(values));
+    if (removed > 0) writeStore(key, JSON.stringify(values));
     return removed;
   },
   zCard: async (key: string): Promise<number> => {
