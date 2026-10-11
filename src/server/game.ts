@@ -1973,6 +1973,12 @@ return withPlayerMutationLockFor(userId, async () => {
       throw new Error('Global Booster credit balance has reached its supported storage limit; use credits before reconciling this purchase.');
     }
 
+    const currentRevision = normalizeSafeInteger(state.stateRevision, 0);
+    if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+      await txn.unwatch();
+      throw new Error('Player state revision is exhausted; no purchase was applied.');
+    }
+
     const existingPurchasedShards = Math.min(
       normalizeSafeInteger(state.purchasedShards, 0),
       currentShardBalance,
@@ -1997,11 +2003,6 @@ return withPlayerMutationLockFor(userId, async () => {
     state.globalBoosterCreditLots[orderId] =
       normalizeSafeInteger(state.globalBoosterCreditLots[orderId], 0) + pack.globalBoosterCredits;
 
-    const currentRevision = normalizeSafeInteger(state.stateRevision, 0);
-    if (currentRevision >= Number.MAX_SAFE_INTEGER) {
-      await txn.unwatch();
-      throw new Error('Player state revision is exhausted; no purchase was applied.');
-    }
     state.stateRevision = currentRevision + 1;
     state.shards = currentShardBalance + pack.shards;
     state.purchasedShards = existingPurchasedShards + pack.shards;
