@@ -49,6 +49,7 @@ test('offline notification retries distinguish pending reservations from confirm
   // ambiguous attempt must schedule recovery after the reservation expiry.
   assert.match(worker, /if \(!sent && cleared\)[\s\S]*?offlineNotificationPendingRetryAt\(notificationMarker\)[\s\S]*?true/);
   assert.match(worker, /markerReadFailed \|\| isPendingOfflineNotificationMarker\(notificationMarker\)/);
+  assert.match(worker, /const retryAt = markerReadFailed\s*\? Date\.now\(\) \+ OFFLINE_FULL_RETRY_MS/);
   assert.match(worker, /notificationMarker != null && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
   assert.match(worker, /scheduleOfflineFullNotification\(userId, subredditName, retryAt, hasPendingReservation\)/);
   assert.match(worker, /if \(notificationMarker === '1'\)[\s\S]*?return;/);
