@@ -96,6 +96,8 @@ interface SaveExtraWrite {
   expectedValue: string | null;
   nextValue: string;
   conflictMessage?: string;
+  /** Optional absolute Redis expiry for durable side receipts. */
+  expiration?: Date;
   // Optional projections must never prevent the primary player mutation from saving.
   optional?: boolean;
 }
@@ -1048,6 +1050,7 @@ export async function getCcuPeaks(): Promise<{
 }
 
 const FRENZY_POST_PREFIX = 'io:frenzy:post:';
+const FRENZY_POST_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const FRENZY_HANDOFF_PREFIX = 'io:frenzy:handoff:';
 const FRENZY_HANDOFF_TTL_MS = 60_000;
 
@@ -2676,7 +2679,11 @@ export async function save(
   if (
     new Set(writeKeys).size !== writeKeys.length ||
     writeKeys.includes(key()) ||
-    writeKeys.includes(saveGenerationKeyFor(userId))
+    writeKeys.includes(saveGenerationKeyFor(userId)) ||
+    extraWrites.some(write =>
+      write.expiration !== undefined &&
+      (!(write.expiration instanceof Date) || !Number.isFinite(write.expiration.getTime()) || write.expiration.getTime() <= Date.now())
+    )
   ) {
     throw new Error('Invalid or duplicate extra writes in player save.');
   }
@@ -2851,7 +2858,11 @@ export async function save(
     await txn.multi();
     await txn.set(playerKey, JSON.stringify(nextState));
     for (const write of extraWrites) {
-      await txn.set(write.key, write.nextValue);
+      if (write.expiration) {
+        await txn.set(write.key, write.nextValue, { expiration: write.expiration });
+      } else {
+        await txn.set(write.key, write.nextValue);
+      }
     }
     const committed = await txn.exec();
     if (committed !== null) {
@@ -4933,6 +4944,7 @@ export async function startOrbFrenzy(options: {
       key: FRENZY_POST_PREFIX + postId,
       expectedValue: null,
       nextValue: frenzyPostValue,
+      expiration: new Date(expiresAt + FRENZY_POST_RECEIPT_RETENTION_MS),
       conflictMessage: 'Frenzy post ID is already registered; no player state was saved.',
     });
     await appendPlayerSpyLog('frenzy-start', {
@@ -5333,6 +5345,7 @@ export async function claimOrbFrenzy(options: {
       key: FRENZY_POST_PREFIX + postId,
       expectedValue: raw,
       nextValue: consumedPostValue,
+      expiration: new Date(frenzyPostExpiresAt(createdAt) + FRENZY_POST_RECEIPT_RETENTION_MS),
       conflictMessage: 'This Orb Frenzy has already been claimed.',
     },
     ...ownerRewardWrites,
