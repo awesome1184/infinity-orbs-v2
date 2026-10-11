@@ -796,6 +796,22 @@ test('live presence survives optimistic and authoritative state replacement, and
 });
 
 
+test('offline reminder clearing deletes keys so NX reservations can be recreated', () => {
+  const game = source('src/server/game.ts');
+  const clearStart = game.indexOf('async function clearOfflineReminderKeyIfUnchanged');
+  const clearEnd = game.indexOf('\\nfunction currentUserId', clearStart);
+  assert.ok(clearStart >= 0 && clearEnd > clearStart);
+  const clear = game.slice(clearStart, clearEnd);
+  assert.match(clear, /await txn\\.del\\(keyName\\)/);
+  assert.doesNotMatch(clear, /txn\\.set\\(keyName,\\s*''\\)/);
+
+  const senderStart = game.indexOf('async function sendOfflineFullNotification');
+  const senderEnd = game.indexOf('function parseOfflineFullJobMarker', senderStart);
+  assert.ok(senderStart >= 0 && senderEnd > senderStart);
+  const sender = game.slice(senderStart, senderEnd);
+  assert.match(sender, /await redis\\.set\\(notificationKey, pendingToken,\\s*\\{\\s*nx:\\s*true/);
+});
+
 test('offline notification reservation recovers ambiguous Redis SET only after confirming its token', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('async function sendOfflineFullNotification');
