@@ -196,11 +196,14 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
                   <div className="relative h-2.5 rounded-full bg-slate-800 overflow-hidden border border-slate-700">
                     <div className="absolute inset-0 flex" aria-label={`Global ${GLOBAL_BOOSTERS[id].name} time`}>
                       {Array.from({ length: 4 }, (_, segmentIndex) => {
-                        const segmentTier = segmentIndex < activationProgress
-                          ? displayed.tier
-                          : displayed.tier > 1
-                            ? displayed.tier - 1
-                            : 0;
+                        const history = displayed.segmentTiers ?? [];
+                        const segmentTier = history.length > 0
+                          ? (history[segmentIndex] ?? 0)
+                          : segmentIndex < activationProgress
+                            ? displayed.tier
+                            : displayed.tier > 1
+                              ? displayed.tier - 1
+                              : 0;
                         return (
                           <div
                             key={segmentIndex}
