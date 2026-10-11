@@ -36,7 +36,7 @@ test('offline notification retries distinguish pending reservations from confirm
   // scheduled beyond its expiry may queue without mistaking it for a sent receipt.
   assert.match(scheduler, /allowPendingReservationRetry = false/);
   assert.match(scheduler, /if \(notificationMarker === '1'\) return/);
-  assert.match(scheduler, /if \(notificationMarker && !allowPendingReservationRetry\) return/);
+  assert.match(scheduler, /if \(notificationMarker != null && !allowPendingReservationRetry\) return/);
   assert.doesNotMatch(
     scheduler,
     /if \(await redis\.get\(OFFLINE_FULL_NOTIFICATION_PREFIX \+ userId\)\) return/,
