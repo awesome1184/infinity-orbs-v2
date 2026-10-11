@@ -355,3 +355,43 @@ test('active player lock exposes its fencing token only while ownership is held'
 
   assert.equal(getActivePlayerMutationLock(userId), null);
 });
+
+
+test('active player lease renews before expiry while its callback is still running', async () => {
+  const sharedRedis = new SharedLockRedis();
+  const options = {
+    leaseTtlMs: 60,
+    renewalIntervalMs: 10,
+    acquisitionAttempts: 200,
+    retryDelayMs: 2,
+  };
+  const runtimeA = newRuntime(sharedRedis, options);
+  const runtimeB = newRuntime(sharedRedis, options);
+  let active = 0;
+  let maxActive = 0;
+  let enteredB = false;
+  let announceAEntered!: () => void;
+  const aEntered = new Promise<void>(resolve => { announceAEntered = resolve; });
+
+  const first = runtimeA.withPlayerMutationLockFor('lease-renewal-player', async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    announceAEntered();
+    await delay(120);
+    active -= 1;
+  });
+  await aEntered;
+
+  const second = runtimeB.withPlayerMutationLockFor('lease-renewal-player', async () => {
+    enteredB = true;
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    active -= 1;
+  });
+
+  await delay(85);
+  assert.equal(enteredB, false, 'another runtime entered after the original lease TTL expired');
+  await Promise.all([first, second]);
+  assert.equal(enteredB, true);
+  assert.equal(maxActive, 1);
+});
