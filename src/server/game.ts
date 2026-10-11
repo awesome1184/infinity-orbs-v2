@@ -4942,7 +4942,7 @@ export async function startOrbFrenzy(options: {
     // cooldown, Guild/community effects and post receipt all commit together.
     const frenzyPostKey = FRENZY_POST_PREFIX + postId;
     const frenzySaveGeneration = Math.max(0, Math.floor(Number(s.saveGeneration ?? 0)));
-    const frenzySaveRevision = Math.max(0, Math.floor(Number(s.stateRevision ?? 0)));
+    const frenzySaveRevision = Math.max(0, Math.floor(Number(s.stateRevision ?? 0)) || 0);
     const frenzyReceiptWrite: SaveExtraWrite = {
       key: frenzyPostKey,
       expectedValue: null,
@@ -4959,8 +4959,23 @@ export async function startOrbFrenzy(options: {
       try {
         const persistedReceipt = await redis.get(frenzyPostKey);
         if (persistedReceipt != null && String(persistedReceipt) === frenzyPostValue) {
+          // Mirror save()'s normal post-commit bookkeeping, because its EXEC
+          // response was ambiguous even though the atomic receipt proves commit.
+          pendingSaveExtraWrites.delete(s);
           s.saveGeneration = frenzySaveGeneration;
           s.stateRevision = frenzySaveRevision + 1;
+          const postCommitActions = pendingSavePostCommitActions.get(s) ?? [];
+          pendingSavePostCommitActions.delete(s);
+          for (const action of postCommitActions) {
+            try {
+              await action();
+            } catch (error) {
+              console.error('[Player Save] Reconciled post-commit action failed:', error);
+            }
+          }
+          void syncRarityFlair(s).catch(error => {
+            console.error('[Rarity Flair] Background update failed after Frenzy save reconciliation:', error);
+          });
         } else {
           // Retry the identical mutation only if the player's generation and
           // revision have not moved. Never rebase rewards or roll state onto a
