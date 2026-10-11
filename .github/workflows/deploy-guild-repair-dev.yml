@@ -1,0 +1,107 @@
+name: Deploy Guild Repair to Development
+
+# Manual, development-only deployment of the validated 1.2.9 release candidate.
+# Production (r/infinityorbs) is intentionally never installed by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_install:
+        description: "Authorize upload of infinity-orbs@1.2.9 and installation to r/infinity_orbs_dev only."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-guild-repair-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm_install }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Require explicit main-branch dispatch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "Refusing deployment workflow dispatch from: $GITHUB_REF"
+            echo "Select main in the GitHub Actions Run workflow branch selector."
+            exit 1
+          }
+
+      - name: Check out the validated release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: release/1.2.2-candidate-20261011
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify exact candidate version
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$VERSION" = "1.2.9" || {
+            echo "Refusing deployment: expected infinity-orbs@1.2.9, found infinity-orbs@$VERSION"
+            exit 1
+          }
+          node -e "const p=require('./package.json'),l=require('./package-lock.json'); if (p.version !== l.version || p.version !== l.packages?.['']?.version) process.exit(2)"
+          echo "Deploying validated source as infinity-orbs@$VERSION to development only."
+
+      - name: Full deployment preflight
+        run: npm run preflight
+
+      - name: Validate Devvit authentication secret
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DEVVIT_AUTH_TOKEN" || {
+            echo "DEVVIT_TOKEN GitHub secret is missing."
+            exit 1
+          }
+          case "$DEVVIT_AUTH_TOKEN" in
+            \{*) ;;
+            *)
+              echo "DEVVIT_TOKEN must contain the complete JSON blob from ~/.devvit/token."
+              exit 1
+              ;;
+          esac
+
+      - name: Upload exact version to Devvit
+        env:
+          CI: true
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+        timeout-minutes: 10
+        run: timeout --signal=TERM --kill-after=30s 9m npx devvit upload --version 1.2.9
+
+      - name: Verify uploaded version
+        run: |
+          set -euo pipefail
+          VERSION="$(npx devvit view infinity-orbs version)"
+          test "$VERSION" = "1.2.9" || {
+            echo "Uploaded version mismatch: expected 1.2.9, found $VERSION"
+            exit 1
+          }
+
+      - name: Install candidate to development subreddit only
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx devvit install r/infinity_orbs_dev "infinity-orbs@1.2.9"
+          npx devvit list installs r/infinity_orbs_dev
+
+      - name: Confirm production was not changed by this workflow
+        run: echo "This workflow did not install or modify r/infinityorbs."
