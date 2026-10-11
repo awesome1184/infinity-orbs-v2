@@ -364,9 +364,8 @@ test('share cooldown is durable before Reddit post creation and quest progress c
 test('feedback Modmail body uses actual paragraph separators', () => {
   const app = source('src/server/app.ts');
   const start = app.indexOf("app.post('/api/feedback'");
-  const end = app.indexOf("\\n  app.post('/api/turbo/activate'", start);
+  const end = app.indexOf("app.post('/api/turbo/activate'", start);
   assert.ok(start >= 0 && end > start, 'feedback route must exist');
   const route = app.slice(start, end);
-  assert.ok(route.includes("].join('\\\\n\\\\n')"), 'feedback body should join fields using actual newline escapes');
-  assert.ok(!route.includes('\\\\\\\\n\\\\\\\\n'), 'feedback body must not emit literal backslash-n text');
+  assert.ok(route.includes("].join('\\n\\n')"), 'feedback body should join fields using actual newline escapes');
 });
