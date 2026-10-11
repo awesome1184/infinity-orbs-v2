@@ -1761,57 +1761,66 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
       'paymentReceipts' in record;
 
     if (looksLikePlayerState) {
+      // Payment callbacks must enforce the same core-save contract as ordinary
+      // loading before default-merging optional legacy fields. Otherwise a
+      // malformed wallet or lifetime counter can be silently normalized and
+      // committed alongside a fulfilled purchase receipt.
+      const validatedState = parsePlayerStateValue(record);
+      if (!validatedState) {
+        throw new Error('Saved player data could not be read; the purchase was not applied.');
+      }
+      const validatedRecord = validatedState as unknown as Record<string, unknown>;
       const base = createInitialState();
-      const upgrades = record.upgrades && typeof record.upgrades === 'object' && !Array.isArray(record.upgrades)
-        ? record.upgrades as Record<string, unknown>
+      const upgrades = validatedRecord.upgrades && typeof validatedRecord.upgrades === 'object' && !Array.isArray(validatedRecord.upgrades)
+        ? validatedRecord.upgrades as Record<string, unknown>
         : {};
-      const prestigeUpgrades = record.prestigeUpgrades && typeof record.prestigeUpgrades === 'object' && !Array.isArray(record.prestigeUpgrades)
-        ? record.prestigeUpgrades as Record<string, unknown>
+      const prestigeUpgrades = validatedRecord.prestigeUpgrades && typeof validatedRecord.prestigeUpgrades === 'object' && !Array.isArray(validatedRecord.prestigeUpgrades)
+        ? validatedRecord.prestigeUpgrades as Record<string, unknown>
         : {};
-      const normalizedWalletShards = normalizeSafeInteger(record.shards, base.shards);
+      const normalizedWalletShards = normalizeSafeInteger(validatedRecord.shards, base.shards);
       const normalizedPurchasedShards = Math.min(
-        normalizeSafeInteger(record.purchasedShards, base.purchasedShards ?? 0),
+        normalizeSafeInteger(validatedRecord.purchasedShards, base.purchasedShards ?? 0),
         normalizedWalletShards,
       );
       const normalizedGlobalBoosterCredits = normalizeSafeInteger(
-        record.globalBoosterCredits,
+        validatedRecord.globalBoosterCredits,
         base.globalBoosterCredits ?? 0,
       );
 
       return {
         ...base,
-        ...record,
+        ...validatedRecord,
         shards: normalizedWalletShards,
         purchasedShards: normalizedPurchasedShards,
         purchasedShardLots: normalizeEntitlementLots(
-          record.purchasedShardLots,
+          validatedRecord.purchasedShardLots,
           normalizedPurchasedShards,
           true,
         ),
         globalBoosterCredits: normalizedGlobalBoosterCredits,
         globalBoosterCreditLots: normalizeEntitlementLots(
-          record.globalBoosterCreditLots,
+          validatedRecord.globalBoosterCreditLots,
           normalizedGlobalBoosterCredits,
         ),
         upgrades: { ...base.upgrades, ...upgrades },
         prestigeUpgrades: { ...base.prestigeUpgrades, ...prestigeUpgrades },
-        collection: (record.collection && typeof record.collection === 'object' && !Array.isArray(record.collection))
-          ? record.collection as Record<string, number>
+        collection: (validatedRecord.collection && typeof validatedRecord.collection === 'object' && !Array.isArray(validatedRecord.collection))
+          ? validatedRecord.collection as Record<string, number>
           : base.collection,
-        claimedAchievements: Array.isArray(record.claimedAchievements)
-          ? record.claimedAchievements as string[]
+        claimedAchievements: Array.isArray(validatedRecord.claimedAchievements)
+          ? validatedRecord.claimedAchievements as string[]
           : base.claimedAchievements,
-        unlockedCosmetics: Array.isArray(record.unlockedCosmetics)
-          ? record.unlockedCosmetics as string[]
+        unlockedCosmetics: Array.isArray(validatedRecord.unlockedCosmetics)
+          ? validatedRecord.unlockedCosmetics as string[]
           : base.unlockedCosmetics,
-        dailyQuests: Array.isArray(record.dailyQuests)
-          ? record.dailyQuests as PlayerState['dailyQuests']
+        dailyQuests: Array.isArray(validatedRecord.dailyQuests)
+          ? validatedRecord.dailyQuests as PlayerState['dailyQuests']
           : base.dailyQuests,
-        weeklyQuests: Array.isArray(record.weeklyQuests)
-          ? record.weeklyQuests as PlayerState['weeklyQuests']
+        weeklyQuests: Array.isArray(validatedRecord.weeklyQuests)
+          ? validatedRecord.weeklyQuests as PlayerState['weeklyQuests']
           : base.weeklyQuests,
-        paymentReceipts: record.paymentReceipts && typeof record.paymentReceipts === 'object' && !Array.isArray(record.paymentReceipts)
-          ? record.paymentReceipts as PlayerState['paymentReceipts']
+        paymentReceipts: validatedRecord.paymentReceipts && typeof validatedRecord.paymentReceipts === 'object' && !Array.isArray(validatedRecord.paymentReceipts)
+          ? validatedRecord.paymentReceipts as PlayerState['paymentReceipts']
           : {},
       };
     }
@@ -1988,7 +1997,12 @@ return withPlayerMutationLockFor(userId, async () => {
     state.globalBoosterCreditLots[orderId] =
       normalizeSafeInteger(state.globalBoosterCreditLots[orderId], 0) + pack.globalBoosterCredits;
 
-    state.stateRevision = Math.max(0, Math.floor(Number(state.stateRevision ?? 0)) || 0) + 1;
+    const currentRevision = normalizeSafeInteger(state.stateRevision, 0);
+    if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+      await txn.unwatch();
+      throw new Error('Player state revision is exhausted; no purchase was applied.');
+    }
+    state.stateRevision = currentRevision + 1;
     state.shards = currentShardBalance + pack.shards;
     state.purchasedShards = existingPurchasedShards + pack.shards;
     // Lifetime Shards are telemetry, not a spendable balance. Saturate the
