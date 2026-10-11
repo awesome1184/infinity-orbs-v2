@@ -1750,17 +1750,20 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) break;
 
     const record = parsed as Record<string, unknown>;
+    // Only treat a record as a PlayerState when it has the required core
+    // fields. A wrapper can contain incidental keys such as "shards" alongside
+    // a valid nested save; partial/malformed saves must not bypass the canonical
+    // loader's wallet and revision validation.
     const looksLikePlayerState =
-      'coins' in record ||
-      'shards' in record ||
-      'totalRolls' in record ||
-      'username' in record ||
-      'saveGeneration' in record ||
-      'upgrades' in record ||
-      'collection' in record ||
-      'paymentReceipts' in record;
+      'coins' in record &&
+      'shards' in record &&
+      'totalRolls' in record;
 
     if (looksLikePlayerState) {
+      const validatedState = parsePlayerStateValue(record);
+      if (!validatedState) {
+        throw new Error('Saved player data could not be read; the purchase was not applied.');
+      }
       const base = createInitialState();
       const upgrades = record.upgrades && typeof record.upgrades === 'object' && !Array.isArray(record.upgrades)
         ? record.upgrades as Record<string, unknown>
@@ -1780,7 +1783,7 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
 
       return {
         ...base,
-        ...record,
+        ...validatedState,
         shards: normalizedWalletShards,
         purchasedShards: normalizedPurchasedShards,
         purchasedShardLots: normalizeEntitlementLots(
