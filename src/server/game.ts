@@ -1778,7 +1778,7 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
         base.globalBoosterCredits ?? 0,
       );
 
-      return {
+      const normalizedState = {
         ...base,
         ...record,
         shards: normalizedWalletShards,
@@ -1813,7 +1813,28 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
         paymentReceipts: record.paymentReceipts && typeof record.paymentReceipts === 'object' && !Array.isArray(record.paymentReceipts)
           ? record.paymentReceipts as PlayerState['paymentReceipts']
           : {},
-      };
+      } as PlayerState;
+      // Payment callbacks must not normalize malformed core fields into defaults and
+      // then persist the resulting save. Missing legacy fields may use safe defaults,
+      // but any present core field must already be in its supported domain.
+      const validCoreState =
+        (!('coins' in record) ||
+          (typeof record.coins === 'number' &&
+            Number.isFinite(record.coins) &&
+            record.coins >= 0)) &&
+        (!('shards' in record) ||
+          (Number.isSafeInteger(record.shards) &&
+            Number(record.shards) >= 0)) &&
+        (!('totalRolls' in record) ||
+          (Number.isSafeInteger(record.totalRolls) &&
+            Number(record.totalRolls) >= 0)) &&
+        (record.stateRevision == null ||
+          (Number.isSafeInteger(record.stateRevision) &&
+            Number(record.stateRevision) >= 0));
+      if (!validCoreState) {
+        throw new Error('Saved player data has invalid core fields; the purchase was not applied.');
+      }
+      return normalizedState;
     }
 
     let nestedFound = false;
@@ -1964,6 +1985,12 @@ return withPlayerMutationLockFor(userId, async () => {
       throw new Error('Global Booster credit balance has reached its supported storage limit; use credits before reconciling this purchase.');
     }
 
+    const currentRevision = normalizeSafeInteger(state.stateRevision, 0);
+    if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+      await txn.unwatch();
+      throw new Error('Player state revision is exhausted; no purchase was applied.');
+    }
+
     const existingPurchasedShards = Math.min(
       normalizeSafeInteger(state.purchasedShards, 0),
       currentShardBalance,
@@ -1988,7 +2015,7 @@ return withPlayerMutationLockFor(userId, async () => {
     state.globalBoosterCreditLots[orderId] =
       normalizeSafeInteger(state.globalBoosterCreditLots[orderId], 0) + pack.globalBoosterCredits;
 
-    state.stateRevision = Math.max(0, Math.floor(Number(state.stateRevision ?? 0)) || 0) + 1;
+    state.stateRevision = currentRevision + 1;
     state.shards = currentShardBalance + pack.shards;
     state.purchasedShards = existingPurchasedShards + pack.shards;
     // Lifetime Shards are telemetry, not a spendable balance. Saturate the
