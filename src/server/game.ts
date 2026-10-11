@@ -1750,15 +1750,13 @@ function parsePaymentPlayerState(raw: unknown): PlayerState {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) break;
 
     const record = parsed as Record<string, unknown>;
+    // Match the ordinary loader's direct-state detection. A wrapper can have
+    // incidental keys such as "shards" alongside a nested valid save; only a
+    // complete core record should be validated as the state itself.
     const looksLikePlayerState =
-      'coins' in record ||
-      'shards' in record ||
-      'totalRolls' in record ||
-      'username' in record ||
-      'saveGeneration' in record ||
-      'upgrades' in record ||
-      'collection' in record ||
-      'paymentReceipts' in record;
+      'coins' in record &&
+      'shards' in record &&
+      'totalRolls' in record;
 
     if (looksLikePlayerState) {
       // Payment callbacks must enforce the same core-save contract as ordinary
