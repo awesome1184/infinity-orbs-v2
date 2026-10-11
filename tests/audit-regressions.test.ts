@@ -796,6 +796,24 @@ test('live presence survives optimistic and authoritative state replacement, and
 });
 
 
+test('offline notification reservation recovers ambiguous Redis SET only after confirming its token', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('async function sendOfflineFullNotification');
+  const end = game.indexOf('function parseOfflineFullJobMarker', start);
+  assert.ok(start >= 0 && end > start);
+  const sender = game.slice(start, end);
+
+  const setIndex = sender.indexOf('await redis.set(notificationKey, pendingToken, {');
+  const readIndex = sender.indexOf('storedReservation = await redis.get(notificationKey)');
+  const enqueueIndex = sender.indexOf('await notifications.enqueue(');
+  assert.ok(setIndex >= 0 && readIndex > setIndex && enqueueIndex > readIndex);
+  assert.match(sender, /let reservationWriteFailed = false/);
+  assert.match(sender, /catch \(error\) \{\s*\/\/ Redis can commit SET NX but lose its acknowledgement\.[\s\S]*?reservationWriteFailed = true;\s*reservationWriteError = error;/);
+  assert.match(sender, /if \(storedReservation !== pendingToken\)/);
+  assert.match(sender, /if \(reservationWriteFailed && storedReservation == null\) throw reservationWriteError/);
+  assert.match(sender, /if \(reservationWriteFailed\) \{\s*console\.warn\(/);
+});
+
 test('offline notification worker validates the persisted PlayerState before calculating cap', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('export async function processOfflineFullNotification');
