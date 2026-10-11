@@ -148,9 +148,9 @@ async function clearOfflineReminderKeyIfUnchanged(
     }
 
     await txn.multi();
-    // Empty string is treated as absent by the existing truthiness checks,
-    // while WATCH/MULTI makes the compare-and-clear safe against a newer job.
-    await txn.set(keyName, '');
+    // Delete the key instead of storing an empty string. New notification
+    // reservations use SET NX, and an empty value still occupies the Redis key.
+    await txn.del(keyName);
     if (await txn.exec() !== null) return true;
   }
   return false;
