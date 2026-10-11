@@ -3511,11 +3511,40 @@ async function sendOfflineFullNotification(userId: string, subredditName: string
   // expires after a week if an interrupted request never reaches its final write.
   const attemptNow = Date.now();
   const pendingToken = `pending:${attemptNow.toString(36)}:${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
-  await redis.set(notificationKey, pendingToken, {
-    nx: true,
-    expiration: new Date(attemptNow + 7 * 24 * 60 * 60_000),
-  });
-  if (await redis.get(notificationKey) !== pendingToken) return false;
+  let reservationWriteFailed = false;
+  let reservationWriteError: unknown;
+  try {
+    await redis.set(notificationKey, pendingToken, {
+      nx: true,
+      expiration: new Date(attemptNow + 7 * 24 * 60 * 60_000),
+    });
+  } catch (error) {
+    // Redis can commit SET NX but lose its acknowledgement. Verify our unique
+    // token before deciding whether to enqueue, rather than stranding a
+    // reservation for seven days even though no provider call was attempted.
+    reservationWriteFailed = true;
+    reservationWriteError = error;
+  }
+
+  let storedReservation: string | null;
+  try {
+    storedReservation = await redis.get(notificationKey);
+  } catch (readError) {
+    if (reservationWriteFailed) {
+      console.error('[Offline Notification] Could not verify an ambiguous reservation write.', readError);
+      throw reservationWriteError;
+    }
+    throw readError;
+  }
+  if (storedReservation !== pendingToken) {
+    // No confirmed reservation means we must not send. If SET failed and the
+    // key is absent, propagate the original failure so the caller can retry.
+    if (reservationWriteFailed && storedReservation == null) throw reservationWriteError;
+    return false;
+  }
+  if (reservationWriteFailed) {
+    console.warn('[Offline Notification] Reservation token was confirmed after an ambiguous Redis SET failure; continuing.', reservationWriteError);
+  }
 
   await notifications.enqueue({
     title: 'Infinity Orbs',
