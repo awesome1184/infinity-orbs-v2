@@ -77,6 +77,59 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Recover only non-authoritative member metadata from legacy Guild records.
+ * Keep identity and authorization fields strict: the raw-record validator below
+ * still rejects invalid role/userId types, negative values, and non-numeric counters.
+ * Every repair is fail-closed and preserves the member entry instead of dropping it.
+ */
+function capSafeGuildCounter(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(value)));
+}
+
+function normalizeRecoverableGuildMemberFields(guild: Record<string, unknown>): void {
+  if (!Array.isArray(guild.members)) return;
+
+  guild.members.forEach((value, index) => {
+    if (!isRecordValue(value)) return;
+    const member = value;
+
+    // Preserve stable user IDs and valid roles. Empty display names are the only
+    // username issue repaired here; non-string usernames still fail strict parsing.
+    if (typeof member.username === 'string') {
+      const trimmed = member.username.trim();
+      member.username = trimmed || `recovered-member-${index + 1}`;
+    }
+
+    // Contribution is a counter, so fractional/unsafe legacy values cannot be
+    // used directly in arithmetic. Clamp rather than reject the entire Guild.
+    if (
+      typeof member.contribution === 'number' &&
+      Number.isFinite(member.contribution) &&
+      member.contribution >= 0
+    ) {
+      member.contribution = capSafeGuildCounter(member.contribution);
+    }
+
+    // Malformed trust metadata must never grant privileges. Role authorization
+    // remains authoritative (owners/officers are checked separately).
+    if (member.trusted != null && typeof member.trusted !== 'boolean') {
+      member.trusted = member.role === 'owner';
+    }
+
+    // These timestamps are informational, not identity or authorization data.
+    if (member.joinedAt != null &&
+        (!Number.isSafeInteger(member.joinedAt) || Number(member.joinedAt) < 0)) {
+      delete member.joinedAt;
+    }
+    if (member.lastLoginAt != null &&
+        (!Number.isSafeInteger(member.lastLoginAt) || Number(member.lastLoginAt) < 0)) {
+      delete member.lastLoginAt;
+    }
+  });
+}
+
 function validateGuildNestedState(guild: Record<string, unknown>): void {
   const invalid = (field = 'unknown nested field') =>
     new Error(`Guild data contains malformed nested state; refusing to replace it. Guild ${String(guild.id ?? 'unknown')} field: ${field}.`);
@@ -379,6 +432,9 @@ function parseGuildListRaw(raw: unknown): Guild[] {
       .map((item, index) => recoverGuildRecordForPlaytest(item, index));
   }
   for (const item of parsed) {
+    // Repair only recoverable, non-authoritative member metadata. Identity and
+    // role corruption remains a hard failure in the structural checks below.
+    if (isRecordValue(item)) normalizeRecoverableGuildMemberFields(item);
     if (
       !item || typeof item !== 'object' || Array.isArray(item) ||
       typeof (item as any).id !== 'string' ||
@@ -1304,7 +1360,8 @@ export async function postGuildMessage(text: string) {
 
 export async function contribute(value: number, rollCount = 1, bestRarity?: number) {
   try {
-    if (value <= 0) return;
+    const safeValue = capSafeGuildCounter(value);
+    if (safeValue <= 0) return;
     await updateGuilds(guilds => {
       const guild = guilds.find(g => g.members.some(m => m.username === username()));
       if (!guild) return;
@@ -1322,25 +1379,25 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
         Math.floor(guild.perks?.comboRank ?? 0),
       ) * 0.05;
 
-      member.contribution += value;
-      addGuildExperience(guild, Math.max(1, Math.floor(Math.max(1, Math.floor(value / 250)) * xpMultiplier)));
+      member.contribution = capSafeGuildCounter(member.contribution + safeValue);
+      addGuildExperience(guild, Math.max(1, Math.floor(Math.max(1, Math.floor(safeValue / 250)) * xpMultiplier)));
 
       if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
         guild.tasks = createInitialGuildTasks(guild.level);
       }
 
       const now = Date.now();
-      const taskProgressValue = Math.max(0, Math.floor(value));
-      const taskProgressRolls = Math.max(0, Math.floor(rollCount));
+      const taskProgressValue = safeValue;
+      const taskProgressRolls = capSafeGuildCounter(rollCount);
       const taskProgressRare = (bestRarity ?? 0) >= 100 ? 1 : 0;
 
       for (let i = 0; i < guild.tasks.length; i++) {
         const task = guild.tasks[i];
         if (!task) continue;
 
-        if (task.type === 'value') task.progress += taskProgressValue;
-        else if (task.type === 'rolls') task.progress += taskProgressRolls;
-        else if (task.type === 'rare') task.progress += taskProgressRare;
+        if (task.type === 'value') task.progress = capSafeGuildCounter(task.progress + taskProgressValue);
+        else if (task.type === 'rolls') task.progress = capSafeGuildCounter(task.progress + taskProgressRolls);
+        else if (task.type === 'rare') task.progress = capSafeGuildCounter(task.progress + taskProgressRare);
 
         if (task.progress < task.target) continue;
 
@@ -1348,9 +1405,9 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
         const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
         const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
 
-        guild.tokens = (guild.tokens ?? 0) + reward;
+        guild.tokens = capSafeGuildCounter((guild.tokens ?? 0) + reward);
         addGuildExperience(guild, xpReward);
-        guild.taskCompletions = (guild.taskCompletions ?? 0) + 1;
+        guild.taskCompletions = capSafeGuildCounter((guild.taskCompletions ?? 0) + 1);
         guild.combo = activateGuildComboStack(
           guild.combo,
           now,
@@ -1387,10 +1444,10 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
       };
 
       if (guild.boss && !guild.boss.defeated) {
-        const damage = Math.round(value + rollCount * 25);
+        const damage = capSafeGuildCounter(safeValue + taskProgressRolls * 25);
         guild.boss.currentHp = Math.max(0, guild.boss.currentHp - damage);
         if (!guild.boss.contributors) guild.boss.contributors = {};
-        guild.boss.contributors[username()] = (guild.boss.contributors[username()] ?? 0) + damage;
+        guild.boss.contributors[username()] = capSafeGuildCounter((guild.boss.contributors[username()] ?? 0) + damage);
 
         if (guild.boss.currentHp <= 0) {
           guild.boss.defeated = true;
