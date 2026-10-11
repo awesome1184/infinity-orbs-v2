@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { requestExpandedMode } from '@devvit/web/client';
 import { ArrowRight, Flame, Users } from 'lucide-react';
@@ -89,10 +89,18 @@ function FrenzyPost() {
   const [error, setError] = useState<string | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const loadInFlightRef = useRef(false);
   const [openedGame, setOpenedGame] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const load = async () => {
+    // Loading the post state is read-only. A retry must never arm or claim it,
+    // and repeated clicks/effect calls must not race one another.
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    setLoadingInfo(true);
+    setError(null);
     try {
       const res = await fetch('/api/frenzy/info');
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not load Frenzy.');
@@ -101,6 +109,9 @@ function FrenzyPost() {
       setClaimed(Boolean(data.claimedToday));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not load Frenzy.');
+    } finally {
+      loadInFlightRef.current = false;
+      setLoadingInfo(false);
     }
   };
 
@@ -165,6 +176,14 @@ function FrenzyPost() {
             <div className="io-public-eyebrow io-public-eyebrow-error">Frenzy error</div>
             <h1>Could not load Orb Frenzy</h1>
             <p>{error}</p>
+            <button
+              type="button"
+              className="io-public-button io-public-button-primary"
+              onClick={() => void load()}
+              disabled={loadingInfo}
+            >
+              {loadingInfo ? 'Retrying…' : 'Retry'}
+            </button>
           </section>
         </div>
       </main>
