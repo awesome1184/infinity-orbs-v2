@@ -485,6 +485,7 @@ test('Frenzy start reconciles an ambiguous save through its atomic post receipt 
   assert.ok(receiptRead >= 0 && receiptMatch > receiptRead, 'check receipt to detect an ambiguous committed transaction first');
   assert.ok(commitRecovery > receiptMatch, 'receipt-proven commits must clear staged writes and complete post-commit work');
   assert.ok(retry > receiptMatch, 'retry is only attempted after the atomic receipt is absent');
+  assert.ok(recovery.includes('persistedReceipt != null && String(persistedReceipt) !== frenzyPostValue'), 'foreign receipt must not be overwritten');
   assert.ok(recovery.includes('currentGeneration !== frenzySaveGeneration'));
   assert.ok(recovery.includes('currentRevision !== frenzySaveRevision'));
   assert.ok(recovery.includes('throw saveError;'), 'changed generations/revisions must fail closed');
