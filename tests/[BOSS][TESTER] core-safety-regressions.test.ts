@@ -369,3 +369,20 @@ test('feedback Modmail body uses actual paragraph separators', () => {
   const route = app.slice(start, end);
   assert.ok(route.includes("].join('\\n\\n')"), 'feedback body should join fields using actual newline escapes');
 });
+
+
+test('feedback Modmail submits require an atomic per-user cooldown reservation', () => {
+  const app = source('src/server/app.ts');
+  const start = app.indexOf("app.post('/api/feedback'");
+  const end = app.indexOf("app.post('/api/turbo/activate'", start);
+  assert.ok(start >= 0 && end > start, 'feedback route must exist');
+  const route = app.slice(start, end);
+  const reserve = route.indexOf("redis.set(feedbackCooldownKey, feedbackCooldownToken");
+  const verify = route.indexOf("redis.get(feedbackCooldownKey) !== feedbackCooldownToken");
+  const submit = route.indexOf("reddit.modMail.createModInboxConversation");
+  assert.ok(reserve >= 0 && verify > reserve && submit > verify, 'reserve and verify before creating Modmail');
+  assert.ok(route.includes("nx: true"));
+  assert.ok(route.includes("new Date(Date.now() + 60_000)"));
+  assert.ok(route.includes("res.status(429)"));
+  assert.ok(route.includes("res.status(503)"));
+});
