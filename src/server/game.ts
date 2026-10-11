@@ -1923,11 +1923,24 @@ return withPlayerMutationLockFor(userId, async () => {
       return false;
     }
 
+    const currentShardBalance = normalizeSafeInteger(state.shards, 0);
+    const currentBoosterCreditBalance = normalizeSafeInteger(state.globalBoosterCredits, 0);
+    if (pack.shards > Number.MAX_SAFE_INTEGER - currentShardBalance) {
+      await txn.unwatch();
+      throw new Error('Shard balance has reached its supported storage limit; spend Shards before reconciling this purchase.');
+    }
+    if (pack.globalBoosterCredits > Number.MAX_SAFE_INTEGER - currentBoosterCreditBalance) {
+      await txn.unwatch();
+      throw new Error('Global Booster credit balance has reached its supported storage limit; use credits before reconciling this purchase.');
+    }
+
     const existingPurchasedShards = Math.min(
       normalizeSafeInteger(state.purchasedShards, 0),
-      normalizeSafeInteger(state.shards, 0),
+      currentShardBalance,
     );
     state.purchasedShards = existingPurchasedShards;
+    state.shards = currentShardBalance;
+    state.globalBoosterCredits = currentBoosterCreditBalance;
     state.purchasedShardLots = normalizeEntitlementLots(
       state.purchasedShardLots,
       existingPurchasedShards,
@@ -1946,10 +1959,15 @@ return withPlayerMutationLockFor(userId, async () => {
       normalizeSafeInteger(state.globalBoosterCreditLots[orderId], 0) + pack.globalBoosterCredits;
 
     state.stateRevision = Math.max(0, Math.floor(Number(state.stateRevision ?? 0)) || 0) + 1;
-    state.shards = (state.shards ?? 0) + pack.shards;
-    state.purchasedShards = (state.purchasedShards ?? 0) + pack.shards;
-    state.lifetimeShards = (state.lifetimeShards ?? 0) + pack.shards;
-    state.globalBoosterCredits = (state.globalBoosterCredits ?? 0) + pack.globalBoosterCredits;
+    state.shards = currentShardBalance + pack.shards;
+    state.purchasedShards = existingPurchasedShards + pack.shards;
+    // Lifetime Shards are telemetry, not a spendable balance. Saturate the
+    // counter rather than allowing an unsafe integer into persisted state.
+    const lifetimeShards = normalizeSafeInteger(state.lifetimeShards, currentShardBalance);
+    state.lifetimeShards = lifetimeShards > Number.MAX_SAFE_INTEGER - pack.shards
+      ? Number.MAX_SAFE_INTEGER
+      : lifetimeShards + pack.shards;
+    state.globalBoosterCredits = currentBoosterCreditBalance + pack.globalBoosterCredits;
     const receipt: PaymentReceipt = {
       status: 'fulfilled',
       shards: pack.shards,
