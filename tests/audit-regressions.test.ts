@@ -1089,6 +1089,33 @@ test('persisted PlayerState parser rejects malformed wallet and roll-counter cor
   assert.match(parser, /if \(!validCoreState\) return null/);
 });
 
+test('payment mutations reject malformed core state and stop before revision overflow', () => {
+  const game = source('src/server/game.ts');
+  const parserStart = game.indexOf('function parsePaymentPlayerState');
+  const parserEnd = game.indexOf('export async function hasReadablePlayerSave', parserStart);
+  assert.ok(parserStart >= 0 && parserEnd > parserStart);
+  const parser = game.slice(parserStart, parserEnd);
+  assert.match(parser, /'coins' in record[\\s\\S]*?typeof record\\.coins === 'number'/);
+  assert.match(parser, /'shards' in record[\\s\\S]*?Number\\.isSafeInteger\\(record\\.shards\\)/);
+  assert.match(parser, /'totalRolls' in record[\\s\\S]*?Number\\.isSafeInteger\\(record\\.totalRolls\\)/);
+  assert.match(parser, /record\\.stateRevision == null[\\s\\S]*?Number\\.isSafeInteger\\(record\\.stateRevision\\)/);
+  assert.match(parser, /Saved player data has invalid core fields; the purchase was not applied/);
+
+  const grantStart = game.indexOf('export async function grantPurchasedPack');
+  const grantEnd = game.indexOf('export async function refundPurchasedPack', grantStart);
+  assert.ok(grantStart >= 0 && grantEnd > grantStart);
+  const grant = game.slice(grantStart, grantEnd);
+  const revisionRead = grant.indexOf('const currentRevision = normalizeSafeInteger(state.stateRevision, 0)');
+  const revisionGuard = grant.indexOf('if (currentRevision >= Number.MAX_SAFE_INTEGER)', revisionRead);
+  const shardLotWrite = grant.indexOf('state.purchasedShardLots[orderId] =');
+  const creditLotWrite = grant.indexOf('state.globalBoosterCreditLots[orderId] =');
+  const revisionWrite = grant.indexOf('state.stateRevision = currentRevision + 1');
+  assert.ok(revisionRead >= 0 && revisionGuard > revisionRead);
+  assert.ok(shardLotWrite > revisionGuard, 'revision must be guarded before Shard-lot mutation');
+  assert.ok(creditLotWrite > revisionGuard, 'revision must be guarded before credit-lot mutation');
+  assert.ok(revisionWrite > revisionGuard, 'only the checked revision may be incremented');
+});
+
 test('every loaded PlayerState has a valid revision, including new and legacy saves', () => {
   const game = source('src/server/game.ts');
   const parserStart = game.indexOf('function parsePlayerStateValue');
