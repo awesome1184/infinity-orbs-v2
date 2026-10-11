@@ -3755,8 +3755,10 @@ export async function processOfflineFullNotification(
     try {
       notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
     } catch (markerReadError) {
-      // A failed verification read must not be interpreted as absence: keep
-      // the conservative delayed retry that respects the pending marker TTL.
+      // A failed verification read is unknown, not proof of absence. Retry
+      // soon with the pending-retry mode enabled: the sender's NX reservation
+      // still prevents taking over a live attempt, and a surviving pending token
+      // will be deferred again until its expiry on the next worker pass.
       markerReadFailed = true;
       console.error('[Offline Notification] Could not inspect the attempt marker before retry scheduling.', markerReadError);
     }
@@ -3770,9 +3772,11 @@ export async function processOfflineFullNotification(
       return;
     }
     const hasPendingReservation = markerReadFailed || isPendingOfflineNotificationMarker(notificationMarker);
-    const retryAt = hasPendingReservation
-      ? offlineNotificationPendingRetryAt(notificationMarker)
-      : Date.now() + OFFLINE_FULL_RETRY_MS;
+    const retryAt = markerReadFailed
+      ? Date.now() + OFFLINE_FULL_RETRY_MS
+      : hasPendingReservation
+        ? offlineNotificationPendingRetryAt(notificationMarker)
+        : Date.now() + OFFLINE_FULL_RETRY_MS;
     const cleared = await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
     if (cleared) {
       await scheduleOfflineFullNotification(userId, subredditName, retryAt, hasPendingReservation);
