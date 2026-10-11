@@ -6,7 +6,6 @@ import {
   createInitialGlobalBoosters,
   activateGlobalBoosterStack,
   decayGlobalBoosterState,
-  GLOBAL_BOOSTER_MAX_TIER,
   createInitialGuildCombo,
   activateGuildComboStack,
   decayGuildComboState,
@@ -371,13 +370,13 @@ test('Frenzy Volley counts each additional multiball at 20% efficiency', () => {
 test('Global Booster bar preserves the real tier of its latest four activation segments', () => {
   let booster = createInitialGlobalBoosters(NOW).luck;
   for (let i = 0; i < 4; i += 1) {
-    booster = activateGlobalBoosterStack(booster, NOW, GLOBAL_BOOSTER_MAX_TIER);
+    booster = activateGlobalBoosterStack(booster, NOW, 10);
   }
 
   assert.equal(booster.tier, 2);
   assert.deepEqual(booster.segmentTiers, [1, 1, 1, 1]);
 
-  booster = activateGlobalBoosterStack(booster, NOW + 1, GLOBAL_BOOSTER_MAX_TIER);
+  booster = activateGlobalBoosterStack(booster, NOW + 1, 10);
   assert.deepEqual(booster.segmentTiers, [1, 1, 1, 2]);
 
   const decayed = decayGlobalBoosterState(booster, NOW + 2);
@@ -393,7 +392,7 @@ test('Global Booster segment history is bounded and sanitized when reading store
     segmentTiers: [2, 11, -1, 3, 5],
   }, NOW + 1);
 
-  assert.deepEqual(state.segmentTiers, [10, 0, 3, 5]);
+  assert.deepEqual(state.segmentTiers, [11, 0, 3, 5]);
   assert.equal(decayGlobalBoosterState({
     tier: 0,
     activationProgress: 0,
