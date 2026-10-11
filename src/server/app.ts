@@ -1112,10 +1112,11 @@ export function createApp() {
       }
 
       const subject = `${type === 'bug' ? 'Bug Report' : 'Suggestion'} • Infinity Orbs • u/${username}`.slice(0, 100);
-      const bodyMarkdown =
-        `**${type === 'bug' ? 'Bug Report' : 'Suggestion'}**\\n\\n` +
-        `**From:** u/${username}\\n\\n` +
-        message;
+      const bodyMarkdown = [
+        `**${type === 'bug' ? 'Bug Report' : 'Suggestion'}**`,
+        `**From:** u/${username}`,
+        message,
+      ].join('\n\n');
 
       const conversationId = await reddit.modMail.createModInboxConversation({
         subredditId,
