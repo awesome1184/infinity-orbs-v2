@@ -3514,6 +3514,10 @@ function offlineNotificationPendingRetryAt(marker: unknown, now = Date.now()): n
   return Math.max(now + 1_000, pendingAt + pendingTtlMs + 60_000);
 }
 
+function isPendingOfflineNotificationMarker(marker: unknown): marker is string {
+  return typeof marker === 'string' && marker.startsWith('pending:');
+}
+
 async function sendOfflineFullNotification(userId: string, subredditName: string): Promise<boolean> {
   const notificationKey = OFFLINE_FULL_NOTIFICATION_PREFIX + userId;
   // Only the durable receipt proves delivery. A pending token is an attempt
@@ -3627,7 +3631,7 @@ async function scheduleOfflineFullNotification(
   if (!subredditName || !userId) return;
   const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
   if (notificationMarker === '1') return;
-  if (notificationMarker != null && !allowPendingReservationRetry) return;
+  if (notificationMarker != null && (!allowPendingReservationRetry || !isPendingOfflineNotificationMarker(notificationMarker))) return;
   if (!(await notifications.isOptedIn(userId))) return;
 
   const jobKey = OFFLINE_FULL_JOB_PREFIX + userId;
@@ -3735,7 +3739,7 @@ export async function processOfflineFullNotification(
     const cleared = await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
     if (!sent && cleared) {
       const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
-      if (notificationMarker != null && notificationMarker !== '1') {
+      if (isPendingOfflineNotificationMarker(notificationMarker)) {
         await scheduleOfflineFullNotification(
           userId,
           subredditName,
@@ -3756,11 +3760,16 @@ export async function processOfflineFullNotification(
       markerReadFailed = true;
       console.error('[Offline Notification] Could not inspect the attempt marker before retry scheduling.', markerReadError);
     }
-    if (notificationMarker === '1') {
+    if (
+      notificationMarker === '1' ||
+      (notificationMarker != null && !isPendingOfflineNotificationMarker(notificationMarker))
+    ) {
+      // Unknown marker formats fail closed just like a durable receipt: do not
+      // create an unbounded retry loop or risk duplicate delivery.
       await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
       return;
     }
-    const hasPendingReservation = markerReadFailed || notificationMarker != null;
+    const hasPendingReservation = markerReadFailed || isPendingOfflineNotificationMarker(notificationMarker);
     const retryAt = hasPendingReservation
       ? offlineNotificationPendingRetryAt(notificationMarker)
       : Date.now() + OFFLINE_FULL_RETRY_MS;
