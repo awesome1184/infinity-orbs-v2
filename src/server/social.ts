@@ -102,12 +102,13 @@ function normalizeRecoverableGuildMemberFields(guild: Record<string, unknown>): 
       member.username = trimmed || `recovered-member-${index + 1}`;
     }
 
-    // Contribution is a counter, so fractional/unsafe legacy values cannot be
-    // used directly in arithmetic. Clamp rather than reject the entire Guild.
+    // Contribution is non-authoritative progress metadata. Clamp fractional or
+    // unsafe numbers, and reset non-numeric/negative corruption to zero rather than
+    // blocking every Guild read. Identity and authorization fields remain strict.
     if (
-      typeof member.contribution === 'number' &&
-      Number.isFinite(member.contribution) &&
-      member.contribution >= 0
+      typeof member.contribution !== 'number' ||
+      !Number.isSafeInteger(member.contribution) ||
+      member.contribution < 0
     ) {
       member.contribution = capSafeGuildCounter(member.contribution);
     }
