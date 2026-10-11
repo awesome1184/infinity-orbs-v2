@@ -361,7 +361,7 @@ test('active player lease renews before expiry while its callback is still runni
   const sharedRedis = new SharedLockRedis();
   const options = {
     leaseTtlMs: 60,
-    renewalIntervalMs: 10,
+    renewalIntervalMs: 25,
     acquisitionAttempts: 200,
     retryDelayMs: 2,
   };
@@ -377,7 +377,7 @@ test('active player lease renews before expiry while its callback is still runni
     active += 1;
     maxActive = Math.max(maxActive, active);
     announceAEntered();
-    await delay(120);
+    await delay(110);
     active -= 1;
   });
   await aEntered;
@@ -389,7 +389,7 @@ test('active player lease renews before expiry while its callback is still runni
     active -= 1;
   });
 
-  await delay(85);
+  await delay(80);
   assert.equal(enteredB, false, 'another runtime entered after the original lease TTL expired');
   await Promise.all([first, second]);
   assert.equal(enteredB, true);
