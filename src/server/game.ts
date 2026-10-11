@@ -4958,6 +4958,11 @@ export async function startOrbFrenzy(options: {
       // commit proof: player state and receipt were written in one transaction.
       try {
         const persistedReceipt = await redis.get(frenzyPostKey);
+        if (persistedReceipt != null && String(persistedReceipt) !== frenzyPostValue) {
+          // A different receipt means another post operation owns this key;
+          // never retry an already-conflicted receipt against a foreign value.
+          throw saveError;
+        }
         if (persistedReceipt != null && String(persistedReceipt) === frenzyPostValue) {
           // Mirror save()'s normal post-commit bookkeeping, because its EXEC
           // response was ambiguous even though the atomic receipt proves commit.
