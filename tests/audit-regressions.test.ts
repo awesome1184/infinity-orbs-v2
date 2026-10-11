@@ -815,6 +815,11 @@ test('offline reminder clearing deletes keys so NX reservations can be recreated
   const senderEnd = game.indexOf('function parseOfflineFullJobMarker', senderStart);
   assert.ok(senderStart >= 0 && senderEnd > senderStart);
   const sender = game.slice(senderStart, senderEnd);
+  const existingIndex = sender.indexOf('const existingNotificationMarker = await redis.get(notificationKey)');
+  const legacyClearIndex = sender.indexOf("clearOfflineReminderKeyIfUnchanged(notificationKey, '')");
+  const reservationIndex = sender.indexOf('await redis.set(notificationKey, pendingToken, {');
+  assert.ok(existingIndex >= 0 && legacyClearIndex > existingIndex && reservationIndex > legacyClearIndex,
+    'legacy empty markers must be cleared before a new SET NX reservation');
   assert.match(sender, /await redis\.set\(notificationKey, pendingToken,\s*\{\s*nx:\s*true/);
 });
 
