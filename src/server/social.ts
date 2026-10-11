@@ -1892,6 +1892,11 @@ async function submitChatReport(
     throw new Error('You already reported this message.');
   }
 
+  const author = String(message.username ?? 'Redditor').trim().replace(/^u\//i, '') || 'Redditor';
+  const reporter = String(username()).trim().replace(/^u\//i, '') || 'Redditor';
+  const subredditId = String(context.subredditId ?? '').trim();
+  if (!subredditId) throw new Error('Subreddit context is unavailable.');
+
   // The per-user cooldown throttles report volume, but it is not a dedupe key:
   // a slow Modmail call can outlive it. Reserve this exact message/reporter
   // pair for a day before the external side effect so concurrent retries cannot
@@ -1905,11 +1910,6 @@ async function submitChatReport(
   if (await redis.get(reservationKey) !== reservationToken) {
     throw new Error('A report for this message was already submitted or is still being processed.');
   }
-
-  const author = String(message.username ?? 'Redditor').trim().replace(/^u\//i, '') || 'Redditor';
-  const reporter = String(username()).trim().replace(/^u\//i, '') || 'Redditor';
-  const subredditId = String(context.subredditId ?? '').trim();
-  if (!subredditId) throw new Error('Subreddit context is unavailable.');
 
   const bodyMarkdown = [
     '**Infinity Orbs chat report**',
