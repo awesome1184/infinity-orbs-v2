@@ -1107,6 +1107,26 @@ test('persisted PlayerState parser rejects malformed wallet and roll-counter cor
   assert.match(parser, /if \(!validCoreState\) return null/);
 });
 
+test('payment grant validates persisted core fields and revision headroom before commit', () => {
+  const game = source('src/server/game.ts');
+  const parserStart = game.indexOf('function parsePaymentPlayerState');
+  const parserEnd = game.indexOf('export async function grantPurchasedPack', parserStart);
+  assert.ok(parserStart >= 0 && parserEnd > parserStart);
+  const parser = game.slice(parserStart, parserEnd);
+  assert.match(parser, /parsePlayerStateValue\(record\)/);
+  assert.match(parser, /if \(!validatedState\)\s*\{\s*throw new Error/);
+  assert.match(parser, /\.\.\.validatedRecord,/);
+  assert.doesNotMatch(parser, /normalizeSafeInteger\(record\.shards/);
+
+  const grantStart = game.indexOf('export async function grantPurchasedPack');
+  const grantEnd = game.indexOf('export async function refundPurchasedPack', grantStart);
+  assert.ok(grantStart >= 0 && grantEnd > grantStart);
+  const grant = game.slice(grantStart, grantEnd);
+  assert.match(grant, /if \(currentRevision >= Number\.MAX_SAFE_INTEGER\)/);
+  assert.match(grant, /state\.stateRevision = currentRevision \+ 1/);
+  assert.ok(grant.indexOf('if (currentRevision >= Number.MAX_SAFE_INTEGER)') < grant.indexOf('await txn.multi()'));
+});
+
 test('every loaded PlayerState has a valid revision, including new and legacy saves', () => {
   const game = source('src/server/game.ts');
   const parserStart = game.indexOf('function parsePlayerStateValue');
