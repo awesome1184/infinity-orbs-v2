@@ -3515,7 +3515,7 @@ function offlineNotificationPendingRetryAt(marker: unknown, now = Date.now()): n
 }
 
 function isPendingOfflineNotificationMarker(marker: unknown): marker is string {
-  return typeof marker === 'string' && marker.startsWith('pending:');
+  return typeof marker === 'string' && /^pending:[0-9a-z]+:.+$/.test(marker);
 }
 
 async function sendOfflineFullNotification(userId: string, subredditName: string): Promise<boolean> {
