@@ -222,7 +222,7 @@ test('global toast uses a persistent live region for announcements', () => {
 test('Frenzy handoff rejects malformed persisted expiry types', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('async function readFrenzyHandoff');
-  const end = game.indexOf('\\nexport async function armOrbFrenzyClaim', start);
+  const end = game.indexOf('\nexport async function armOrbFrenzyClaim', start);
   assert.ok(start >= 0 && end > start, 'handoff reader must exist');
   const reader = game.slice(start, end);
   assert.match(reader, /typeof expiresAt !== 'number'/);
@@ -298,7 +298,7 @@ test('purchase grants and refunds track remaining currency by order', () => {
   const game = source('src/server/game.ts');
   const grantStart = game.indexOf('export async function grantPurchasedPack');
   const refundStart = game.indexOf('export async function refundPurchasedPack');
-  const refundEnd = game.indexOf('\\nexport async function loadRaw', refundStart);
+  const refundEnd = game.indexOf('\nexport async function loadRaw', refundStart);
   assert.ok(grantStart >= 0 && refundStart > grantStart && refundEnd > refundStart);
   const grant = game.slice(grantStart, refundStart);
   const refund = game.slice(refundStart, refundEnd);
@@ -313,7 +313,7 @@ test('purchase grants and refunds track remaining currency by order', () => {
 test('Global Booster activation decrements purchased credit provenance and restores it on failed commit', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('async function claimWorldBoosterActivation');
-  const end = game.indexOf('\\nexport async function activateGlobalBooster', start);
+  const end = game.indexOf('\nexport async function activateGlobalBooster', start);
   assert.ok(start >= 0 && end > start);
   const activation = game.slice(start, end);
   assert.match(activation, /const previousGlobalBoosterCreditLots/);
