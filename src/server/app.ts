@@ -1118,6 +1118,28 @@ export function createApp() {
         message,
       ].join('\n\n');
 
+      // Atomically reserve a per-user feedback slot before the external
+      // Modmail side effect. Keep the cooldown if the provider response is
+      // ambiguous, so retries cannot flood Modmail with duplicate reports.
+      const userId = String(context.userId ?? '').trim();
+      if (!userId) {
+        return res.status(401).json({ error: 'Your Reddit identity is unavailable.' });
+      }
+      const feedbackCooldownKey = `io:feedback-cooldown:${userId}`;
+      const feedbackCooldownToken = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      try {
+        await redis.set(feedbackCooldownKey, feedbackCooldownToken, {
+          nx: true,
+          expiration: new Date(Date.now() + 60_000),
+        });
+        if (await redis.get(feedbackCooldownKey) !== feedbackCooldownToken) {
+          return res.status(429).json({ error: 'Feedback was sent recently. Please wait a minute before sending more.' });
+        }
+      } catch (cooldownError) {
+        console.error('[Feedback] Could not reserve rate-limit slot:', cooldownError);
+        return res.status(503).json({ error: 'Could not verify feedback rate limit. Please retry later.' });
+      }
+
       const conversationId = await reddit.modMail.createModInboxConversation({
         subredditId,
         subject,
