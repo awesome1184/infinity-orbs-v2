@@ -36,7 +36,6 @@ import {
   getGlobalBoosterAnnouncement,
   loadRaw,
   recordSocialVisit,
-  recordShareAction,
   reserveShareCooldown,
   recordShareQuestProgress,
   save,
