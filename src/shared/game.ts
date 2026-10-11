@@ -382,6 +382,8 @@ export interface GlobalBoosterState {
   activationProgress: number;
   endsAt: number;
   lastTickAt?: number;
+  /** Most recent four activation tiers represented by the 2-hour bar. */
+  segmentTiers?: number[];
 }
 
 export type GlobalBoosterSnapshot = Record<GlobalBoosterId, GlobalBoosterState>;
@@ -626,6 +628,7 @@ export function createInitialGlobalBoosters(now = Date.now()): GlobalBoosterSnap
     activationProgress: 0,
     endsAt: 0,
     lastTickAt: now,
+    segmentTiers: [],
   });
   return {
     luck: inactive(),
@@ -664,6 +667,7 @@ export function decayGlobalBoosterState(
       activationProgress: 0,
       endsAt: 0,
       lastTickAt: now,
+      segmentTiers: [],
     };
   }
 
@@ -672,6 +676,11 @@ export function decayGlobalBoosterState(
     activationProgress,
     endsAt,
     lastTickAt: now,
+    segmentTiers: Array.isArray(state?.segmentTiers)
+      ? state.segmentTiers
+        .map(value => Math.min(GLOBAL_BOOSTER_MAX_TIER, Math.max(0, Math.floor(Number(value) || 0))))
+        .slice(-GLOBAL_BOOSTER_ACTIVATIONS_PER_TIER)
+      : [],
   };
 }
 
@@ -695,6 +704,10 @@ export function activateGlobalBoosterStack(
 
   if (tier <= 0) tier = 1;
 
+  const segmentTier = tier;
+  const segmentTiers = [...(current.segmentTiers ?? []), segmentTier]
+    .slice(-GLOBAL_BOOSTER_ACTIVATIONS_PER_TIER);
+
   if (activationProgress >= GLOBAL_BOOSTER_ACTIVATIONS_PER_TIER) {
     if (tier < safeMaxTier) {
       tier += 1;
@@ -705,7 +718,7 @@ export function activateGlobalBoosterStack(
   }
 
   const endsAt = Math.max(now, current.endsAt) + GLOBAL_BOOSTER_DURATION_MS;
-  return { tier, activationProgress, endsAt, lastTickAt: now };
+  return { tier, activationProgress, endsAt, lastTickAt: now, segmentTiers };
 }
 
 export function globalBoosterProgress(state: GlobalBoosterState | null | undefined, now = Date.now()): number {
