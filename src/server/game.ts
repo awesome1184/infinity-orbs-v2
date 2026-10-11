@@ -3501,7 +3501,14 @@ async function commitOfflineNotificationMarkerIfUnchanged(
 
 async function sendOfflineFullNotification(userId: string, subredditName: string): Promise<boolean> {
   const notificationKey = OFFLINE_FULL_NOTIFICATION_PREFIX + userId;
-  if (await redis.get(notificationKey)) return false;
+  const existingNotificationMarker = await redis.get(notificationKey);
+  if (existingNotificationMarker) return false;
+
+  // Older versions cleared this marker by storing an empty string. Such a key
+  // still blocks SET NX, so compare-and-delete it before trying to reserve again.
+  if (existingNotificationMarker === '') {
+    await clearOfflineReminderKeyIfUnchanged(notificationKey, '');
+  }
 
   if (!(await notifications.isOptedIn(userId))) return false;
 
