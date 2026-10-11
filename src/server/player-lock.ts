@@ -113,8 +113,8 @@ export function createPlayerMutationLockRuntime(
     }
   }
 
-  async function withPlayerMutationLockFor<T>(
-    userId: string,
+  async function runLocked<T>(
+    userId: string | undefined,
     fn: () => Promise<T>,
   ): Promise<T> {
     const id = lockUserId(userId, getContextUserId());
@@ -190,14 +190,14 @@ export function createPlayerMutationLockRuntime(
     }
   }
 
-  async function withPlayerMutationLock<T>(fn: () => Promise<T>): Promise<T> {
-    return withPlayerMutationLockFor('', fn);
-  }
-
   return {
     getActivePlayerMutationLock,
-    withPlayerMutationLockFor,
-    withPlayerMutationLock,
+    withPlayerMutationLockFor<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+      return runLocked(userId, fn);
+    },
+    withPlayerMutationLock<T>(fn: () => Promise<T>): Promise<T> {
+      return runLocked(undefined, fn);
+    },
   };
 }
 
