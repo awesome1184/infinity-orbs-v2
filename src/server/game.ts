@@ -5432,8 +5432,7 @@ export async function recordSocialVisit(s: PlayerState) {
   await save(s);
 }
 
-export async function recordShareAction(s: PlayerState) {
-  const now = Date.now();
+function assertShareCooldownAvailable(s: PlayerState, now: number): void {
   if (
     s.lastShareAt != null &&
     (!Number.isSafeInteger(s.lastShareAt) || s.lastShareAt < 0)
@@ -5443,6 +5442,34 @@ export async function recordShareAction(s: PlayerState) {
   if (s.lastShareAt != null && now - s.lastShareAt < 30_000) {
     throw new Error('Please wait before sharing another orb.');
   }
+}
+
+/**
+ * Reserve the 30-second share cooldown before creating the irreversible Reddit
+ * post. If Reddit accepts a post but the request response is lost, a retry is
+ * blocked by this durable timestamp instead of publishing a duplicate.
+ */
+export async function reserveShareCooldown(s: PlayerState): Promise<void> {
+  const now = Date.now();
+  assertShareCooldownAvailable(s, now);
+  s.lastShareAt = now;
+  await save(s);
+}
+
+/** Record quest progress after the external share succeeds. */
+export async function recordShareQuestProgress(s: PlayerState): Promise<void> {
+  advanceQuestProgress(s, 'share', 1);
+  await save(s);
+  void recordLeaderboard(s).catch(error => {
+    console.error('[Leaderboard] Share update failed:', error);
+  });
+}
+
+// Retained for compatibility with any non-route caller that needs a single
+// player-state mutation rather than the two-phase external-share sequence.
+export async function recordShareAction(s: PlayerState) {
+  const now = Date.now();
+  assertShareCooldownAvailable(s, now);
   s.lastShareAt = now;
   advanceQuestProgress(s, 'share', 1);
   await save(s);
