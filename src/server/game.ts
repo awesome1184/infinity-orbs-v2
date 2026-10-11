@@ -5352,10 +5352,12 @@ export async function claimOrbFrenzy(options: {
   ]);
   // save() rejects generation invalidation and returns only after the
   // claimant, consumed-post receipt, and owner reward writes commit atomically.
-  // Do not perform a fallible post-commit GET: a read error here would report
-  // failure after the claim is already consumed and every reward is durable.
+  // Handoff cleanup is temporary metadata (60-second TTL), not part of claim
+  // settlement. Its failure must not turn a committed claim into an API error.
   if (handoff && handoff.postId === postId) {
-    await redis.del(frenzyHandoffKey(claimantId));
+    await redis.del(frenzyHandoffKey(claimantId)).catch(error => {
+      console.error('[Frenzy Claim] Handoff cleanup failed after durable claim:', error);
+    });
   }
 
   const rolledAt = Date.now();
