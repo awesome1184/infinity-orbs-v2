@@ -43,7 +43,7 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(scheduler, /if \(notificationMarker === '1'\) return/);
   assert.match(
     scheduler,
-    /notificationMarker != null && notificationMarker !== '' &&/,
+    /notificationMarker != null &&\s*notificationMarker !== '' &&/,
   );
   assert.doesNotMatch(
     scheduler,
