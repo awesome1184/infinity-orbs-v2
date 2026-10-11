@@ -3499,9 +3499,26 @@ async function commitOfflineNotificationMarkerIfUnchanged(
   return false;
 }
 
+function offlineNotificationPendingRetryAt(marker: unknown, now = Date.now()): number {
+  // Pending attempts expire after seven days. Retry shortly after that lease
+  // expires, so a confirmed "sent" receipt is never confused with a reservation
+  // whose provider outcome could not be reconciled.
+  const pendingMatch = typeof marker === 'string'
+    ? /^pending:([0-9a-z]+):/.exec(marker)
+    : null;
+  const parsedAt = pendingMatch ? Number.parseInt(pendingMatch[1], 36) : NaN;
+  const pendingAt = Number.isSafeInteger(parsedAt) && parsedAt > 0 && parsedAt <= now + 60_000
+    ? parsedAt
+    : now;
+  const pendingTtlMs = 7 * 24 * 60 * 60_000;
+  return Math.max(now + 1_000, pendingAt + pendingTtlMs + 60_000);
+}
+
 async function sendOfflineFullNotification(userId: string, subredditName: string): Promise<boolean> {
   const notificationKey = OFFLINE_FULL_NOTIFICATION_PREFIX + userId;
-  if (await redis.get(notificationKey)) return false;
+  // Only the durable receipt proves delivery. A pending token is an attempt
+  // reservation, not proof the external provider accepted the notification.
+  if (await redis.get(notificationKey) === '1') return false;
 
   if (!(await notifications.isOptedIn(userId))) return false;
 
@@ -3605,9 +3622,12 @@ async function scheduleOfflineFullNotification(
   userId: string,
   subredditName: string,
   runAt: number,
+  allowPendingReservationRetry = false,
 ): Promise<void> {
   if (!subredditName || !userId) return;
-  if (await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId)) return;
+  const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
+  if (notificationMarker === '1') return;
+  if (notificationMarker && !allowPendingReservationRetry) return;
   if (!(await notifications.isOptedIn(userId))) return;
 
   const jobKey = OFFLINE_FULL_JOB_PREFIX + userId;
@@ -3711,12 +3731,43 @@ export async function processOfflineFullNotification(
   }
 
   try {
-    await sendOfflineFullNotification(userId, subredditName);
-    await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
+    const sent = await sendOfflineFullNotification(userId, subredditName);
+    const cleared = await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
+    if (!sent && cleared) {
+      const notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
+      if (notificationMarker && notificationMarker !== '1') {
+        await scheduleOfflineFullNotification(
+          userId,
+          subredditName,
+          offlineNotificationPendingRetryAt(notificationMarker),
+          true,
+        );
+      }
+    }
   } catch (error) {
     console.error('Failed to send scheduled offline-orbs-full notification:', error);
+    let notificationMarker: string | null = null;
+    let markerReadFailed = false;
+    try {
+      notificationMarker = await redis.get(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
+    } catch (markerReadError) {
+      // A failed verification read must not be interpreted as absence: keep
+      // the conservative delayed retry that respects the pending marker TTL.
+      markerReadFailed = true;
+      console.error('[Offline Notification] Could not inspect the attempt marker before retry scheduling.', markerReadError);
+    }
+    if (notificationMarker === '1') {
+      await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
+      return;
+    }
+    const hasPendingReservation = markerReadFailed || notificationMarker != null;
+    const retryAt = hasPendingReservation
+      ? offlineNotificationPendingRetryAt(notificationMarker)
+      : Date.now() + OFFLINE_FULL_RETRY_MS;
     const cleared = await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
-    if (cleared) await scheduleOfflineFullNotification(userId, subredditName, now + OFFLINE_FULL_RETRY_MS);
+    if (cleared) {
+      await scheduleOfflineFullNotification(userId, subredditName, retryAt, hasPendingReservation);
+    }
   }
   });
 }
