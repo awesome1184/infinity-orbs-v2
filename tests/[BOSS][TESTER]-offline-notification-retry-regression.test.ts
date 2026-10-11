@@ -32,6 +32,7 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(helper, /pendingTtlMs = 7 \* 24 \* 60 \* 60_000/);
   assert.match(helper, /pendingAt \+ pendingTtlMs \+ 60_000/);
   assert.match(helper, /function isPendingOfflineNotificationMarker\(marker: unknown\)/);
+  assert.match(helper, /\^pending:\[0-9a-z\]\+:\.\+\$\/\.test\(marker\)/);
 
   // A normal schedule must respect a pending attempt, but a retry explicitly
   // scheduled beyond its expiry may queue without mistaking it for a sent receipt.
