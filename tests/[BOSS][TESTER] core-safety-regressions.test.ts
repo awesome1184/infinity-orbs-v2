@@ -470,3 +470,24 @@ test('Frenzy handoff cleanup failure cannot turn a committed claim into an error
   assert.ok(cleanupBlock.includes('.catch(error => {'));
   assert.ok(cleanupBlock.includes('Handoff cleanup failed after durable claim'));
 });
+
+
+test('Frenzy start reconciles an ambiguous save through its atomic post receipt before retrying', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('const frenzyPostKey = FRENZY_POST_PREFIX + postId');
+  const end = game.indexOf("await appendPlayerSpyLog('frenzy-start'", start);
+  assert.ok(start >= 0 && end > start);
+  const recovery = game.slice(start, end);
+  const receiptRead = recovery.indexOf('await redis.get(frenzyPostKey)');
+  const receiptMatch = recovery.indexOf('String(persistedReceipt) === frenzyPostValue');
+  const commitRecovery = recovery.indexOf('pendingSaveExtraWrites.delete(s)', receiptMatch);
+  const retry = recovery.indexOf('await save(s, frenzyReceiptWrite)', receiptMatch + 1);
+  assert.ok(receiptRead >= 0 && receiptMatch > receiptRead, 'check receipt to detect an ambiguous committed transaction first');
+  assert.ok(commitRecovery > receiptMatch, 'receipt-proven commits must clear staged writes and complete post-commit work');
+  assert.ok(retry > receiptMatch, 'retry is only attempted after the atomic receipt is absent');
+  assert.ok(recovery.includes('currentGeneration !== frenzySaveGeneration'));
+  assert.ok(recovery.includes('currentRevision !== frenzySaveRevision'));
+  assert.ok(recovery.includes('throw saveError;'), 'changed generations/revisions must fail closed');
+  assert.ok(recovery.includes('player state and receipt were written in one transaction'));
+
+});
