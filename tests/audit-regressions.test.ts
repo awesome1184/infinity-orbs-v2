@@ -1104,9 +1104,14 @@ test('payment grant validates persisted core fields and revision headroom before
   const grantEnd = game.indexOf('export async function refundPurchasedPack', grantStart);
   assert.ok(grantStart >= 0 && grantEnd > grantStart);
   const grant = game.slice(grantStart, grantEnd);
-  assert.match(grant, /if \(currentRevision >= Number\.MAX_SAFE_INTEGER\)/);
-  assert.match(grant, /state\.stateRevision = currentRevision \+ 1/);
-  assert.ok(grant.indexOf('if (currentRevision >= Number.MAX_SAFE_INTEGER)') < grant.indexOf('await txn.multi()'));
+  const revisionRead = grant.indexOf('const currentRevision = normalizeSafeInteger(state.stateRevision, 0)');
+  const revisionGuard = grant.indexOf('if (currentRevision >= Number.MAX_SAFE_INTEGER)', revisionRead);
+  const shardLotWrite = grant.indexOf('state.purchasedShardLots[orderId] =');
+  const creditLotWrite = grant.indexOf('state.globalBoosterCreditLots[orderId] =');
+  assert.ok(revisionRead >= 0 && revisionGuard > revisionRead);
+  assert.ok(shardLotWrite > revisionGuard, 'revision must be guarded before Shard-lot mutation');
+  assert.ok(creditLotWrite > revisionGuard, 'revision must be guarded before credit-lot mutation');
+  assert.ok(revisionGuard < grant.indexOf('await txn.multi()'));
 });
 
 test('every loaded PlayerState has a valid revision, including new and legacy saves', () => {
