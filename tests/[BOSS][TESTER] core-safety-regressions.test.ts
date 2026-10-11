@@ -493,3 +493,25 @@ test('Frenzy start reconciles an ambiguous save through its atomic post receipt 
   assert.ok(recovery.includes('player state and receipt were written in one transaction'));
 
 });
+
+
+test('payment fulfillment rejects safe-integer overflow before writing paid entitlements', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('export async function grantPurchasedPack(');
+  const end = game.indexOf('export async function refundPurchasedPack(', start);
+  assert.ok(start >= 0 && end > start);
+  const grant = game.slice(start, end);
+  const shardCapacity = grant.indexOf('pack.shards > Number.MAX_SAFE_INTEGER - currentShardBalance');
+  const creditCapacity = grant.indexOf('pack.globalBoosterCredits > Number.MAX_SAFE_INTEGER - currentBoosterCreditBalance');
+  const shardWrite = grant.indexOf('state.shards = currentShardBalance + pack.shards');
+  const creditWrite = grant.indexOf('state.globalBoosterCredits = currentBoosterCreditBalance + pack.globalBoosterCredits');
+  assert.ok(shardCapacity >= 0 && shardCapacity < shardWrite, 'Shard capacity is checked before any wallet write');
+  assert.ok(creditCapacity >= 0 && creditCapacity < creditWrite, 'Booster credit capacity is checked before any wallet write');
+  assert.ok(grant.includes('await txn.unwatch();'));
+  assert.ok(grant.includes('spend Shards before reconciling this purchase'));
+
+  assert.ok(grant.includes('use credits before reconciling this purchase'));
+
+  assert.ok(grant.includes('state.lifetimeShards = lifetimeShards > Number.MAX_SAFE_INTEGER - pack.shards'));
+
+});
