@@ -3643,7 +3643,13 @@ async function scheduleOfflineFullNotification(
   if (!subredditName || !userId) return;
   const notificationMarker = await readOfflineNotificationMarkerAndRepairLegacyKey(OFFLINE_FULL_NOTIFICATION_PREFIX + userId);
   if (notificationMarker === '1') return;
-  if (notificationMarker != null && (!allowPendingReservationRetry || !isPendingOfflineNotificationMarker(notificationMarker))) return;
+  // A legacy empty marker may survive if compare-and-delete repeatedly loses
+  // its WATCH race. Keep a job scheduled so a later worker can retry cleanup.
+  if (
+    notificationMarker != null &&
+    notificationMarker !== '' &&
+    (!allowPendingReservationRetry || !isPendingOfflineNotificationMarker(notificationMarker))
+  ) return;
   if (!(await notifications.isOptedIn(userId))) return;
 
   const jobKey = OFFLINE_FULL_JOB_PREFIX + userId;
@@ -3758,6 +3764,15 @@ export async function processOfflineFullNotification(
           offlineNotificationPendingRetryAt(notificationMarker),
           true,
         );
+      } else if (notificationMarker === '') {
+        // If legacy-marker cleanup loses repeated CAS races, retry shortly
+        // rather than letting the stale empty key suppress reminders forever.
+        await scheduleOfflineFullNotification(
+          userId,
+          subredditName,
+          Date.now() + OFFLINE_FULL_RETRY_MS,
+          true,
+        );
       }
     }
   } catch (error) {
@@ -3776,15 +3791,16 @@ export async function processOfflineFullNotification(
     }
     if (
       notificationMarker === '1' ||
-      (notificationMarker != null && !isPendingOfflineNotificationMarker(notificationMarker))
+      (notificationMarker != null && notificationMarker !== '' && !isPendingOfflineNotificationMarker(notificationMarker))
     ) {
       // Unknown marker formats fail closed just like a durable receipt: do not
       // create an unbounded retry loop or risk duplicate delivery.
       await clearOfflineReminderKeyIfUnchanged(jobKey, expectedJobValue);
       return;
     }
-    const hasPendingReservation = markerReadFailed || isPendingOfflineNotificationMarker(notificationMarker);
-    const retryAt = markerReadFailed
+    const hasPendingReservation =
+      markerReadFailed || notificationMarker === '' || isPendingOfflineNotificationMarker(notificationMarker);
+    const retryAt = markerReadFailed || notificationMarker === ''
       ? Date.now() + OFFLINE_FULL_RETRY_MS
       : hasPendingReservation
         ? offlineNotificationPendingRetryAt(notificationMarker)
