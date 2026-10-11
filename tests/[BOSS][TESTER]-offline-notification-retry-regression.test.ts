@@ -26,7 +26,9 @@ test('offline notification retries distinguish pending reservations from confirm
   const worker = game.slice(workerStart, workerEnd);
 
   // A durable '1' is the sent receipt; a pending token is only an attempt.
-  assert.match(sender, /if \(await redis\.get\(notificationKey\) === '1'\) return false/);
+  assert.match(sender, /if \(existingNotificationMarker === '1'\) return false/);
+  assert.match(sender, /const existingNotificationMarker = await redis\.get\(notificationKey\)/);
+  assert.match(sender, /if \(existingNotificationMarker === ''\)[\s\S]*?clearOfflineReminderKeyIfUnchanged\(notificationKey, ''\)/);
   assert.doesNotMatch(sender, /if \(await redis\.get\(notificationKey\)\) return false/);
   assert.match(sender, /storedReservation !== pendingToken/);
   assert.match(helper, /pendingTtlMs = 7 \* 24 \* 60 \* 60_000/);
@@ -38,7 +40,7 @@ test('offline notification retries distinguish pending reservations from confirm
   // scheduled beyond its expiry may queue without mistaking it for a sent receipt.
   assert.match(scheduler, /allowPendingReservationRetry = false/);
   assert.match(scheduler, /if \(notificationMarker === '1'\) return/);
-  assert.match(scheduler, /if \(notificationMarker != null && \(!allowPendingReservationRetry \|\| !isPendingOfflineNotificationMarker\(notificationMarker\)\)\) return/);
+  assert.match(scheduler, /notificationMarker != null && \(!allowPendingReservationRetry \|\| \(notificationMarker !== '' && !isPendingOfflineNotificationMarker\(notificationMarker\)\)\)/);
   assert.doesNotMatch(
     scheduler,
     /if \(await redis\.get\(OFFLINE_FULL_NOTIFICATION_PREFIX \+ userId\)\) return/,
@@ -50,7 +52,8 @@ test('offline notification retries distinguish pending reservations from confirm
   assert.match(worker, /if \(!sent && cleared\)[\s\S]*?offlineNotificationPendingRetryAt\(notificationMarker\)[\s\S]*?true/);
   assert.match(worker, /markerReadFailed \|\| isPendingOfflineNotificationMarker\(notificationMarker\)/);
   assert.match(worker, /const retryAt = markerReadFailed\s*\? Date\.now\(\) \+ OFFLINE_FULL_RETRY_MS/);
-  assert.match(worker, /notificationMarker != null && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
+  assert.match(worker, /notificationMarker != null && notificationMarker !== '' && !isPendingOfflineNotificationMarker\(notificationMarker\)/);
+  assert.match(worker, /notificationMarker === ''[\s\S]*?Date\.now\(\) \+ OFFLINE_FULL_RETRY_MS[\s\S]*?true/);
   assert.match(worker, /scheduleOfflineFullNotification\(userId, subredditName, retryAt, hasPendingReservation\)/);
   assert.match(worker, /notificationMarker === '1'[\s\S]*?return;/);
 });
