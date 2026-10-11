@@ -4994,9 +4994,12 @@ export async function startOrbFrenzy(options: {
             : persistedPlayer
               ? Math.max(0, Math.floor(Number(persistedPlayer.stateRevision ?? 0)) || 0)
               : -1;
+          const activeLock = getActivePlayerMutationLock(currentUserId());
           if (
             currentGeneration !== frenzySaveGeneration ||
-            currentRevision !== frenzySaveRevision
+            currentRevision !== frenzySaveRevision ||
+            !activeLock ||
+            await redis.get(activeLock.key) !== activeLock.token
           ) {
             throw saveError;
           }
