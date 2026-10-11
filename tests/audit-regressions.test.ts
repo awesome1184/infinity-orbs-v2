@@ -1113,6 +1113,7 @@ test('payment grant validates persisted core fields and revision headroom before
   const parserEnd = game.indexOf('export async function grantPurchasedPack', parserStart);
   assert.ok(parserStart >= 0 && parserEnd > parserStart);
   const parser = game.slice(parserStart, parserEnd);
+  assert.match(parser, /const looksLikePlayerState =\\s*'coins' in record &&\\s*'shards' in record &&\\s*'totalRolls' in record/);
   assert.match(parser, /parsePlayerStateValue\(record\)/);
   assert.match(parser, /if \(!validatedState\)\s*\{\s*throw new Error/);
   assert.match(parser, /\.\.\.validatedRecord,/);
