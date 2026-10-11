@@ -24,6 +24,9 @@ test('Guild parsing repairs only recoverable member metadata before strict valid
   const normalizer = social.slice(normalizeStart, normalizeEnd);
   assert.match(normalizer, /member\.username = trimmed \|\|/);
   assert.match(normalizer, /member\.contribution = capSafeGuildCounter\(member\.contribution\)/);
+  assert.match(normalizer, /typeof member\.contribution !== 'number'/);
+  assert.match(normalizer, /!Number\.isSafeInteger\(member\.contribution\)/);
+  assert.match(normalizer, /member\.contribution < 0/);
   assert.match(normalizer, /member\.trusted = member\.role === 'owner'/);
   assert.match(normalizer, /delete member\.joinedAt/);
   assert.match(normalizer, /delete member\.lastLoginAt/);
