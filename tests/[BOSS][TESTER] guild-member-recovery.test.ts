@@ -9,9 +9,9 @@ const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf
 test('Guild parsing repairs only recoverable member metadata before strict validation', () => {
   const social = source('src/server/social.ts');
   const normalizeStart = social.indexOf('function normalizeRecoverableGuildMemberFields(');
-  const normalizeEnd = social.indexOf('\nfunction isSafeGuildInteger(', normalizeStart);
-  assert.ok(normalizeStart >= 0, 'recoverable member normalizer must exist');
-  // The normalizer was intentionally placed above the other safe-integer helpers.
+  const normalizeEnd = social.indexOf('\nfunction validateGuildNestedState(', normalizeStart);
+  assert.ok(normalizeStart >= 0 && normalizeEnd > normalizeStart,
+    'recoverable member normalizer boundary must exist');
   const parseStart = social.indexOf('function parseGuildListRaw(');
   const parseEnd = social.indexOf('\nfunction parseGuildList(', parseStart);
   assert.ok(parseStart >= 0 && parseEnd > parseStart, 'raw Guild parser boundary must exist');
@@ -21,9 +21,7 @@ test('Guild parsing repairs only recoverable member metadata before strict valid
   assert.ok(recoveryCall >= 0 && strictValidation > recoveryCall,
     'recoverable member fields must be normalized before nested validation');
 
-  const normalizer = social.slice(normalizeStart, parser.indexOf('function parseLeaderboardList(') > 0
-    ? social.indexOf('function parseLeaderboardList(')
-    : parseEnd);
+  const normalizer = social.slice(normalizeStart, normalizeEnd);
   assert.match(normalizer, /member\.username = trimmed \|\|/);
   assert.match(normalizer, /member\.contribution = capSafeGuildCounter\(member\.contribution\)/);
   assert.match(normalizer, /member\.trusted = member\.role === 'owner'/);
