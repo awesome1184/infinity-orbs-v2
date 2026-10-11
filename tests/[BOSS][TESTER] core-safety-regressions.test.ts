@@ -488,6 +488,7 @@ test('Frenzy start reconciles an ambiguous save through its atomic post receipt 
   assert.ok(recovery.includes('persistedReceipt != null && String(persistedReceipt) !== frenzyPostValue'), 'foreign receipt must not be overwritten');
   assert.ok(recovery.includes('currentGeneration !== frenzySaveGeneration'));
   assert.ok(recovery.includes('currentRevision !== frenzySaveRevision'));
+  assert.ok(recovery.includes('await redis.get(activeLock.key) !== activeLock.token'), 'retry requires live lock ownership');
   assert.ok(recovery.includes('throw saveError;'), 'changed generations/revisions must fail closed');
   assert.ok(recovery.includes('player state and receipt were written in one transaction'));
 
