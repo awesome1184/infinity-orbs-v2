@@ -1089,6 +1089,25 @@ test('persisted PlayerState parser rejects malformed wallet and roll-counter cor
   assert.match(parser, /if \(!validCoreState\) return null/);
 });
 
+test('payment save parser rejects malformed core state before fulfillment or refund', () => {
+  const game = source('src/server/game.ts');
+  const start = game.indexOf('function parsePaymentPlayerState');
+  const end = game.indexOf('export async function hasReadablePlayerSave', start);
+  assert.ok(start >= 0 && end > start);
+  const parser = game.slice(start, end);
+
+  const requiredCoreIndex = parser.indexOf("'coins' in record &&");
+  const canonicalValidationIndex = parser.indexOf('const validatedState = parsePlayerStateValue(record)');
+  const invalidStateGuardIndex = parser.indexOf("throw new Error('Saved player data could not be read; the purchase was not applied.')");
+  const walletNormalizationIndex = parser.indexOf('const normalizedWalletShards =');
+  assert.ok(requiredCoreIndex >= 0 && canonicalValidationIndex > requiredCoreIndex);
+  assert.ok(invalidStateGuardIndex > canonicalValidationIndex);
+  assert.ok(walletNormalizationIndex > invalidStateGuardIndex);
+  assert.match(parser, /'coins' in record &&\s*'shards' in record &&\s*'totalRolls' in record/);
+  assert.match(parser, /\.\.\.validatedState,/);
+  assert.doesNotMatch(parser, /'username' in record \|\|[\s\S]*?'paymentReceipts' in record/);
+});
+
 test('every loaded PlayerState has a valid revision, including new and legacy saves', () => {
   const game = source('src/server/game.ts');
   const parserStart = game.indexOf('function parsePlayerStateValue');
