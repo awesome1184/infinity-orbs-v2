@@ -3975,9 +3975,9 @@ export async function roll(
       const activations = Math.min(remainingActivations, maxActivationsPerChunk);
       const result = await applyRolls(s, activations, undefined, 'online');
       if (!bestOrb || result.bestOrb.rarity > bestOrb.rarity) bestOrb = result.bestOrb;
-      batch.push(...result.batch);
-      // Preserve useful recent reveal samples without returning an unbounded
-      // response when a player has accumulated a large Free Roll stash.
+      // Preserve recent reveal samples without spreading an unbounded result
+      // array into a function call or returning a huge webview payload.
+      batch.push(...result.batch.slice(-200));
       if (batch.length > 200) batch.splice(0, batch.length - 200);
       totalVal = Math.min(Number.MAX_SAFE_INTEGER, totalVal + result.totalVal);
       coinsGained = Math.min(Number.MAX_SAFE_INTEGER, coinsGained + result.coinsGained);
