@@ -1901,7 +1901,6 @@ export function App() {
 
 
   const handleSendGuildChat = async (text: string): Promise<GuildMessage> => {
-    if (busy) throw new Error('Another action is already in progress.');
     setBusy(true);
     try {
       const res = await getJson<{ message: GuildMessage }>('/api/guilds/chat', {
@@ -2443,14 +2442,14 @@ export function App() {
             onBuyUpgrade={handleBuyUpgrade}
             onBuyAllUpgrades={handleBuyAllUpgrades}
             onActivateTurbo={handleActivateTurbo}
-            busy={busy}
+            busy={false}
           />
         )}
 
         {tab === 'boosters' && (
           <BoostersAndAutomation
             state={state}
-            busy={busy}
+            busy={false}
             globalBoosters={state.globalBoosters ?? {
               luck: { tier: 0, activationProgress: 0, endsAt: 0 },
               speed: { tier: 0, activationProgress: 0, endsAt: 0 },
@@ -2469,7 +2468,7 @@ export function App() {
           <AltarSection
             state={state}
             onSacrifice={handleSacrifice}
-            busy={busy}
+            busy={false}
           />
         )}
 
@@ -2477,7 +2476,7 @@ export function App() {
           <MasterySection
             state={state}
             onUpgradeMastery={handleUpgradeMastery}
-            busy={busy}
+            busy={false}
           />
         )}
 
@@ -2493,7 +2492,7 @@ export function App() {
             state={state}
             onClaimDailyStreak={handleClaimDailyStreak}
             onClaimQuest={handleClaimQuest}
-            busy={busy}
+            busy={false}
           />
         )}
 
@@ -2515,7 +2514,7 @@ export function App() {
             onSetGuildTax={handleSetGuildTax}
             playerUsername={state.username ?? ''}
             playerHasShared={Boolean(state.lastShareAt && state.lastShareAt > 0)}
-            busy={busy}
+            busy={false}
           />
         )}
 
@@ -2526,7 +2525,7 @@ export function App() {
             onBuyPrestigeUpgrade={handleBuyPrestigeUpgrade}
             onSynthesizeDust={handleSynthesizeDust}
             onBuyCosmetic={handleBuyCosmetic}
-            busy={busy}
+            busy={false}
           />
         )}
       </main>
