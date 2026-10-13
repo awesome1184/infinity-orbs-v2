@@ -25,6 +25,8 @@ import {
   FREE_SHARD_DAILY_CAP,
   onlinePlayerLuckMultiplier,
   luckMultiplier,
+  effectiveOfflineTickMs,
+  upgradeCost,
   frenzyClaimCountForRarity,
   frenzyOrbCountForRarity,
   FRENZY_LOG_BASE,
@@ -240,6 +242,31 @@ test('Guild task rewards remain capped', () => {
 
   assert.ok(extreme.reward <= 25_000);
   assert.ok(extreme.guildXpReward <= 10_000);
+});
+
+test('Cosmic Reserve multiplies Luck by unspent Cosmic Dust at 1% per Dust per upgrade level', () => {
+  const state = createInitialState(NOW);
+  state.cosmicDust = 100;
+  state.prestigeUpgrades.cosmicReserve = 0;
+  const baseLuck = luckMultiplier(state);
+
+  state.prestigeUpgrades.cosmicReserve = 1;
+  assert.ok(Math.abs(luckMultiplier(state) / baseLuck - 2) < 0.03, 'level 1 should double Luck with 100 unspent Dust');
+  state.prestigeUpgrades.cosmicReserve = 5;
+  assert.ok(Math.abs(luckMultiplier(state) / baseLuck - 6) < 0.05, 'level 5 should multiply Luck by 6 with 100 unspent Dust');
+
+  state.cosmicDust = 0;
+  assert.equal(luckMultiplier(state), baseLuck, 'spent or zero Dust grants no Cosmic Reserve bonus');
+});
+
+test('Offline Generation Speed cannot be purchased past its 60% hard cap', () => {
+  const state = createInitialState(NOW);
+  state.upgrades.offlineRate = 8;
+  const cappedTick = effectiveOfflineTickMs(state);
+  state.upgrades.offlineRate = 100;
+  assert.equal(effectiveOfflineTickMs(state), cappedTick);
+  assert.ok(Number.isFinite(upgradeCost('offlineRate', 7)));
+  assert.equal(upgradeCost('offlineRate', 8), Infinity);
 });
 
 test('roll Shards respect the hard 50-per-day cap while free reward Shards bypass it', () => {
