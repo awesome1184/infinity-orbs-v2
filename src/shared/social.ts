@@ -142,6 +142,8 @@ export interface GlobalChatMessage {
   text: string;
   timestamp: number;
   userId?: string;
+  /** Derived by the server from authenticated Reddit identity; never client-supplied. */
+  isAdmin?: boolean;
 }
 
 export interface Achievement {
