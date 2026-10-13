@@ -139,6 +139,7 @@ test('CCU peak recording uses a monotonic watched update', () => {
  
 test('roll tickets disclose no RNG seed and client never predicts authoritative rewards', () => {
   const game = source('src/server/game.ts');
+  const client = source('src/client/main.tsx');
   const getTicketStart = game.indexOf('export async function getRollTicket');
   const getTicketEnd = game.indexOf('async function loadRollTicketForUse', getTicketStart);
   assert.ok(getTicketStart >= 0 && getTicketEnd > getTicketStart);
@@ -1692,7 +1693,6 @@ test('Cosmic Reserve is a multiplicative per-unspent-Dust Luck layer and Offline
 
 test('Global Chat badge counts unread arrivals and displays the server-verified admin badge', () => {
   const chat = source('src/client/components/GlobalChatWindow.tsx');
-  const client = source('src/client/main.tsx');
   const social = source('src/server/social.ts');
   assert.match(chat, /const \[unreadCount, setUnreadCount\] = useState\(0\)/);
   assert.match(chat, /setUnreadCount\(0\)/);
