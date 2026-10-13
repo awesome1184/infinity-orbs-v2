@@ -90,6 +90,8 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
     switch (id) {
       case 'permLuck':
         return <Clover className="w-4 h-4 text-emerald-400" />;
+      case 'cosmicReserve':
+        return <Clover className="w-4 h-4 text-fuchsia-400" />;
       case 'permSpeed':
         return <Clock className="w-4 h-4 text-cyan-400" />;
       case 'vaultCap':
