@@ -5,6 +5,7 @@ import {
   getRollTicket,
   roll,
   buyUpgrade,
+  buyUpgradesBatch,
   buyAllUpgrades,
   claimOffline,
   subscribeToSubredditFromPrompt,
@@ -969,6 +970,19 @@ export function createApp() {
     } catch (e) { badRequest(res, e, 'Upgrade failed.'); }
   });
 
+  app.post('/api/upgrade/batch', async (req, res) => {
+    try {
+      const ids = req.body?.ids;
+      const validUpgradeIds = [
+        'speed', 'multi', 'clusterRoll', 'auto', 'luck', 'coinBonus',
+        'shardChance', 'xpBonus', 'critChance', 'critPower', 'offlineRate', 'valueBonus',
+      ];
+      if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 || ids.some(id => !validUpgradeIds.includes(id))) {
+        return res.status(400).json({ error: 'Invalid upgrade batch.' });
+      }
+      res.json(await buyUpgradesBatch(ids));
+    } catch (e) { badRequest(res, e, 'Upgrade batch failed.'); }
+  });
   app.post('/api/upgrade/all', async (_req, res) => {
     try {
       res.json(await buyAllUpgrades());
