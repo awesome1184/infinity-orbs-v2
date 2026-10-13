@@ -120,11 +120,12 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [reportedIds, setReportedIds] = useState<Set<string>>(() => new Set());
   const [activeLeaderboard, setActiveLeaderboard] = useState<LeaderboardId>('collectionValue');
-  const leaderboardBoards: LeaderboardBoards = leaderboards ?? { collectionValue: leaderboard, mostRolls: leaderboard, highestDryStreak: leaderboard, bestOrb: leaderboard, mostPlaytime: leaderboard };
+  const leaderboardBoards: LeaderboardBoards = leaderboards ?? { collectionValue: leaderboard, mostRolls: leaderboard, highestDryStreak: leaderboard, currentDryStreak: leaderboard, bestOrb: leaderboard, mostPlaytime: leaderboard };
   const leaderboardMeta: Array<{ id: LeaderboardId; label: string }> = [
     { id: 'collectionValue', label: 'Collection Value' },
     { id: 'mostRolls', label: 'Most Rolls' },
     { id: 'highestDryStreak', label: 'Highest Dry Streak' },
+    { id: 'currentDryStreak', label: 'Current Dry Streak' },
     { id: 'bestOrb', label: 'Best Orb' },
     { id: 'mostPlaytime', label: 'Most Playtime' },
   ];
@@ -134,6 +135,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
       case 'collectionValue': return `${fmt(entry.value)} Val`;
       case 'mostRolls': return `${fmt(entry.totalRolls)} Rolls`;
       case 'highestDryStreak': return `${fmt(entry.highestDryStreak ?? 0)} Dry`;
+      case 'currentDryStreak': return `${fmt(entry.currentDryStreak ?? 0)} Dry`;
       case 'bestOrb': return `1/${formatRarity(entry.highestRarity)}`;
       case 'mostPlaytime': {
         const minutes = Math.floor((entry.playtimeMs ?? 0) / 60000);
