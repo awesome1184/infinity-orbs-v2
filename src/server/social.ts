@@ -1329,7 +1329,8 @@ export async function prepareGuildRollEffects(
       guild.level = 1 + Math.floor(guild.xp / 500);
 
       const now = Date.now();
-      applyGuildTaskProgress(guild, safeValue, safeRolls, (bestRarity ?? 0) >= 100 ? 1 : 0, xpMultiplier, taskBountyMultiplier, comboDurationMultiplier, now);      const firstTask = guild.tasks[0];
+      applyGuildTaskProgress(guild, safeValue, safeRolls, (bestRarity ?? 0) >= 100 ? 1 : 0, xpMultiplier, taskBountyMultiplier, comboDurationMultiplier, now);
+      const firstTask = guild.tasks[0];
       guild.challenge = {
         type: firstTask.type,
         target: firstTask.target,
