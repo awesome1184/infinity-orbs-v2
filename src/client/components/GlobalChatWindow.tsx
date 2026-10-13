@@ -4,7 +4,6 @@ import type { GlobalChatMessage } from '../../shared/social.js';
 
 interface GlobalChatWindowProps {
   username?: string;
-  isAdmin?: boolean;
 }
 
 async function loadChat(): Promise<GlobalChatMessage[]> {
@@ -16,7 +15,7 @@ async function loadChat(): Promise<GlobalChatMessage[]> {
   return await response.json() as GlobalChatMessage[];
 }
 
-const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username = '', isAdmin = false }) => {
+const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username = '' }) => {
   const [open, setOpen] = useState(false);
   const openRef = useRef(false);
   const [messages, setMessages] = useState<GlobalChatMessage[]>([]);
@@ -201,9 +200,9 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username =
           messages.map(message => (
             <div key={message.id} className="rounded-xl border border-slate-800/80 bg-slate-900/70 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <span className={isAdmin && message.username === username ? 'text-xs font-black text-rose-400' : message.username === username ? 'text-xs font-black text-indigo-300' : 'text-xs font-bold text-slate-200'}>
+                <span className={message.isAdmin === true ? 'text-xs font-black text-rose-400' : message.username === username ? 'text-xs font-black text-indigo-300' : 'text-xs font-bold text-slate-200'}>
                   {message.username}
-                  {isAdmin && message.username === username && (
+                  {message.isAdmin === true && (
                     <span className="ml-1.5 rounded bg-rose-500/15 px-1.5 py-0.5 align-middle text-[8px] font-black uppercase tracking-wide text-rose-300">ADMIN</span>
                   )}
                 </span>
