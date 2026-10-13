@@ -3916,6 +3916,7 @@ export async function roll(
   isAuto = false,
   ticketId?: string,
   ticketIndex?: number,
+  useAllFreeRolls = false,
 ): Promise<RollResponse> {
   return withPlayerMutationLock(async () => {
     let ticketUse:
@@ -3951,17 +3952,44 @@ export async function roll(
     if (!usingFreeRoll && s.lastRollAt !== null && now - s.lastRollAt < cd) {
       throw new Error(`Cooldown: ${((cd - now + s.lastRollAt) / 1000).toFixed(1)}s`);
     }
-    if (usingFreeRoll) {
-      s.freeRolls = Math.max(0, (s.freeRolls ?? 0) - 1);
+    const freeRollActivations = usingFreeRoll
+      ? (useAllFreeRolls ? Math.max(0, Math.floor(s.freeRolls ?? 0)) : 1)
+      : 1;
+    if (freeRollActivations > 5000) {
+      throw new Error('You have too many stored Free Rolls for a single batch (maximum 5,000). No rolls were spent.');
     }
+    if (usingFreeRoll) s.freeRolls = Math.max(0, (s.freeRolls ?? 0) - freeRollActivations);
 
-    // Roll outcomes are server-authoritative. Tickets only prevent duplicate or
-    // out-of-order submissions; no predictable client-shared PRNG stream is used.
-    const { bestOrb, batch, totalVal, coinsGained, shardsGained, xpGained, rollCount } =
-      await applyRolls(s, 1, undefined, 'online');
+    // One click can consume every stored Free Roll. Process bounded chunks to
+    // stay within applyRolls' safety limits, but commit the full batch once.
+    let bestOrb: Orb | null = null;
+    const batch: Orb[] = [];
+    let totalVal = 0;
+    let coinsGained = 0;
+    let shardsGained = 0;
+    let xpGained = 0;
+    let rollCount = 0;
+    let remainingActivations = freeRollActivations;
+    const maxActivationsPerChunk = Math.max(1, offlineRollCap(s));
+    while (remainingActivations > 0) {
+      const activations = Math.min(remainingActivations, maxActivationsPerChunk);
+      const result = await applyRolls(s, activations, undefined, 'online');
+      if (!bestOrb || result.bestOrb.rarity > bestOrb.rarity) bestOrb = result.bestOrb;
+      batch.push(...result.batch);
+      // Preserve useful recent reveal samples without returning an unbounded
+      // response when a player has accumulated a large Free Roll stash.
+      if (batch.length > 200) batch.splice(0, batch.length - 200);
+      totalVal = Math.min(Number.MAX_SAFE_INTEGER, totalVal + result.totalVal);
+      coinsGained = Math.min(Number.MAX_SAFE_INTEGER, coinsGained + result.coinsGained);
+      shardsGained = Math.min(Number.MAX_SAFE_INTEGER, shardsGained + result.shardsGained);
+      xpGained = Math.min(Number.MAX_SAFE_INTEGER, xpGained + result.xpGained);
+      rollCount = Math.min(Number.MAX_SAFE_INTEGER, rollCount + result.rollCount);
+      remainingActivations -= activations;
+    }
+    if (!bestOrb) throw new Error('No rolls were processed.');
 
     if (!isAuto) {
-      s.manualRolls = Math.min(10, (s.manualRolls ?? 0) + 1);
+      s.manualRolls = Math.min(10, (s.manualRolls ?? 0) + freeRollActivations);
       if (s.manualRolls >= 3) s.upgrades.auto = 1;
     }
 
