@@ -339,6 +339,9 @@ export function App() {
   const rollActionLockRef = useRef(false);
   const mutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingMutationCountRef = useRef(0);
+  const upgradeBatchQueueRef = useRef<UpgradeId[]>([]);
+  const upgradeBatchTimerRef = useRef<number | null>(null);
+  const upgradeBatchRunRef = useRef<Promise<void> | null>(null);
   const mutationResyncNeededRef = useRef(false);
   const lastBoosterAnnouncementAtRef = useRef(0);
   const boosterAnnouncementTimerRef = useRef<number | null>(null);
@@ -1005,6 +1008,59 @@ export function App() {
     return () => clearInterval(interval);
   }, [autoRoll, state, readyAt, isRolling, handleRoll]);
 
+  // Rapid upgrade clicks are optimistic immediately, then verified as one server transaction.
+  const flushUpgradeBatch = useCallback(async (): Promise<void> => {
+    if (upgradeBatchTimerRef.current !== null) {
+      window.clearTimeout(upgradeBatchTimerRef.current);
+      upgradeBatchTimerRef.current = null;
+    }
+
+    const existingRun = upgradeBatchRunRef.current;
+    if (existingRun) {
+      await existingRun;
+      if (upgradeBatchQueueRef.current.length > 0) await flushUpgradeBatch();
+      return;
+    }
+    if (upgradeBatchQueueRef.current.length === 0) return;
+
+    const run = enqueueMutation(async () => {
+      let lastState: PlayerState | null = null;
+      let totalPurchased = 0;
+      let totalSpent = 0;
+      while (upgradeBatchQueueRef.current.length > 0) {
+        const ids = upgradeBatchQueueRef.current.splice(0, 100);
+        const result = await getJson<{ state: PlayerState; purchasedCount: number; totalSpent: number }>('/api/upgrade/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        lastState = result.state;
+        totalPurchased += result.purchasedCount;
+        totalSpent += result.totalSpent;
+      }
+      if (lastState) applyPlayerState(lastState);
+      mutationResyncNeededRef.current = false;
+      if (totalPurchased > 0) {
+        showToast(`Bought ${formatNumber(totalPurchased)} upgrade level${totalPurchased === 1 ? '' : 's'} for ${formatNumber(totalSpent)} Coins.`, 'success');
+      }
+    }).catch(async (error: any) => {
+      // A lost response may follow a durable commit. Drop unsent speculative IDs,
+      // then reconcile with the server instead of leaving the UI falsely upgraded.
+      upgradeBatchQueueRef.current.splice(0);
+      mutationResyncNeededRef.current = true;
+      await refreshAll().catch(() => null);
+      mutationResyncNeededRef.current = false;
+      showToast(error?.message || 'Upgrade verification failed. State refreshed.', 'warn');
+    });
+    upgradeBatchRunRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (upgradeBatchRunRef.current === run) upgradeBatchRunRef.current = null;
+    }
+    if (upgradeBatchQueueRef.current.length > 0) await flushUpgradeBatch();
+  }, [enqueueMutation, applyPlayerState, refreshAll]);
+
   // Buy Standard Upgrade
   const handleBuyUpgrade = async (id: UpgradeId) => {
     const currentState = stateRef.current;
@@ -1039,42 +1095,22 @@ export function App() {
           upgrades: { ...currentState.upgrades, [id]: level + 1 },
         };
 
-    // Upgrade instantly on the client. The queued server command is the
-    // authority and will either confirm it or trigger a state resync.
+    // Register the click before React has a chance to render again. This is why
+    // rapid taps don't vanish behind a request-in-progress flag.
     stateRef.current = nextState;
     stateRevisionRef.current += 1;
     setState(nextState);
+    upgradeBatchQueueRef.current.push(id);
     sound.playChime(659.25, 'sine', 0.2);
-
-    pendingMutationCountRef.current += 1;
-    void enqueueMutation(async () => {
-      try {
-        const res = await getJson<{ state: PlayerState }>('/api/upgrade', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id }),
-        });
-
-        pendingMutationCountRef.current -= 1;
-        if (pendingMutationCountRef.current === 0) {
-          applyPlayerState(res.state);
-          mutationResyncNeededRef.current = false;
-          showToast(`Upgraded ${id.toUpperCase()} successfully!`, 'success');
-        }
-      } catch (error: any) {
-        pendingMutationCountRef.current -= 1;
-        mutationResyncNeededRef.current = true;
-        if (pendingMutationCountRef.current === 0) {
-          await refreshAll().catch(() => null);
-          mutationResyncNeededRef.current = false;
-        }
-        showToast(error?.message || 'Upgrade verification failed. State refreshed.', 'warn');
-      }
-    });
+    if (upgradeBatchTimerRef.current !== null) window.clearTimeout(upgradeBatchTimerRef.current);
+    upgradeBatchTimerRef.current = window.setTimeout(() => {
+      upgradeBatchTimerRef.current = null;
+      void flushUpgradeBatch();
+    }, 55);
   };
-
   // Upgrade All Standard Upgrades
   const handleBuyAllUpgrades = async () => {
+    await flushUpgradeBatch();
     const currentState = stateRef.current;
     if (!currentState) return;
 
