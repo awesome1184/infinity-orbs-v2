@@ -18,6 +18,7 @@ async function loadChat(): Promise<GlobalChatMessage[]> {
 
 const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username = '', isAdmin = false }) => {
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
   const [messages, setMessages] = useState<GlobalChatMessage[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [input, setInput] = useState('');
@@ -27,6 +28,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username =
   const [actionError, setActionError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const refreshRequestRef = useRef(0);
+  openRef.current = open;
   const hasInitializedMessagesRef = useRef(false);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
@@ -55,7 +57,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username =
         seenMessageIdsRef.current = new Set(newestMessages.map(message => message.id));
       } else {
         const unseen = newestMessages.filter(message => !seenMessageIdsRef.current.has(message.id));
-        if (!open && unseen.length > 0) {
+        if (!openRef.current && unseen.length > 0) {
           setUnreadCount(count => count + unseen.filter(message => message.username !== username).length);
         }
         for (const message of newestMessages) seenMessageIdsRef.current.add(message.id);
@@ -141,6 +143,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username =
         onClick={() => {
           for (const message of messages) seenMessageIdsRef.current.add(message.id);
           setUnreadCount(0);
+          openRef.current = true;
           setOpen(true);
         }}
         className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-2xl border border-indigo-500/30 bg-slate-900/95 px-4 py-3 text-xs font-black text-white shadow-2xl backdrop-blur-md hover:bg-slate-800 transition-all"
@@ -169,7 +172,10 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({ username =
         </div>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            openRef.current = false;
+            setOpen(false);
+          }}
           className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-white"
           title="Minimize chat"
         >
