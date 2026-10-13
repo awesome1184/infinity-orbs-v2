@@ -4319,6 +4319,50 @@ export async function buyUpgrade(id: UpgradeId): Promise<PlayerState> {
   });
 }
 
+export async function buyUpgradesBatch(ids: UpgradeId[]): Promise<{ state: PlayerState; totalSpent: number; purchasedCount: number }> {
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100) {
+    throw new Error('Upgrade batch must contain between 1 and 100 purchases.');
+  }
+  return withPlayerMutationLock(async () => {
+    const s = await settleOffline(await loadRaw());
+    let totalSpent = 0;
+    let purchasedCount = 0;
+    const purchased: Array<{ id: UpgradeId; before: number; after: number; cost: number }> = [];
+
+    for (const id of ids) {
+      if (id === 'auto') {
+        if ((s.upgrades.auto ?? 0) > 0) continue;
+        if ((s.manualRolls ?? 0) < 3) break;
+        s.upgrades.auto = 1;
+        purchasedCount += 1;
+        purchased.push({ id, before: 0, after: 1, cost: 0 });
+        continue;
+      }
+
+      const level = s.upgrades[id] ?? 0;
+      const cost = upgradeCost(id, level);
+      if (!Number.isFinite(cost)) continue;
+      if (s.coins < cost) break;
+      s.coins -= cost;
+      s.upgrades[id] = level + 1;
+      totalSpent += cost;
+      purchasedCount += 1;
+      purchased.push({ id, before: level, after: level + 1, cost });
+    }
+
+    if (purchasedCount > 0) {
+      await save(s);
+      await appendPlayerSpyLog('upgrade-purchase-batch', {
+        purchased,
+        totalSpent,
+        purchasedCount,
+        snapshot: playerSpySnapshot(s),
+      });
+    }
+    return { state: s, totalSpent, purchasedCount };
+  });
+}
+
 export function autoBuyCheapest(s: PlayerState, reserveCoins = 0): boolean {
   const reserve = Math.max(0, Math.floor(Number.isFinite(reserveCoins) ? reserveCoins : 0));
   const spendableCoins = Math.max(0, s.coins - reserve);
