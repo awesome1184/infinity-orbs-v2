@@ -2140,6 +2140,7 @@ export async function leaderboards(): Promise<import('../shared/social.js').Lead
         0,
         Number(save.highestDryStreak ?? legacy?.highestDryStreak ?? save.rollsSinceBest ?? 0) || 0,
       ),
+      currentDryStreak: Math.max(0, Number(save.rollsSinceBest ?? 0) || 0),
       playtimeMs,
       title: legacy?.title,
       guildTag: legacy?.guildTag,
@@ -2150,6 +2151,7 @@ export async function leaderboards(): Promise<import('../shared/social.js').Lead
     collectionValue: sortLeaderboard(eligible, entry => entry.value),
     mostRolls: sortLeaderboard(eligible, entry => entry.totalRolls),
     highestDryStreak: sortLeaderboard(eligible, entry => entry.highestDryStreak ?? 0),
+    currentDryStreak: sortLeaderboard(eligible, entry => entry.currentDryStreak ?? 0),
     bestOrb: sortLeaderboard(eligible, entry => entry.highestRarity),
     mostPlaytime: sortLeaderboard(eligible, entry => entry.playtimeMs ?? 0),
   };
