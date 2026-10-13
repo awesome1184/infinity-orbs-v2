@@ -281,8 +281,9 @@ const COMMUNITY_EVENT_KEY = key('community_event');
 
 function guildComboHasExpired(guild: Pick<Guild, 'combo'>, now = Date.now()): boolean {
   const tier = Math.max(0, Math.floor(Number(guild.combo?.tier ?? 0) || 0));
-  const endsAt = Math.max(0, Math.floor(Number(guild.combo?.endsAt ?? 0) || 0));
-  return tier > 0 && endsAt > 0 && endsAt <= now;
+  // Combo time accelerates at higher tiers, so the persisted endsAt alone can
+  // still be in the future after the effective timer has already expired.
+  return tier > 0 && decayGuildComboState(guild.combo, now).tier === 0;
 }
 
 /** Apply progress once and carry every overflow across the next task tiers. */
