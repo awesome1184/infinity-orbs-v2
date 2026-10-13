@@ -50,7 +50,7 @@ export const UpgradesSection: React.FC<UpgradesSectionProps> = ({
   const [recentUpgradeId, setRecentUpgradeId] = useState<UpgradeId | null>(null);
   const [upgradingAll, setUpgradingAll] = useState(false);
   const fmt = (n: number) => formatNumber(n);
-  const standardUpgradeMaxLevels: Partial<Record<UpgradeId, number>> = { speed: 20 };
+  const standardUpgradeMaxLevels: Partial<Record<UpgradeId, number>> = { speed: 20, offlineRate: 8 };
 
   const handleUpgradeClick = async (u: (typeof upgradesData)[0]) => {
     sound.playLevelUpFanfare();
