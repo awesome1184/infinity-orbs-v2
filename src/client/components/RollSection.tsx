@@ -485,7 +485,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
       <div className="roll-controls flex flex-col items-center gap-3 w-full max-w-sm">
         {freeRolls > 0 && (
           <div className="text-[10px] font-black uppercase tracking-wider text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-3 py-1">
-            FREE ROLL READY · {freeRolls} LEFT
+            FREE ROLLS READY · {freeRolls}
           </div>
         )}
 
@@ -499,7 +499,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
               : busy
               ? 'bg-slate-800 text-slate-400 cursor-wait'
               : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700')}
-          aria-label={frenzyArmed ? 'Release Frenzy roll' : 'Roll'}
+          aria-label={frenzyArmed ? 'Release Frenzy roll' : freeRolls > 0 ? `Roll all ${freeRolls} Free Rolls` : 'Roll'}
         >
           {frenzyArmed && (
             <>
@@ -515,7 +515,9 @@ export const RollSection: React.FC<RollSectionProps> = ({
               ? remain > 0
                 ? 'WAIT ' + (remain / 1000).toFixed(1) + 's'
                 : 'RELEASE FRENZY'
-              : remain > 0 && freeRolls <= 0
+              : freeRolls > 0
+              ? 'ROLL ALL ' + freeRolls + ' FREE ROLLS'
+              : remain > 0
               ? 'WAIT ' + (remain / 1000).toFixed(1) + 's'
               : 'ROLL ' + (multi > 1 ? '×' + multi : '')}
           </span>
