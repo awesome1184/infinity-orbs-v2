@@ -874,7 +874,8 @@ export type PrestigeUpgradeId =
   | 'astralReserve'
   | 'temporalCompression'
   | 'shardResonator'
-  | 'cosmicValuation';
+  | 'cosmicValuation'
+  | 'cosmicReserve';
 
 export function createSeededRandom(seed: number): () => number {
   let state = (Math.floor(Number(seed)) >>> 0) || 0x6d2b79f5;
@@ -1585,6 +1586,13 @@ export const PRESTIGE_UPGRADES: Record<PrestigeUpgradeId, PrestigeUpgradeInfo> =
     maxLevel: 5,
     costPerLevel: 5,
   },
+  cosmicReserve: {
+    name: 'Cosmic Reserve',
+    desc: 'Each unspent Cosmic Dust adds +1% multiplicative Luck per level, up to +5% per Dust at Lv 5.',
+    category: 'core',
+    maxLevel: 5,
+    costPerLevel: 5,
+  },
 };
 
 export function createInitialDailyQuests(): QuestItem[] {
@@ -1678,6 +1686,7 @@ export function createInitialState(now = Date.now()): PlayerState {
       temporalCompression: 0,
       shardResonator: 0,
       cosmicValuation: 0,
+      cosmicReserve: 0,
     },
     streak: { count: 1, lastClaimDate: '', longestStreak: 1 },
     dailyStreakCommunity: createInitialDailyStreakCommunity(now),
@@ -2222,10 +2231,15 @@ export function luckMultiplier(s: PlayerState): number {
   // 8. Multiplicative long-term layers.
   // Permanent Luck is ×1.05 per level, rather than +5% into the additive pool.
   const prestigeMultiplier = Math.pow(1.05, Math.max(0, s.prestigeUpgrades?.permLuck ?? 0));
+  // Cosmic Reserve is an independent multiplicative layer. Each unspent Dust
+  // contributes another 1%-5% to this factor based on the purchased level.
+  const cosmicReserveLevel = Math.max(0, Math.min(5, Math.floor(Number(s.prestigeUpgrades?.cosmicReserve ?? 0) || 0)));
+  const unspentDust = Math.max(0, Math.floor(Number(s.cosmicDust ?? 0) || 0));
+  const cosmicReserveMultiplier = 1 + unspentDust * cosmicReserveLevel * 0.01;
   const { totalAltarMultiplier } = calculateAltarMultipliers(s);
 
   const baseLuck = 1 + additiveBonus;
-  return Math.round(baseLuck * prestigeMultiplier * totalAltarMultiplier * 100) / 100;
+  return Math.round(baseLuck * prestigeMultiplier * cosmicReserveMultiplier * totalAltarMultiplier * 100) / 100;
 }
 
 export function offlineRollCap(s: PlayerState): number {
@@ -2460,8 +2474,11 @@ export function predictRollActivation(
 
 export function upgradeCost(id: UpgradeId, level: number): number {
   if (id === 'auto') return level ? Infinity : 0;
-  // Roll Speed has a deliberate cap: 20 levels, totaling at most 3 seconds.
+  // Hard caps are shared so UI, bulk buying, automation, and server verification agree.
   if (id === 'speed' && level >= 20) return Infinity;
+  // Offline Generation Speed reduces its tick by 8% per level, capped at 60%.
+  // Level 8 reaches the hard cap; further purchases have no gameplay effect.
+  if (id === 'offlineRate' && level >= 8) return Infinity;
   const configs: Record<Exclude<UpgradeId, 'auto'>, { base: number; mult: number }> = {
     speed: { base: 45, mult: 1.65 },
     multi: { base: 120, mult: 1.75 },
@@ -2528,6 +2545,7 @@ export function prestigeUpgradeCost(id: PrestigeUpgradeId, level: number): numbe
     temporalCompression: 4,
     shardResonator: 4,
     cosmicValuation: 5,
+    cosmicReserve: 5,
   };
   const base = bases[id] ?? 2;
   return Math.round(base * Math.pow(1.5, level));
