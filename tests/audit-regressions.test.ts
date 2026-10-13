@@ -1635,3 +1635,71 @@ test('bulk Global Booster retries reuse the durable recipient manifest and opera
   assert.match(ui, /Completed grants will not be duplicated/);
   assert.match(ui, /sessionStorage\.setItem\(GLOBAL_BOOSTER_GRANT_PENDING_STORAGE_KEY/);
 });
+
+test('Guild task rollover consumes multi-tier overflow and persists combo-expiry resets', () => {
+  const social = source('src/server/social.ts');
+  const loadStart = social.indexOf('async function loadGuilds(): Promise<Guild[]>');
+  const loadEnd = social.indexOf('\n}\n', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart);
+  const load = social.slice(loadStart, loadEnd);
+  assert.match(social, /while \(progress >= task\.target && completions < 1000\)/);
+  assert.match(social, /progress = overflow;/);
+  assert.match(load, /const rawGuilds = parseGuildListRaw\(raw\)/);
+  assert.match(load, /const expiredCombo = rawGuilds\.some\(g => guildComboHasExpired\(g, now\)\)/);
+  assert.match(load, /await txn\.set\(GUILDS_KEY, JSON\.stringify\(latest\)\)/);
+});
+
+test('rapid upgrades are shown optimistically but purchased in a server-verified batch', () => {
+  const game = source('src/server/game.ts');
+  const app = source('src/server/app.ts');
+  const client = source('src/client/main.tsx');
+  const start = game.indexOf('export async function buyUpgradesBatch');
+  const end = game.indexOf('\nexport function autoBuyCheapest', start);
+  assert.ok(start >= 0 && end > start);
+  const batch = game.slice(start, end);
+  assert.match(batch, /withPlayerMutationLock/);
+  assert.match(batch, /upgradeCost\(id, level\)/);
+  assert.match(batch, /if \(s\.coins < cost\) break/);
+  assert.match(batch, /await save\(s\)/);
+  assert.match(app, /app\.post\('\/api\/upgrade\/batch'/);
+  assert.match(client, /upgradeBatchQueueRef\.current\.push\(id\)/);
+  assert.match(client, /setState\(nextState\)/);
+  assert.match(client, /'\/api\/upgrade\/batch'/);
+});
+
+test('one Free Roll click submits all stored Free Rolls while rewards remain server-authoritative', () => {
+  const game = source('src/server/game.ts');
+  const app = source('src/server/app.ts');
+  const client = source('src/client/main.tsx');
+  assert.match(game, /useAllFreeRolls = false/);
+  assert.match(game, /useAllFreeRolls \? Math\.max\(0, Math\.floor\(s\.freeRolls \?\? 0\)\) : 1/);
+  assert.match(game, /while \(remainingActivations > 0\)/);
+  assert.match(game, /s\.freeRolls = Math\.max\(0, \(s\.freeRolls \?\? 0\) - freeRollActivations\)/);
+  assert.match(app, /req\.body\?\.useAllFreeRolls === true/);
+  assert.match(client, /useAllFreeRolls: !isAutoRoll && \(currentState\.freeRolls \?\? 0\) > 0/);
+});
+
+test('Cosmic Reserve is a multiplicative per-unspent-Dust Luck layer and Offline Rate stops at level 8', () => {
+  const shared = source('src/shared/game.ts');
+  const upgradesUi = source('src/client/components/UpgradesSection.tsx');
+  const prestigeUi = source('src/client/components/ProfileAndPrestige.tsx');
+  assert.match(shared, /cosmicReserve:\s*\{[\s\S]*?maxLevel: 5/);
+  assert.match(shared, /cosmicReserveMultiplier = 1 \+ unspentDust \* cosmicReserveLevel \* 0\.01/);
+  assert.match(shared, /baseLuck \* prestigeMultiplier \* cosmicReserveMultiplier \* totalAltarMultiplier/);
+  assert.match(shared, /id === 'offlineRate' && level >= 8\) return Infinity/);
+  assert.match(upgradesUi, /offlineRate: 8/);
+  assert.match(prestigeUi, /case 'cosmicReserve'/);
+});
+
+test('Global Chat badge counts unread arrivals and displays the server-verified admin badge', () => {
+  const chat = source('src/client/components/GlobalChatWindow.tsx');
+  const client = source('src/client/main.tsx');
+  const social = source('src/server/social.ts');
+  assert.match(chat, /const \[unreadCount, setUnreadCount\] = useState\(0\)/);
+  assert.match(chat, /setUnreadCount\(0\)/);
+  assert.match(chat, /!openRef\.current && unseen\.length > 0/);
+  assert.match(chat, /message\.username === username && \(/);
+  assert.match(chat, />ADMIN<\/span>/);
+  assert.match(client, /isAdmin=\{isAdmin\}/);
+  assert.match(social, /currentDryStreak: Math\.max\(0, Number\(save\.rollsSinceBest/);
+});
