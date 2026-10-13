@@ -2596,7 +2596,7 @@ export function App() {
       )}
 
       {/* Global Chat */}
-      <GlobalChatWindow username={state.username ?? ''} isAdmin={isAdmin} />
+      <GlobalChatWindow username={state.username ?? ''} />
 
       {/* Changelog */}
       {showChangelogModal && (
