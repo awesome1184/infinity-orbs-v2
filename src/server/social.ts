@@ -35,6 +35,10 @@ import {
 
 const user = () => context.userId ?? 'unknown';
 const username = () => context.username ?? `reddit-user-${user().slice(-8)}`;
+function isAdminUsername(value: unknown): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'shadow_fen' || normalized === 'u/shadow_fen' || normalized === '/u/shadow_fen';
+}
 const key = (name: string) => `io:${name}`;
 const GUILDS_KEY = key('guilds');
 const PLAYER_REGISTRY_KEY = key('player-registry');
@@ -2028,6 +2032,7 @@ export async function getGlobalChat(): Promise<GlobalChatMessage[]> {
       const messageUsername = message.username.replace(/^u\//i, '').trim().toLowerCase();
       return !mutedIds.has(messageUserId) && !mutedNames.has(messageUsername);
     })
+    .map(message => ({ ...message, isAdmin: isAdminUsername(message.username) }))
     .sort((a, b) => a.timestamp - b.timestamp)
     .slice(-GLOBAL_CHAT_MAX_MESSAGES);
 }
@@ -2057,6 +2062,7 @@ export async function postGlobalChatMessage(text: string): Promise<GlobalChatMes
       text: messageText,
       timestamp,
       userId: user(),
+      isAdmin: isAdminUsername(username()),
     };
 
     // Initialize the key before WATCH so the first write follows the same
