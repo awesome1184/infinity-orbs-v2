@@ -961,6 +961,7 @@ export function App() {
           auto: isAutoRoll,
           ticketId: ticket.ticketId,
           ticketIndex,
+          useAllFreeRolls: !isAutoRoll && (currentState.freeRolls ?? 0) > 0,
         }),
       }));
 
