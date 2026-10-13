@@ -279,6 +279,85 @@ function parseLeaderboardList(raw: unknown): LeaderboardEntry[] {
 }
 const COMMUNITY_EVENT_KEY = key('community_event');
 
+function guildComboHasExpired(guild: Pick<Guild, 'combo'>, now = Date.now()): boolean {
+  const tier = Math.max(0, Math.floor(Number(guild.combo?.tier ?? 0) || 0));
+  const endsAt = Math.max(0, Math.floor(Number(guild.combo?.endsAt ?? 0) || 0));
+  return tier > 0 && endsAt > 0 && endsAt <= now;
+}
+
+/** Apply progress once and carry every overflow across the next task tiers. */
+function applyGuildTaskProgress(
+  guild: Guild,
+  valueProgress: number,
+  rollProgress: number,
+  rareProgress: number,
+  xpMultiplier: number,
+  taskBountyMultiplier: number,
+  comboDurationMultiplier: number,
+  now: number,
+): void {
+  if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
+    guild.tasks = createInitialGuildTasks(guild.level || 1);
+  }
+
+  const progressForType = (task: GuildTask): number =>
+    task.type === 'value' ? valueProgress
+      : task.type === 'rolls' ? rollProgress
+        : rareProgress;
+
+  for (let i = 0; i < guild.tasks.length; i += 1) {
+    let task = guild.tasks[i];
+    if (!task) continue;
+    let progress = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      Math.max(0, Math.floor(Number(task.progress) || 0)) + progressForType(task),
+    );
+    let completions = 0;
+
+    // A single high-value roll batch can complete several escalating tiers.
+    // Keep paying each completion until the overflow fits the next target.
+    while (progress >= task.target && completions < 1000) {
+      const overflow = progress - task.target;
+      const completedTier = task.tier;
+      const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
+      const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
+      guild.tokens = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(Number(guild.tokens ?? 0) || 0)) + reward);
+      guild.xp = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(Number(guild.xp ?? 0) || 0)) + xpReward);
+      guild.level = 1 + Math.floor(guild.xp / 500);
+      guild.taskCompletions = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(Number(guild.taskCompletions ?? 0) || 0)) + 1);
+      guild.combo = activateGuildComboStack(guild.combo, now, 10, comboDurationMultiplier);
+      task = createGuildTask(task.type, completedTier + 1, guild.level);
+      progress = overflow;
+      completions += 1;
+
+      if (!guild.chat) guild.chat = [];
+      guild.chat.push({
+        id: `msg-${now}-task-${guild.taskCompletions}`,
+        username: 'System',
+        text: `Guild Task completed! Tier ${completedTier} → Tier ${completedTier + 1}. +${reward.toLocaleString()} Guild Tokens and +${xpReward.toLocaleString()} Guild XP.`,
+        timestamp: now,
+        isSystem: true,
+      });
+      if (guild.chat.length > 50) guild.chat.shift();
+    }
+
+    // Targets grow geometrically, so 1,000 completions is far above any valid
+    // single contribution. This clamp is only defensive against corrupt saves.
+    task.progress = Math.min(Math.max(0, task.target - 1), progress);
+    guild.tasks[i] = task;
+  }
+
+  const firstTask = guild.tasks[0];
+  if (firstTask) {
+    guild.challenge = {
+      type: firstTask.type,
+      target: firstTask.target,
+      progress: Math.min(firstTask.target, firstTask.progress),
+      reward: firstTask.reward,
+      label: firstTask.label,
+    };
+  }
+}
 function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
   const currentWeek = weekKey(now);
   for (const g of guilds) {
@@ -374,9 +453,7 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
     // A combo is also the timer for the escalating task cycle. Once it expires,
     // the entire task set starts over at tier 1 instead of leaving the guild
     // permanently stuck with the old difficulty.
-    const comboEndsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
-    const comboTier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
-    const comboExpired = comboTier > 0 && comboEndsAt > 0 && comboEndsAt <= now;
+    const comboExpired = guildComboHasExpired(g, now);
     if (comboExpired) {
       g.tasks = createInitialGuildTasks(g.level || 1);
     }
@@ -525,14 +602,10 @@ async function updateGuilds<T>(mutator: (guilds: Guild[]) => Promise<T> | T): Pr
 async function loadGuilds(): Promise<Guild[]> {
   await ensureGuildMigrations();
   const raw = await redis.get(GUILDS_KEY);
-  const rawGuilds = parseGuildList(raw);
+  const rawGuilds = parseGuildListRaw(raw);
   const guilds = normalizeGuilds(rawGuilds);
   const now = Date.now();
-  const expiredCombo = rawGuilds.some(g => {
-    const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
-    const endsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
-    return tier > 0 && endsAt > 0 && endsAt <= now;
-  });
+  const expiredCombo = rawGuilds.some(g => guildComboHasExpired(g, now));
 
   if (expiredCombo) {
     // Persist the expiry reset so a later read cannot resurrect the old task tiers.
@@ -549,11 +622,7 @@ async function loadGuilds(): Promise<Guild[]> {
         throw error;
       }
       const latest = normalizeGuilds(latestRawGuilds);
-      const latestExpired = latestRawGuilds.some(g => {
-        const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
-        const endsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
-        return tier > 0 && endsAt > 0 && endsAt <= Date.now();
-      });
+      const latestExpired = latestRawGuilds.some(g => guildComboHasExpired(g, Date.now()));
       if (!latestExpired) {
         await txn.unwatch();
         return latest;
@@ -1160,59 +1229,11 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
       guild.xp += Math.max(1, Math.floor(Math.max(1, Math.floor(value / 250)) * xpMultiplier));
       guild.level = 1 + Math.floor(guild.xp / 500);
 
-      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
-        guild.tasks = createInitialGuildTasks(guild.level);
-      }
-
       const now = Date.now();
-      const taskProgressValue = Math.max(0, Math.floor(value));
-      const taskProgressRolls = Math.max(0, Math.floor(rollCount));
+      const taskProgressValue = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(value)));
+      const taskProgressRolls = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(rollCount)));
       const taskProgressRare = (bestRarity ?? 0) >= 100 ? 1 : 0;
-
-      for (let i = 0; i < guild.tasks.length; i++) {
-        const task = guild.tasks[i];
-        if (!task) continue;
-
-        if (task.type === 'value') task.progress += taskProgressValue;
-        else if (task.type === 'rolls') task.progress += taskProgressRolls;
-        else if (task.type === 'rare') task.progress += taskProgressRare;
-
-        if (task.progress < task.target) continue;
-
-        const overflow = Math.max(0, task.progress - task.target);
-        const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
-        const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
-
-        guild.tokens = (guild.tokens ?? 0) + reward;
-        guild.xp += xpReward;
-        guild.level = 1 + Math.floor(guild.xp / 500);
-        guild.taskCompletions = (guild.taskCompletions ?? 0) + 1;
-        guild.combo = activateGuildComboStack(
-          guild.combo,
-          now,
-          10,
-          comboDurationMultiplier,
-        );
-
-        const completedTier = task.tier;
-        const replacement = createGuildTask(task.type, completedTier + 1, guild.level);
-        replacement.progress = Math.min(
-          Math.max(0, replacement.target - 1),
-          overflow,
-        );
-        guild.tasks[i] = replacement;
-
-        if (!guild.chat) guild.chat = [];
-        guild.chat.push({
-          id: `msg-${Date.now()}-task`,
-          username: 'System',
-          text: `Guild Task completed! Tier ${completedTier} → Tier ${completedTier + 1}. +${reward.toLocaleString()} Guild Tokens and +${xpReward.toLocaleString()} Guild XP.`,
-          timestamp: Date.now(),
-          isSystem: true,
-        });
-        if (guild.chat.length > 50) guild.chat.shift();
-      }
-
+      applyGuildTaskProgress(guild, taskProgressValue, taskProgressRolls, taskProgressRare, xpMultiplier, taskBountyMultiplier, comboDurationMultiplier, now);
       const firstTask = guild.tasks[0];
       guild.challenge = {
         type: firstTask.type,
@@ -1307,47 +1328,8 @@ export async function prepareGuildRollEffects(
       guild.xp = capInteger(guild.xp + Math.max(1, Math.floor(Math.max(1, Math.floor(safeValue / 250)) * xpMultiplier)));
       guild.level = 1 + Math.floor(guild.xp / 500);
 
-      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
-        guild.tasks = createInitialGuildTasks(guild.level);
-      }
       const now = Date.now();
-      const taskProgressValue = safeValue;
-      const taskProgressRolls = safeRolls;
-      const taskProgressRare = (bestRarity ?? 0) >= 100 ? 1 : 0;
-
-      for (let i = 0; i < guild.tasks.length; i++) {
-        const task = guild.tasks[i];
-        if (!task) continue;
-        if (task.type === 'value') task.progress = capInteger(task.progress + taskProgressValue);
-        else if (task.type === 'rolls') task.progress = capInteger(task.progress + taskProgressRolls);
-        else if (task.type === 'rare') task.progress = capInteger(task.progress + taskProgressRare);
-        if (task.progress < task.target) continue;
-
-        const overflow = Math.max(0, task.progress - task.target);
-        const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
-        const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
-        guild.tokens = capInteger((guild.tokens ?? 0) + reward);
-        guild.xp = capInteger(guild.xp + xpReward);
-        guild.level = 1 + Math.floor(guild.xp / 500);
-        guild.taskCompletions = capInteger((guild.taskCompletions ?? 0) + 1);
-        guild.combo = activateGuildComboStack(guild.combo, now, 10, comboDurationMultiplier);
-
-        const completedTier = task.tier;
-        const replacement = createGuildTask(task.type, completedTier + 1, guild.level);
-        replacement.progress = Math.min(Math.max(0, replacement.target - 1), overflow);
-        guild.tasks[i] = replacement;
-        if (!guild.chat) guild.chat = [];
-        guild.chat.push({
-          id: `msg-${Date.now()}-task`,
-          username: 'System',
-          text: `Guild Task completed! Tier ${completedTier} → Tier ${completedTier + 1}. +${reward.toLocaleString()} Guild Tokens and +${xpReward.toLocaleString()} Guild XP.`,
-          timestamp: Date.now(),
-          isSystem: true,
-        });
-        if (guild.chat.length > 50) guild.chat.shift();
-      }
-
-      const firstTask = guild.tasks[0];
+      applyGuildTaskProgress(guild, safeValue, safeRolls, (bestRarity ?? 0) >= 100 ? 1 : 0, xpMultiplier, taskBountyMultiplier, comboDurationMultiplier, now);      const firstTask = guild.tasks[0];
       guild.challenge = {
         type: firstTask.type,
         target: firstTask.target,
