@@ -418,7 +418,9 @@ export function createApp() {
     if (
       req.path === '/combat/beat' ||
       req.path === '/combat/equip' ||
-      req.path === '/combat/skills/roll'
+      req.path === '/combat/skills/roll' ||
+      req.path === '/combat/arena/queue' ||
+      req.path === '/combat/arena/leave'
     ) return next();
 
     const mutatesState = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
