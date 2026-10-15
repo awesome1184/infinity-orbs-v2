@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCombatGearToInventory, applyCombatSkillCopy, calculateCombatArenaRatingUpdate, COMBAT_SKILLS, combatStatsFor, coreProgressionCombatBonus, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
+import { addCombatGearToInventory, applyCombatSkillCopy, calculateCombatArenaRatingUpdate, chooseAutoCombatIntent, COMBAT_SKILLS, combatStatsFor, coreProgressionCombatBonus, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
 
 test('starter combat build carries the Auto-Dungeons baseline', () => {
   const state=createCombatState();
@@ -31,6 +31,35 @@ test('every tenth Undercrypt depth has a boss', () => {
   assert.equal(getEnemyForDepth(10).boss,true);
   assert.equal(getEnemyForDepth(20).name,'Crypt Warden');
 });
+test('auto tactics use Mend first when health is critical and energy is available', () => {
+  const state = createCombatState();
+  state.energy = 5;
+  state.health = 400;
+  assert.equal(chooseAutoCombatIntent(state, combatStatsFor(state), 3, 2), 'mend');
+});
+
+test('auto tactics Guard when hurt and an enemy action is due but healing is unavailable', () => {
+  const state = createCombatState();
+  state.energy = 2;
+  state.health = 600;
+  assert.equal(chooseAutoCombatIntent(state, combatStatsFor(state), 3, 1), 'guard');
+});
+
+test('auto tactics use Heavy when healthy and charged, otherwise Strike', () => {
+  const state = createCombatState();
+  state.energy = 3;
+  assert.equal(chooseAutoCombatIntent(state, combatStatsFor(state), 3, 1), 'heavy');
+  state.energy = 0;
+  assert.equal(chooseAutoCombatIntent(state, combatStatsFor(state), 3, 1), 'strike');
+});
+
+test('auto tactics do not spend energy when no player action is ready', () => {
+  const state = createCombatState();
+  state.energy = 5;
+  state.health = 200;
+  assert.equal(chooseAutoCombatIntent(state, combatStatsFor(state), 0, 1), 'strike');
+});
+
 test('skill pull pricing does not decrease with repeated pulls', () => {
   let previous=skillPullCost(0);
   for(let pulls=1;pulls<60;pulls++){const current=skillPullCost(pulls);assert.ok(current>=previous);previous=current;}
