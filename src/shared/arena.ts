@@ -107,7 +107,7 @@ export function simulateArenaDuel(
   let firstStrikeA = false;
   let firstStrikeB = false;
 
-  const attack = (attacker: ArenaFighter, defender: ArenaFighter, attackerHealth: number, defenderHealth: number, defenderMaxHealth: number, isFirstStrike: boolean) => {
+  const attack = (attacker: ArenaFighter, defender: ArenaFighter, defenderHealth: number, isFirstStrike: boolean) => {
     let multiplier = isFirstStrike && attacker.weaponTrait === 'first-strike' ? 1.5 : 1;
     const critical = safeRandom(random) < Math.max(0, Math.min(0.75, attacker.stats.critChance));
     if (critical) multiplier *= 1.75;
@@ -126,11 +126,11 @@ export function simulateArenaDuel(
     const aFirst = a.stats.speed === b.stats.speed ? safeRandom(random) < 0.5 : a.stats.speed > b.stats.speed;
     for (let action = 0; action < Math.max(countA, countB) && healthA > 0 && healthB > 0; action += 1) {
       const strikeA = () => {
-        healthB = attack(a, b, healthA, healthB, maxHealthB, !firstStrikeA);
+        healthB = attack(a, b, healthB, !firstStrikeA);
         firstStrikeA = true;
       };
       const strikeB = () => {
-        healthA = attack(b, a, healthB, healthA, maxHealthA, !firstStrikeB);
+        healthA = attack(b, a, healthA, !firstStrikeB);
         firstStrikeB = true;
       };
       if (aFirst) {
