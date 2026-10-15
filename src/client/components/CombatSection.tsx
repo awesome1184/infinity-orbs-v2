@@ -93,7 +93,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const enemyPct=Math.max(0,Math.min(100,enemy.hp/Math.max(1,enemy.maxHp)*100));
   return <section className="io-combat-screen">
     <header className="io-combat-page-head"><div><span className="io-combat-eyebrow">INFINITY ORBS · COMBAT EXPANSION</span><h1>{page==='fight'?'Fight':page==='dungeons'?'Dungeons':page==='gear'?'Armory':page==='skills'?'Skill Gacha':'Arena'}</h1><p>{page==='fight'?'The next beat resolves on the server. Configure a command; your build handles the rest.':page==='dungeons'?'Push deeper into the Undercrypt, discover new rooms and keep permanent rewards when a run ends.':page==='gear'?'Quality is a real stat roll. Compare item effects, not just power.':page==='skills'?'Duplicates rank skills up to Rank 5. Every rank has an explicit numeric effect.':'The Arena will open after the PvE combat rules are stable.'}</p></div><div className="io-combat-run-stamp"><span>RUN {fmt(state.runId)}</span><strong>DEPTH {fmt(state.depth)}</strong><span>BEST {fmt(state.bestDepth)}</span></div></header>
-    {error&&<div className="io-combat-error" role="status">{error} <button className="io-combat-text-link" type="button" onClick={()=>{setError('');if(!state)void load();}}>Dismiss / retry</button></div>}
+    {error&&<div className="io-combat-error" role="status">{error} <button className="io-combat-text-link" type="button" onClick={()=>{setLoading(true);setAuto(true);void load();}}>Retry combat</button></div>}
 
     {page==='fight'&&<>
       <div className="io-combat-stage"><div className="io-combat-stage-top"><span>{enemy.room.toUpperCase()}</span><span>{enemy.kind.toUpperCase()} · {enemy.boss?'CURRENT WARDEN':'NEXT WARDEN'} {fmt(nextBoss)}</span></div>
