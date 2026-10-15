@@ -855,7 +855,7 @@ export function createApp() {
   app.post('/api/combat/beat', async (req,res) => {
     const sequence=req.body?.sequence, intent=req.body?.intent;
     if(!Number.isSafeInteger(sequence)||sequence<1)return res.status(400).json({error:'A valid combat sequence is required.'});
-    if(!['strike','heavy','guard','mend'].includes(intent))return res.status(400).json({error:'Invalid combat command.'});
+    if(!['auto','strike','heavy','guard','mend'].includes(intent))return res.status(400).json({error:'Invalid combat command.'});
     try { res.setHeader('Cache-Control','no-store');res.json(await performCombatBeat(sequence,intent)); }
     catch(e:any){const message=e?.message||'Combat beat failed.';const status=message==='stale combat sequence'?409:message==='REDDIT_LOGIN_REQUIRED'?401:message==='Combat state changed repeatedly. Please retry.'?503:500;res.status(status).json({error:message});}
   });
