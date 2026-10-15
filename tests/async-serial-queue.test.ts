@@ -57,7 +57,7 @@ test('CombatSection routes state reads, beats, and gear/skill mutations through 
   );
   assert.match(
     source,
-    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*\/\/ Read sequence when the beat actually executes[\s\S]*?request<ApiResponse>\('\/api\/combat\/beat'/,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*\/\/ Read the latest sequence and pending command when the beat actually executes[\s\S]*?request<ApiResponse>\('\/api\/combat\/beat'/,
     'beat sequence must be read and posted inside the queue',
   );
   assert.match(
