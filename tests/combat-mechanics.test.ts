@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCombatGearToInventory, applyCombatSkillCopy, calculateCombatArenaRatingUpdate, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
+import { advanceGuardWindow, addCombatGearToInventory, applyCombatSkillCopy, calculateCombatArenaRatingUpdate, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
 
 test('starter combat build carries the Auto-Dungeons baseline', () => {
   const state=createCombatState();
@@ -176,4 +176,23 @@ test('Arena rating uses bounded Elo-style updates', () => {
   const bounded = calculateCombatArenaRatingUpdate(10000, 100, true);
   assert.equal(bounded.playerRating, 10000);
   assert.equal(bounded.opponentRating, 100);
+});
+
+
+test('Guard remains active until a slow enemy has an action ready', () => {
+  // A Guard command can happen on a player beat before a slow enemy's first turn.
+  assert.equal(advanceGuardWindow(1, 0, false), 1);
+  // The first enemy-action beat consumes the guard window.
+  assert.equal(advanceGuardWindow(1, 1, false), 0);
+  // Guard covers the incoming attacks scheduled for that enemy-action beat.
+  assert.equal(advanceGuardWindow(1, 3, false), 0);
+});
+
+test('Guard window is consumed safely and cleared when the encounter ends', () => {
+  assert.equal(advanceGuardWindow(0, 0, false), 0);
+  assert.equal(advanceGuardWindow(2, 1, false), 1);
+  assert.equal(advanceGuardWindow(2, 0, true), 0);
+  assert.equal(advanceGuardWindow(1, 1, true), 0);
+  assert.equal(advanceGuardWindow(Number.NaN, 1, false), 0);
+  assert.equal(advanceGuardWindow(1, Number.NaN, false), 1);
 });
