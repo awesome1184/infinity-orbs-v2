@@ -10,6 +10,10 @@ test('Guard expires after the enemy gets an action', () => {
   assert.equal(tickCombatGuard(1, 1), 0);
 });
 
+test('Guard carries into the next room when the enemy is defeated before acting', () => {
+  assert.equal(tickCombatGuard(1, 2, true), 1);
+});
+
 test('Guard is beat-based and decrements once even when multiple enemy actions resolve', () => {
   assert.equal(tickCombatGuard(2, 3), 1);
 });
