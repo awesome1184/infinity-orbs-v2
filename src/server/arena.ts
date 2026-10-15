@@ -158,8 +158,9 @@ async function fighterForCurrentUser(userId: string, rating: number): Promise<Ar
 
 function statusFromStore(store: ArenaStore, userId: string, now: number): ArenaStatus {
   const player = normalizeRecord(store.players[userId]);
-  const index = store.queue.findIndex(entry => entry.fighter.userId === userId);
-  const entry = index >= 0 ? store.queue[index]! : null;
+  const activeQueue = store.queue.filter(entry => now - entry.queuedAt <= QUEUE_EXPIRY_MS);
+  const index = activeQueue.findIndex(entry => entry.fighter.userId === userId);
+  const entry = index >= 0 ? activeQueue[index]! : null;
   return {
     status: player.lastMatch ? 'matched' : entry ? 'queued' : 'idle',
     rating: player.rating,
@@ -167,7 +168,7 @@ function statusFromStore(store: ArenaStore, userId: string, now: number): ArenaS
     losses: player.losses,
     draws: player.draws,
     matches: player.matches,
-    queueSize: store.queue.length,
+    queueSize: activeQueue.length,
     queuePosition: index >= 0 ? index + 1 : null,
     queuedAt: entry?.queuedAt ?? null,
     lastMatch: player.lastMatch,
@@ -214,8 +215,8 @@ function completeMatch(store: ArenaStore, a: ArenaFighter, b: ArenaFighter, now:
   const outcomeB: ArenaOutcome = winner === null ? 'draw' : winner === b.userId ? 'win' : 'loss';
   const recordA = recordFor(store, a.userId, now);
   const recordB = recordFor(store, b.userId, now);
-  const scoreA = outcomeA === 'win' ? 1 : outcomeA === 'draw' ? 0.5 : 0;
-  const scoreB = outcomeB === 'win' ? 1 : outcomeB === 'draw' ? 0.5 : 0;
+  const scoreA: 0 | 0.5 | 1 = outcomeA === 'win' ? 1 : outcomeA === 'draw' ? 0.5 : 0;
+  const scoreB: 0 | 0.5 | 1 = outcomeB === 'win' ? 1 : outcomeB === 'draw' ? 0.5 : 0;
   const oldA = recordA.rating;
   const oldB = recordB.rating;
   recordA.rating = Math.max(100, Math.min(3000, oldA + arenaRatingDelta(oldA, oldB, scoreA)));
