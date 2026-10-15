@@ -263,3 +263,10 @@ export function undercryptWardensDefeated(bestDepthValue: unknown): number {
 export function undercryptOrbLuckMultiplier(bestDepthValue: unknown): number {
   return 1 + undercryptWardensDefeated(bestDepthValue) * UNDERCRYPT_ORB_LUCK_PER_WARDEN;
 }
+
+/** Return the current depth when it is a Warden room, otherwise the next Warden depth. */
+export function wardenDepthAtOrAhead(depthValue: unknown): number {
+  const rawDepth = Number(depthValue);
+  const depth = Number.isFinite(rawDepth) ? Math.max(1, Math.min(50_000, Math.floor(rawDepth))) : 1;
+  return depth % 10 === 0 ? depth : Math.min(50_000, (Math.floor(depth / 10) + 1) * 10);
+}
