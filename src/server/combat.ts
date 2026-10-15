@@ -149,7 +149,9 @@ export async function performCombatBeat(sequence:number,intent:CombatIntent):Pro
       actions.push({actor:'enemy',kind:'attack',damage:incoming,text:strike+incoming+' damage.'});
       if(s.health<=0){died=true;actions.push({actor:'enemy',kind:'death',text:'Run '+s.runId+' ended at Depth '+s.depth+'. Permanent progress retained.'});s.runId+=1;s.depth=1;s.health=s.maxHealth;s.combatBeats=0;s.playerActionsResolved=0;s.enemyActionsResolved=0;s.energy=Math.min(s.maxEnergy,3);s.guardBeats=0;s.encounterFirstStrikeUsed=false;s.enemyHp=getEnemyForDepth(1).maxHp;actions.push({actor:'player',kind:'advance',text:'A new descent begins automatically at Depth 1.'});break;}
     }
-    if(s.guardBeats>0&&!defeated)s.guardBeats-=1;synchronizeCombatStats(s);
+    // Guard should cover the next enemy-action beat, not expire on a tick where a slower enemy cannot act yet.
+    if(s.guardBeats>0&&enemyActions>0&&!defeated)s.guardBeats-=1;
+    synchronizeCombatStats(s);
     return {...snapshot(s),actions,defeated,died,...(item?{item}:{})};
   });
 }
