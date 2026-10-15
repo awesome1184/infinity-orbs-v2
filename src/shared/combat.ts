@@ -81,6 +81,8 @@ export interface CombatState {
   totalKills: number;
   skillRolls: number;
   sequence: number;
+  /** Server timestamp of the last accepted beat; prevents client fast-forwarding. */
+  lastBeatAt: number;
   combatBeats: number;
   playerActionsResolved: number;
   enemyActionsResolved: number;
@@ -179,7 +181,7 @@ export function createCombatState(): CombatState {
     version:1, runId:1, dungeonId:'undercrypt', dungeonBestDepths:{undercrypt:1,'cinder-vault':1,'glass-labyrinth':1}, depth:1, bestDepth:1,
     level:1, xp:0, xpToNext:100, health:1040, maxHealth:1040, speed:310,
     baseDamage:54, coins:250, totalKills:0, skillRolls:0, sequence:0,
-    combatBeats:0, playerActionsResolved:0, enemyActionsResolved:0,
+    lastBeatAt:0, combatBeats:0, playerActionsResolved:0, enemyActionsResolved:0,
     energy:3, maxEnergy:5, guardBeats:0, enemyHp:130,
     encounterFirstStrikeUsed:false, inventory:[weapon,armor],
     equipment:{weapon:weapon.id,armor:armor.id}, skillLevels:{},
