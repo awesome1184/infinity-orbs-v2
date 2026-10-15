@@ -242,19 +242,38 @@ export async function getArenaStatus(): Promise<ArenaStatus> {
 export async function joinArenaQueue(): Promise<ArenaStatus> {
   const userId = currentUserId();
   const now = Date.now();
+  const baseFighter = await fighterForCurrentUser(userId, 1000);
   return mutateArenaStore(store => {
     pruneQueue(store, now);
     const existing = store.queue.find(entry => entry.fighter.userId === userId);
     if (existing) return statusFromStore(store, userId, now);
+
     const record = recordFor(store, userId, now);
-    // A previous result remains visible until the player explicitly queues again.
+    if (store.queue.length >= MAX_QUEUE_SIZE) {
+      throw new Error('Arena queue is full. Please try again shortly.');
+    }
     record.lastMatch = null;
-    const fighter = { ...awaitPlaceholder(), rating: record.rating };
+    const fighter: ArenaFighter = { ...baseFighter, rating: record.rating };
+    const candidateIndexes = store.queue
+      .map((entry, index) => ({ entry, index, ratingGap: Math.abs(entry.fighter.rating - fighter.rating) }))
+      .filter(candidate => candidate.entry.fighter.userId !== userId)
+      .filter(candidate => candidate.ratingGap <= 250 || now - candidate.entry.queuedAt >= 45_000)
+      .sort((a, b) => a.ratingGap - b.ratingGap || a.entry.queuedAt - b.entry.queuedAt);
+
+    const opponent = candidateIndexes[0];
+    if (opponent) {
+      const other = opponent.entry.fighter;
+      store.queue = store.queue.filter(entry =>
+        entry.fighter.userId !== userId && entry.fighter.userId !== other.userId,
+      );
+      completeMatch(store, fighter, other, now);
+    } else {
+      store.queue.push({ fighter, queuedAt: now });
+      record.updatedAt = now;
+    }
     return statusFromStore(store, userId, now);
   });
 }
-
-function awaitPlaceholder(): never { throw new Error('unreachable'); }
 
 export async function leaveArenaQueue(): Promise<ArenaStatus> {
   const userId = currentUserId();
