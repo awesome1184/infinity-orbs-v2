@@ -133,6 +133,7 @@ const localRedis = {
       | { kind: 'set'; key: string; value: string; expiration?: Date }
       | { kind: 'del'; key: string }
       | { kind: 'hset'; key: string; fields: Record<string, string> }
+      | { kind: 'hdel'; key: string; field: string }
     > = [];
     return {
       // TxClient is intentionally modeled without a read method. In Devvit,
@@ -146,6 +147,10 @@ const localRedis = {
       },
       hSet: async (key: string, fields: Record<string, string>) => {
         staged.push({ kind: 'hset', key, fields: { ...fields } });
+        return 'QUEUED';
+      },
+      hDel: async (key: string, field: string) => {
+        staged.push({ kind: 'hdel', key, field });
         return 'QUEUED';
       },
       del: async (key: string) => {
@@ -169,6 +174,14 @@ const localRedis = {
           } else if (write.kind === 'set') {
             // Redis SET clears an existing TTL unless one is provided.
             writeStore(write.key, write.value, write.expiration);
+          } else if (write.kind === 'hdel') {
+            const raw = readStore(write.key);
+            if (!raw) continue;
+            const values = JSON.parse(raw) as Record<string, string>;
+            if (!(write.field in values)) continue;
+            delete values[write.field];
+            if (Object.keys(values).length === 0) deleteStore(write.key);
+            else writeStore(write.key, JSON.stringify(values));
           } else {
             const raw = readStore(write.key);
             const values = raw ? JSON.parse(raw) as Record<string, string> : {};
