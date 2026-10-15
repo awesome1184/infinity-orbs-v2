@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatEnemy, CombatGear, CombatIntent, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats, CombatTactic } from '../../shared/combat.js';
 import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
+import { createCombatRequestGate } from './combat-request-gate.js';
 
 interface Props { page: CombatPage; onNavigate:(page:CombatPage)=>void; }
 interface ApiResponse extends CombatSnapshot {
@@ -49,6 +50,10 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [arenaResult,setArenaResult]=useState<CombatArenaResult|null>(null);
   const [arenaCooldownMs,setArenaCooldownMs]=useState(0);
   const stateRef=useRef<CombatState|null>(null);
+  // Serialize beats with Arena, loadout, skill, and tactic mutations in this tab.
+  // Skipped ticks are discarded rather than queued with a stale sequence number.
+  const [requestGate] = useState(()=>createCombatRequestGate());
+  const mutationBusy=useRef(false);
   const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false,pendingIntent:false});
   runtime.current.intent=intent; runtime.current.auto=auto; runtime.current.paused=paused;
   const accept=useCallback((result:CombatSnapshot)=>{
@@ -71,9 +76,12 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   useEffect(()=>{if(page==='arena')void loadArena();},[page,loadArena]);
   useEffect(()=>{if(arenaCooldownMs<=0)return;const timer=window.setInterval(()=>setArenaCooldownMs(ms=>Math.max(0,ms-1000)),1000);return()=>window.clearInterval(timer);},[arenaCooldownMs>0]);
   const challengeArena=async(opponentId:string)=>{
+    if(mutationBusy.current)return;
+    mutationBusy.current=true;
     setMutating(true);setArenaResult(null);
     try{
-      const result=await request<ApiResponse>('/api/combat/arena/challenge','POST',{opponentId});
+      const result=await requestGate.runMutation(()=>request<ApiResponse>('/api/combat/arena/challenge','POST',{opponentId}));
+      if(!result)return;
       accept(result);if(result.arenaResult)setArenaResult(result.arenaResult);
       setArenaCooldownMs(90000);setError('');
       await loadArena();
@@ -81,7 +89,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
       const message=e instanceof Error?e.message:'Arena challenge failed.';
       setError(message);
       if(message.includes('not ready yet'))await loadArena();
-    }finally{setMutating(false);}
+    }finally{mutationBusy.current=false;setMutating(false);}
   };
   const beat=useCallback(async()=>{
     const current=stateRef.current;
@@ -90,7 +98,8 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     const beatIntent:CombatCommand=queuedIntent?runtime.current.intent:(runtime.current.auto&&!runtime.current.manual?'auto':runtime.current.intent);
     runtime.current.busy=true;setProcessing(true);
     try {
-      const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:beatIntent});
+      const result=await requestGate.runBeat(()=>request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:beatIntent}));
+      if(!result)return; // A player mutation owns the gate; the next tick can resume.
       accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));
       if(queuedIntent){runtime.current.pendingIntent=false;runtime.current.intent='strike';setIntent('strike');}
       setError('');
@@ -99,7 +108,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
       if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
       else {setError(message);setAuto(false);}
     } finally {runtime.current.busy=false;runtime.current.manual=false;setProcessing(false);}
-  },[accept,error,load]);
+  },[accept,error,load,requestGate]);
   useEffect(()=>{
     if(!auto||paused||loading||Boolean(error))return;
     const timer=window.setInterval(()=>void beat(),1000);
@@ -107,10 +116,16 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   },[auto,paused,loading,error,beat]);
   const manualBeat=()=>{setError('');runtime.current.manual=true;void beat();};
   const mutate=async(url:string,body?:unknown)=>{
+    if(mutationBusy.current)return;
+    mutationBusy.current=true;
     setMutating(true);
-    try { const result=await request<ApiResponse>(url,'POST',body);accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError(''); }
+    try {
+      const result=await requestGate.runMutation(()=>request<ApiResponse>(url,'POST',body));
+      if(!result)return;
+      accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError('');
+    }
     catch(e){setError(e instanceof Error?e.message:'Combat action failed.');setAuto(false);}
-    finally{setMutating(false);}
+    finally{mutationBusy.current=false;setMutating(false);}
   };
   if(loading&&!state)return <section className="io-combat-screen"><div className="io-combat-loading">ENTERING THE UNDERCRYPT…</div></section>;
   if(!state||!enemy||!stats)return <section className="io-combat-screen"><header className="io-combat-page-head"><div><span className="io-combat-eyebrow">COMBAT SYSTEM</span><h1>Could not enter the Undercrypt</h1></div></header><p className="io-combat-error">{error||'Combat data unavailable.'}</p><button type="button" className="io-combat-button" onClick={()=>{setLoading(true);void load();}}>Retry</button></section>;
