@@ -6,6 +6,8 @@ import {
   applyCombatSkillCopy,
   combatStatsFor,
   createCombatState,
+  getEnemyForDepth,
+  nextUndercryptWardenDepth,
   undercryptOrbLuckMultiplier,
   undercryptWardensDefeated,
 } from '../src/shared/combat.js';
@@ -80,6 +82,19 @@ test('a copy beyond Rank 5 refunds coins by rarity without raising rank or stats
     assert.equal(state.coins, beforeCoins + result.coinsRefunded);
     assert.deepEqual(combatStatsFor(state), beforeStats);
   }
+});
+
+test('the Warden marker identifies the current boss depth instead of skipping to the next one', () => {
+  for (const depth of [10, 20, 30, 50_000]) {
+    assert.equal(getEnemyForDepth(depth).boss, true);
+    assert.equal(nextUndercryptWardenDepth(depth), depth);
+  }
+
+  assert.equal(nextUndercryptWardenDepth(1), 10);
+  assert.equal(nextUndercryptWardenDepth(9), 10);
+  assert.equal(nextUndercryptWardenDepth(11), 20);
+  assert.equal(nextUndercryptWardenDepth(19), 20);
+  assert.equal(nextUndercryptWardenDepth(21), 30);
 });
 
 test('permanent Undercrypt orb luck is awarded only after clearing a Warden depth', () => {
