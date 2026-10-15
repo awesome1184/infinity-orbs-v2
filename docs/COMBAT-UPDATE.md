@@ -5,7 +5,7 @@ Combat is a mode inside Infinity Orbs, not a separate app or a replacement for o
 
 ## First playable slice
 - Server-authoritative Undercrypt combat resolves in discrete one-second beats.
-- Auto-run is the default; Pause, Auto toggle, manual Next Beat, and Strike / Heavy / Guard / Mend selection are available.
+- Auto-run is the default. Server-selected auto tactics prioritize Mend at critical health, Guard against imminent attacks while hurt, Heavy when charged, and otherwise Strike; manual Strike / Heavy / Guard / Mend choices override one beat. Pause, Auto toggle, and manual Next Beat are available.
 - Speed controls actions resolved per beat. Presentation timing is not a combat stat.
 - Health persists between encounters. Death restarts the push at Depth 1, while best depth, gear, skill ranks, combat level, and Delver Coins persist.
 - Enemies and rooms rotate. Each tenth depth has a Crypt Warden boss.
