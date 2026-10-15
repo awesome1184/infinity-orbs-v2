@@ -1,6 +1,6 @@
 import { context, redis } from './devvit-mock.js';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatEnemy, CombatGear, CombatIntent, CombatSkillId, CombatSnapshot, CombatState, CombatTrait } from '../shared/combat.js';
-import { calculateCombatArenaRatingUpdate, COMBAT_INVENTORY_CAP, COMBAT_SKILLS, SKILL_RANK_CAP, addCombatGearToInventory, applyCombatSkillCopy, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, synchronizeCombatStats } from '../shared/combat.js';
+import { calculateCombatArenaRatingUpdate, COMBAT_INVENTORY_CAP, COMBAT_SKILLS, SKILL_RANK_CAP, advanceGuardWindow, addCombatGearToInventory, applyCombatSkillCopy, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, synchronizeCombatStats } from '../shared/combat.js';
 
 const MAX_CAS_ATTEMPTS=8, INVENTORY_CAP=COMBAT_INVENTORY_CAP;
 function combatKey():string { const id=String(context.userId??'').trim(); if(!id) throw new Error('REDDIT_LOGIN_REQUIRED'); return 'infinity-orbs:combat:'+id; }
@@ -124,7 +124,7 @@ export async function performCombatBeat(sequence:number,intent:CombatIntent):Pro
       actions.push({actor:'enemy',kind:'attack',damage:incoming,text:strike+incoming+' damage.'});
       if(s.health<=0){died=true;actions.push({actor:'enemy',kind:'death',text:'Run '+s.runId+' ended at Depth '+s.depth+'. Permanent progress retained.'});s.runId+=1;s.depth=1;s.health=s.maxHealth;s.combatBeats=0;s.playerActionsResolved=0;s.enemyActionsResolved=0;s.energy=Math.min(s.maxEnergy,3);s.guardBeats=0;s.encounterFirstStrikeUsed=false;s.enemyHp=getEnemyForDepth(1).maxHp;actions.push({actor:'player',kind:'advance',text:'A new descent begins automatically at Depth 1.'});break;}
     }
-    if(s.guardBeats>0&&!defeated)s.guardBeats-=1;synchronizeCombatStats(s);
+    s.guardBeats=advanceGuardWindow(s.guardBeats,enemyActions,defeated||died);synchronizeCombatStats(s);
     return {...snapshot(s),actions,defeated,died,...(item?{item}:{})};
   });
 }
