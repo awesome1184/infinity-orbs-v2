@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { context, redis, reddit, configureDevvitRuntime } from '../src/server/devvit-mock.js';
 import { getCombatSnapshot, performCombatBeat } from '../src/server/combat.js';
 import { createCombatState } from '../src/shared/combat.js';
+import { createApp } from '../src/server/app.js';
 
 test('server rejects combat fast-forwarding and preserves the next valid sequence', async () => {
   const originalNow = Date.now;
@@ -49,6 +50,44 @@ test('server rejects combat fast-forwarding and preserves the next valid sequenc
     assert.equal(afterClockSkew.state.sequence, 1);
     assert.equal(afterClockSkew.state.lastBeatAt, now);
   } finally {
+    Date.now = originalNow;
+    configureDevvitRuntime({ redis, context: originalContext, reddit });
+  }
+});
+
+
+test('combat beat API reports an early sequence as HTTP 429', async () => {
+  const originalNow = Date.now;
+  const originalContext = context;
+  let now = 1_800_000_100_000;
+  Date.now = () => now;
+  configureDevvitRuntime({
+    redis,
+    context: { ...originalContext, userId: 'combat-pacing-route-player' },
+    reddit,
+  });
+  const server = createApp().listen(0);
+
+  try {
+    await new Promise<void>(resolve => server.once('listening', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const url = 'http://127.0.0.1:' + address.port + '/api/combat/beat';
+    const send = (sequence: number) => fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sequence, intent: 'strike' }),
+    });
+
+    const first = await send(1);
+    assert.equal(first.status, 200);
+    const early = await send(2);
+    assert.equal(early.status, 429);
+    assert.deepEqual(await early.json(), { error: 'combat beat cooling down' });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    });
     Date.now = originalNow;
     configureDevvitRuntime({ redis, context: originalContext, reddit });
   }
