@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
 import type { CombatAction, CombatEnemy, CombatGear, CombatIntent, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats } from '../../shared/combat.js';
+import type { ArenaStatus } from '../../shared/arena.js';
 import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
 
 interface Props { page: CombatPage; onNavigate:(page:CombatPage)=>void; }
@@ -42,6 +43,8 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [showAllSkills,setShowAllSkills]=useState(true);
   const [lastSkill,setLastSkill]=useState<ApiResponse['skillRoll']|null>(null);
   const [error,setError]=useState('');
+  const [arenaStatus,setArenaStatus]=useState<ArenaStatus|null>(null);
+  const [arenaBusy,setArenaBusy]=useState(false),[arenaError,setArenaError]=useState('');
   const stateRef=useRef<CombatState|null>(null);
   const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false});
   runtime.current.intent=intent; runtime.current.auto=auto; runtime.current.paused=paused;
@@ -54,6 +57,25 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     finally{setLoading(false);}
   },[accept]);
   useEffect(()=>{void load();},[load]);
+  const loadArena=useCallback(async()=>{
+    try { const result=await request<ArenaStatus>('/api/combat/arena/status');setArenaStatus(result);setArenaError(''); }
+    catch(e){setArenaError(e instanceof Error?e.message:'Arena status unavailable.');}
+  },[]);
+  useEffect(()=>{if(page==='arena')void loadArena();},[page,loadArena]);
+  useEffect(()=>{
+    if(page!=='arena'||arenaStatus?.status!=='queued')return;
+    const timer=window.setInterval(()=>void loadArena(),5000);
+    return()=>window.clearInterval(timer);
+  },[page,arenaStatus?.status,loadArena]);
+  const arenaAction=async(action:'queue'|'leave')=>{
+    setArenaBusy(true);setArenaError('');
+    try {
+      const result=await request<ArenaStatus>('/api/combat/arena/'+action,'POST');
+      setArenaStatus(result);
+    } catch(e) {
+      setArenaError(e instanceof Error?e.message:'Arena action failed.');
+    } finally { setArenaBusy(false); }
+  };
   const beat=useCallback(async()=>{
     const current=stateRef.current;
     if(!current||runtime.current.busy||(!runtime.current.manual&&(!runtime.current.auto||runtime.current.paused||Boolean(error))))return;
@@ -129,6 +151,37 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
       <div className="io-combat-skill-grid">{visibleSkills.map(skill=>{const rank=rankOf(state,skill.id);return <article key={skill.id} className={'io-combat-skill-card '+rarityClass(skill.rarity)}><div className="io-combat-skill-card-head"><span>{skill.rarity.toUpperCase()}</span><b>{rank?'RANK '+rank+'/'+SKILL_RANK_CAP:'NOT OWNED'}</b></div><h3>{skill.name}</h3><p>{skill.effect}</p>{rank>0&&<div className="io-combat-skill-progress"><span style={{width:(rank/SKILL_RANK_CAP*100)+'%'}}/></div>}{rank>0&&<small>Current effect: {skillValue(skill,rank)}</small>}</article>;})}</div>
     </>}
 
-    {page==='arena'&&<div className="io-combat-arena"><div className="io-combat-arena-glyph"><Swords size={34}/></div><span className="io-combat-eyebrow">PVP · NEXT COMBAT SLICE</span><h2>The Arena is not open yet.</h2><p>Gear, speed-action timing, and duplicate-leveling skills are being established first. Matchmaking and player-versus-player results will be server-authoritative when implemented. This screen does not simulate fake opponents or award fake wins.</p><button type="button" className="io-combat-button is-primary" onClick={()=>onNavigate('fight')}>Back to the Undercrypt</button></div>}
+    {page==='arena'&&<div className="io-combat-arena">
+      <div className="io-combat-arena-glyph"><Swords size={34}/></div>
+      <span className="io-combat-eyebrow">PLAYER VS PLAYER · SERVER-SIMULATED</span>
+      <h2>Put your build to the test.</h2>
+      <p>Queue for an unranked-style duel against another Delver’s current build. Gear, speed, critical chance, damage reduction, and weapon traits are resolved server-side. Arena matches do not spend or award orb-game Coins or Shards.</p>
+      <div className="io-combat-stat-strip">
+        <div><span>ARENA RATING</span><strong>{fmt(arenaStatus?.rating??1000)}</strong></div>
+        <div><span>WINS</span><strong>{fmt(arenaStatus?.wins??0)}</strong></div>
+        <div><span>LOSSES</span><strong>{fmt(arenaStatus?.losses??0)}</strong></div>
+        <div><span>DRAWS</span><strong>{fmt(arenaStatus?.draws??0)}</strong></div>
+      </div>
+      {arenaError&&<div className="io-combat-error" role="status">{arenaError} <button type="button" className="io-combat-text-link" onClick={()=>void loadArena()}>Retry</button></div>}
+      {arenaStatus?.lastMatch&&<div className={'io-combat-skill-result '+(arenaStatus.lastMatch.outcome==='win'?'io-rarity-mythic':arenaStatus.lastMatch.outcome==='loss'?'io-rarity-common':'io-rarity-rare')}>
+        <Swords size={18}/>
+        <div><strong>{arenaStatus.lastMatch.outcome==='win'?'Victory':arenaStatus.lastMatch.outcome==='loss'?'Defeat':'Draw'} against {arenaStatus.lastMatch.opponentAlias}</strong>
+          <p>{fmt(arenaStatus.lastMatch.rounds)} rounds · Your HP {fmt(arenaStatus.lastMatch.remainingHealth)} / {fmt(arenaStatus.lastMatch.maxHealth)} · Opponent HP {fmt(arenaStatus.lastMatch.opponentRemainingHealth)} / {fmt(arenaStatus.lastMatch.opponentMaxHealth)}</p>
+          <small>Opponent level {fmt(arenaStatus.lastMatch.opponentLevel)} · best depth {fmt(arenaStatus.lastMatch.opponentBestDepth)}</small>
+        </div>
+        <span>{arenaStatus.lastMatch.ratingDelta>0?'+':''}{fmt(arenaStatus.lastMatch.ratingDelta)} RATING</span>
+      </div>}
+      {arenaStatus?.status==='queued'?<div className="io-combat-panel io-combat-rule-panel">
+        <span className="io-combat-eyebrow">MATCHMAKING</span><h2>Searching for an opponent…</h2>
+        <p>Queue position {fmt(arenaStatus.queuePosition??1)} of {fmt(Math.max(1,arenaStatus.queueSize))}. The Arena checks for a rating-compatible opponent and widens the range as the wait grows.</p>
+        <button type="button" className="io-combat-button is-secondary" disabled={arenaBusy} onClick={()=>void arenaAction('leave')}>{arenaBusy?'Updating…':'Leave queue'}</button>
+      </div>:<div className="io-combat-panel io-combat-rule-panel">
+        <span className="io-combat-eyebrow">{arenaStatus?.status==='matched'?'LAST MATCH':'MATCHMAKING'}</span>
+        <h2>{arenaStatus?.status==='matched'?'Ready for a rematch?':'Find an opponent'}</h2>
+        <p>{arenaStatus?.matches?fmt(arenaStatus.matches)+' completed Arena matches on your record. ':'Your Arena rating starts at 1,000. '}{fmt(arenaStatus?.queueSize??0)} Delver{(arenaStatus?.queueSize??0)===1?' is':'s are'} currently queued.</p>
+        <button type="button" className="io-combat-button is-primary" disabled={arenaBusy} onClick={()=>void arenaAction('queue')}>{arenaBusy?'Finding match…':arenaStatus?.lastMatch?'Find another opponent':'Join Arena queue'}</button>
+      </div>}
+      <button type="button" className="io-combat-text-link" onClick={()=>onNavigate('fight')}>Back to the Undercrypt →</button>
+    </div>}
   </section>;
 };
