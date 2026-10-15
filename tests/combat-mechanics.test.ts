@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCombatGearToInventory, applyCombatSkillCopy, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
+import { addCombatGearToInventory, applyCombatSkillCopy, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated, wardenDepthAtOrAhead } from '../src/shared/combat.js';
 
 test('starter combat build carries the Auto-Dungeons baseline', () => {
   const state=createCombatState();
@@ -162,4 +162,15 @@ test('Crypt Warden clears grant a permanent effective Luck multiplier with a har
   assert.equal(undercryptOrbLuckMultiplier(251), 1.25);
   assert.equal(undercryptOrbLuckMultiplier(50000), 1.25);
   assert.equal(undercryptOrbLuckMultiplier(Number.NaN), 1);
+});
+
+test('Warden depth labels point at the current boss room or the next tenth depth', () => {
+  assert.equal(wardenDepthAtOrAhead(1), 10);
+  assert.equal(wardenDepthAtOrAhead(9), 10);
+  assert.equal(wardenDepthAtOrAhead(10), 10, 'a player already fighting the Warden should see this depth');
+  assert.equal(wardenDepthAtOrAhead(11), 20);
+  assert.equal(wardenDepthAtOrAhead(20), 20);
+  assert.equal(wardenDepthAtOrAhead(49_999), 50_000);
+  assert.equal(wardenDepthAtOrAhead(50_000), 50_000);
+  assert.equal(wardenDepthAtOrAhead(Number.NaN), 10);
 });
