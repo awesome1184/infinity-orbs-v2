@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCombatGearToInventory, applyCombatSkillCopy, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
+import { advanceGuardWindow, addCombatGearToInventory, applyCombatSkillCopy, COMBAT_SKILLS, combatStatsFor, createCombatState, getEnemyForDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../src/shared/combat.js';
 
 test('starter combat build carries the Auto-Dungeons baseline', () => {
   const state=createCombatState();
@@ -165,4 +165,23 @@ test('Crypt Warden clears grant a permanent effective Luck multiplier with a har
   assert.equal(undercryptOrbLuckMultiplier(251), 1.25);
   assert.equal(undercryptOrbLuckMultiplier(50000), 1.25);
   assert.equal(undercryptOrbLuckMultiplier(Number.NaN), 1);
+});
+
+
+test('Guard remains active until a slow enemy has an action ready', () => {
+  // A Guard command can happen on a player beat before a slow enemy's first turn.
+  assert.equal(advanceGuardWindow(1, 0, false), 1);
+  // The first enemy-action beat consumes the guard window.
+  assert.equal(advanceGuardWindow(1, 1, false), 0);
+  // Speed can grant multiple enemy actions in a beat; Guard protects that beat.
+  assert.equal(advanceGuardWindow(1, 3, false), 0);
+});
+
+test('Guard window is consumed safely and cleared when the encounter ends', () => {
+  assert.equal(advanceGuardWindow(0, 0, false), 0);
+  assert.equal(advanceGuardWindow(2, 1, false), 1);
+  assert.equal(advanceGuardWindow(2, 0, true), 0);
+  assert.equal(advanceGuardWindow(1, 1, true), 0);
+  assert.equal(advanceGuardWindow(Number.NaN, 1, false), 0);
+  assert.equal(advanceGuardWindow(1, Number.NaN, false), 1);
 });
