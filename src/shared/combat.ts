@@ -159,6 +159,26 @@ export function addCombatGearToInventory(state: CombatState, item: CombatGear, m
     state.inventory.splice(removable, 1);
   }
 }
+/**
+ * Guard lasts through the next enemy-action beat, not merely the next player
+ * tick. Slow enemies may have no action ready yet; preserve Guard until they act.
+ */
+export function advanceGuardWindow(
+  currentGuardBeats: number,
+  enemyActionsThisBeat: number,
+  encounterEnded: boolean,
+): number {
+  const active = Number.isFinite(currentGuardBeats)
+    ? Math.max(0, Math.floor(currentGuardBeats))
+    : 0;
+  const actions = Number.isFinite(enemyActionsThisBeat)
+    ? Math.max(0, Math.floor(enemyActionsThisBeat))
+    : 0;
+  if (encounterEnded) return 0;
+  if (active === 0 || actions === 0) return active;
+  return Math.max(0, active - 1);
+}
+
 export const SKILL_PULL_BASE_COST = 75;
 export function skillPullCost(skillRolls: number): number {
   const pulls = Math.max(0, Math.min(40, Math.floor(Number(skillRolls) || 0)));
