@@ -49,7 +49,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [arenaResult,setArenaResult]=useState<CombatArenaResult|null>(null);
   const [arenaCooldownMs,setArenaCooldownMs]=useState(0);
   const stateRef=useRef<CombatState|null>(null);
-  const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false});
+  const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false,mutating:false,beatPromise:null as Promise<void>|null});
   runtime.current.intent=intent; runtime.current.auto=auto; runtime.current.paused=paused;
   const accept=useCallback((result:CombatSnapshot)=>{
     stateRef.current=result.state;setState(result.state);setEnemy(result.enemy);setStats(result.stats);
@@ -70,8 +70,13 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   },[]);
   useEffect(()=>{if(page==='arena')void loadArena();},[page,loadArena]);
   const challengeArena=async(opponentId:string)=>{
-    setMutating(true);setArenaResult(null);
+    // Serialize Arena rewards with auto-combat so neither response can regress
+    // the shared combat snapshot or overwrite the next beat's sequence.
+    if(runtime.current.mutating)return;
+    runtime.current.mutating=true;setMutating(true);setArenaResult(null);
     try{
+      const pendingBeat=runtime.current.beatPromise;
+      if(pendingBeat)await pendingBeat.catch(()=>undefined);
       const result=await request<ApiResponse>('/api/combat/arena/challenge','POST',{opponentId});
       accept(result);if(result.arenaResult)setArenaResult(result.arenaResult);
       setArenaCooldownMs(90000);setError('');
@@ -80,32 +85,45 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
       const message=e instanceof Error?e.message:'Arena challenge failed.';
       setError(message);
       if(message.includes('not ready yet'))setArenaCooldownMs(90000);
-    }finally{setMutating(false);}
+    }finally{runtime.current.mutating=false;setMutating(false);}
   };
   const beat=useCallback(async()=>{
     const current=stateRef.current;
-    if(!current||runtime.current.busy||(!runtime.current.manual&&(!runtime.current.auto||runtime.current.paused||Boolean(error))))return;
+    if(!current||runtime.current.busy||runtime.current.mutating||(!runtime.current.manual&&(!runtime.current.auto||runtime.current.paused||Boolean(error))))return;
     runtime.current.busy=true;setProcessing(true);
-    try {
-      const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:runtime.current.intent});
-      accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));runtime.current.intent='strike';setIntent('strike');setError('');
-    } catch(e) {
-      const message=e instanceof Error?e.message:'Combat beat failed.';
-      if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
-      else {setError(message);setAuto(false);}
-    } finally {runtime.current.busy=false;runtime.current.manual=false;setProcessing(false);}
+    const operation=(async()=>{
+      try {
+        const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:runtime.current.intent});
+        accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));runtime.current.intent='strike';setIntent('strike');setError('');
+      } catch(e) {
+        const message=e instanceof Error?e.message:'Combat beat failed.';
+        if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
+        else {setError(message);setAuto(false);}
+      } finally {runtime.current.busy=false;runtime.current.manual=false;setProcessing(false);}
+    })();
+    runtime.current.beatPromise=operation;
+    try { await operation; }
+    finally { if(runtime.current.beatPromise===operation)runtime.current.beatPromise=null; }
   },[accept,error,load]);
   useEffect(()=>{
     if(!auto||paused||loading||Boolean(error))return;
     const timer=window.setInterval(()=>void beat(),1000);
     return()=>window.clearInterval(timer);
   },[auto,paused,loading,error,beat]);
-  const manualBeat=()=>{setError('');runtime.current.manual=true;void beat();};
+  const manualBeat=()=>{if(!stateRef.current||runtime.current.busy||runtime.current.mutating)return;setError('');runtime.current.manual=true;void beat();};
   const mutate=async(url:string,body?:unknown)=>{
-    setMutating(true);
-    try { const result=await request<ApiResponse>(url,'POST',body);accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError(''); }
+    // Stop scheduling beats as soon as the mutation starts. Any beat already in
+    // flight must finish before the equip/skill request reads and writes state.
+    if(runtime.current.mutating)return;
+    runtime.current.mutating=true;setMutating(true);
+    try {
+      const pendingBeat=runtime.current.beatPromise;
+      if(pendingBeat)await pendingBeat.catch(()=>undefined);
+      const result=await request<ApiResponse>(url,'POST',body);
+      accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError('');
+    }
     catch(e){setError(e instanceof Error?e.message:'Combat action failed.');setAuto(false);}
-    finally{setMutating(false);}
+    finally{runtime.current.mutating=false;setMutating(false);}
   };
   if(loading&&!state)return <section className="io-combat-screen"><div className="io-combat-loading">ENTERING THE UNDERCRYPT…</div></section>;
   if(!state||!enemy||!stats)return <section className="io-combat-screen"><header className="io-combat-page-head"><div><span className="io-combat-eyebrow">COMBAT SYSTEM</span><h1>Could not enter the Undercrypt</h1></div></header><p className="io-combat-error">{error||'Combat data unavailable.'}</p><button type="button" className="io-combat-button" onClick={()=>{setLoading(true);void load();}}>Retry</button></section>;
@@ -147,11 +165,11 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
       <div className="io-combat-stat-strip"><div><span>WEAPON DAMAGE</span><strong>+{fmt(weapon?.damageBonus||0)}</strong></div><div><span>WEAPON SPEED</span><strong>+{fmt(weapon?.speedBonus||0)}</strong></div><div><span>ARMOR HEALTH</span><strong>+{fmt(armor?.maxHealthBonus||0)}</strong></div><div><span>DAMAGE MITIGATION</span><strong>{percent(stats.damageReduction)}</strong></div></div>
       <div className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">ACTIVE BUILD</span><h2>Every stat matters</h2></div></div><div className="io-combat-equipped-grid">{([{slot:'weapon' as const,item:weapon,label:'WEAPON'},{slot:'armor' as const,item:armor,label:'ARMOR'}]).map(s=><div className="io-combat-equipped-card" key={s.slot}><span>{s.label}</span><strong>{s.item?.name||'Empty'}</strong><p>{s.item?.effect||'No special effect.'}</p><small>{s.slot==='weapon'?'+'+fmt(s.item?.damageBonus||0)+' DMG · +'+fmt(s.item?.speedBonus||0)+' SPD':'+'+fmt(s.item?.maxHealthBonus||0)+' MAX HP'}</small></div>)}</div></div>
       <div className="io-combat-inventory-head"><div><span className="io-combat-eyebrow">BAG</span><h2>Collected gear</h2></div><span>{state.inventory.length} / 30 · newest first</span></div>
-      <div className="io-combat-gear-grid">{state.inventory.map(item=><GearCard key={item.id} item={item} isEquipped={state.equipment[item.slot]===item.id} busy={mutating} onEquip={()=>void mutate('/api/combat/equip',{itemId:item.id})}/>)}</div>
+      <div className="io-combat-gear-grid">{state.inventory.map(item=><GearCard key={item.id} item={item} isEquipped={state.equipment[item.slot]===item.id} busy={mutating||processing} onEquip={()=>void mutate('/api/combat/equip',{itemId:item.id})}/>)}</div>
     </>}
 
     {page==='skills'&&<>
-      <div className="io-combat-skill-banner"><div><span className="io-combat-eyebrow">SKILL GACHA</span><h2>Duplicates raise rank. All ranks stack.</h2><p>Five skills in each of five rarities. Pulls cost Delver Coins; each copy adds one rank up to Rank 5.</p></div><div className="io-combat-pull-box"><span><Coins size={15}/> {fmt(state.coins)} DELVER COINS</span><button type="button" className="io-combat-button is-primary" disabled={mutating||state.coins<pullCost} onClick={()=>void mutate('/api/combat/skills/roll')}>{mutating?'Rolling…':'Roll Skill · '+fmt(pullCost)}</button><small>Rates: Common 55% · Uncommon 25% · Rare 12% · Epic 6% · Mythic 2%</small></div></div>
+      <div className="io-combat-skill-banner"><div><span className="io-combat-eyebrow">SKILL GACHA</span><h2>Duplicates raise rank. All ranks stack.</h2><p>Five skills in each of five rarities. Pulls cost Delver Coins; each copy adds one rank up to Rank 5.</p></div><div className="io-combat-pull-box"><span><Coins size={15}/> {fmt(state.coins)} DELVER COINS</span><button type="button" className="io-combat-button is-primary" disabled={mutating||processing||state.coins<pullCost} onClick={()=>void mutate('/api/combat/skills/roll')}>{mutating?'Rolling…':'Roll Skill · '+fmt(pullCost)}</button><small>Rates: Common 55% · Uncommon 25% · Rare 12% · Epic 6% · Mythic 2%</small></div></div>
       {lastSkill&&<div className={'io-combat-skill-result '+rarityClass(lastSkill.rarity)}><Sparkles size={18}/><div><strong>{lastSkill.name}</strong><p>{lastSkill.duplicate?'Duplicate pulled. ':'New skill discovered. '}{lastSkill.rank>0?'Now Rank '+lastSkill.rank+'. ':''}{lastSkill.convertedCoins>0?'Rank cap reached; converted to +'+fmt(lastSkill.convertedCoins)+' coins.':''}</p></div><span>{lastSkill.rarity.toUpperCase()}</span></div>}
       <div className="io-combat-codex-toolbar"><div><span className="io-combat-eyebrow">SKILL CODEX</span><h2>{ownedSkills.length} / {COMBAT_SKILLS.length} discovered</h2></div><button type="button" className="io-combat-button is-secondary" onClick={()=>setShowAllSkills(!showAllSkills)}>{showAllSkills?'Owned only':'Show all 25'}</button></div>
       <div className="io-combat-skill-grid">{visibleSkills.map(skill=>{const rank=rankOf(state,skill.id);return <article key={skill.id} className={'io-combat-skill-card '+rarityClass(skill.rarity)}><div className="io-combat-skill-card-head"><span>{skill.rarity.toUpperCase()}</span><b>{rank?'RANK '+rank+'/'+SKILL_RANK_CAP:'NOT OWNED'}</b></div><h3>{skill.name}</h3><p>{skill.effect}</p>{rank>0&&<div className="io-combat-skill-progress"><span style={{width:(rank/SKILL_RANK_CAP*100)+'%'}}/></div>}{rank>0&&<small>Current effect: {skillValue(skill,rank)}</small>}</article>;})}</div>
