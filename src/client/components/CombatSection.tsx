@@ -64,6 +64,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     } catch(e) {
       const message=e instanceof Error?e.message:'Combat beat failed.';
       if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
+      else if(message==='combat beat cooling down') { /* Retry on the next one-second auto tick. */ }
       else {setError(message);setAuto(false);}
     } finally {runtime.current.busy=false;runtime.current.manual=false;setProcessing(false);}
   },[accept,error,load]);
