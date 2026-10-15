@@ -334,14 +334,44 @@ export async function getCombatArenaOpponents(): Promise<{
     }
     if (profile.userId !== userId) opponents.push(profile);
   }
-  // Keep the profile hash bounded over time. Delete a small batch per request
-  // rather than turning one Arena open into thousands of serial Redis writes.
-  await Promise.all(staleProfileIds.slice(0, 100).map(id =>
-    redis.hDel(ARENA_PROFILE_KEY, id).catch(error => {
-      console.error('[Combat Arena] Could not prune stale profile.', error);
-      return 0;
-    }),
-  ));
+  // Prune stale fields in one watched transaction. Parallel, unguarded HDELs
+  // can spike Redis concurrency and can delete a profile that refreshed after
+  // the initial scan. WATCH the hash and re-check each candidate before HDEL.
+  const staleBatch = staleProfileIds.slice(0, 100);
+  if (staleBatch.length > 0) {
+    let txn: any;
+    let closed = false;
+    try {
+      txn = await redis.watch(ARENA_PROFILE_KEY);
+      const latestProfiles = await redis.hGetAll(ARENA_PROFILE_KEY);
+      const confirmedStale = staleBatch.filter(id => {
+        const oldValue = rawProfiles[id];
+        const currentValue = latestProfiles?.[id];
+        if (typeof oldValue !== 'string' || currentValue !== oldValue) return false;
+        const currentProfile = parseArenaProfile(id, currentValue);
+        return !currentProfile || currentProfile.updatedAt < now - ARENA_PROFILE_TTL_MS;
+      });
+
+      if (confirmedStale.length === 0) {
+        await txn.unwatch();
+        closed = true;
+      } else {
+        await txn.multi();
+        for (const id of confirmedStale) await txn.hDel(ARENA_PROFILE_KEY, id);
+        const committed = await txn.exec();
+        closed = true;
+        if (committed === null) {
+          // Any concurrent profile refresh changes the watched hash and aborts
+          // the cleanup. The next Arena open can retry without losing profiles.
+          console.info('[Combat Arena] Skipped stale-profile cleanup after concurrent update.');
+        }
+      }
+    } catch (error) {
+      console.error('[Combat Arena] Could not prune stale profiles.', error);
+    } finally {
+      if (txn && !closed) await txn.unwatch().catch(() => undefined);
+    }
+  }
   opponents.sort((a, b) => b.rating - a.rating || b.bestDepth - a.bestDepth);
   opponents.splice(20);
   return {
