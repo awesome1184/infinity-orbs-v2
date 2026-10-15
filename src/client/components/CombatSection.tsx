@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
 import type { CombatAction, CombatEnemy, CombatGear, CombatIntent, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats } from '../../shared/combat.js';
 import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
+import { createAsyncSerialQueue } from '../async-serial-queue.js';
 
 interface Props { page: CombatPage; onNavigate:(page:CombatPage)=>void; }
 interface ApiResponse extends CombatSnapshot {
@@ -43,30 +44,53 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [lastSkill,setLastSkill]=useState<ApiResponse['skillRoll']|null>(null);
   const [error,setError]=useState('');
   const stateRef=useRef<CombatState|null>(null);
+  const combatQueueRef=useRef<ReturnType<typeof createAsyncSerialQueue>|null>(null);
+  if(combatQueueRef.current===null)combatQueueRef.current=createAsyncSerialQueue();
+  const combatQueue=combatQueueRef.current;
   const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false});
   runtime.current.intent=intent; runtime.current.auto=auto; runtime.current.paused=paused;
   const accept=useCallback((result:CombatSnapshot)=>{
+    // Defensive guard: an old snapshot must never roll the client back to an
+    // earlier beat if another code path accidentally bypasses the queue.
+    if(stateRef.current&&result.state.sequence<stateRef.current.sequence)return;
     stateRef.current=result.state;setState(result.state);setEnemy(result.enemy);setStats(result.stats);
   },[]);
   const load=useCallback(async()=>{
-    try { const result=await request<CombatSnapshot>('/api/combat/state');accept(result);setError(''); }
-    catch(e){setError(e instanceof Error?e.message:'Combat data unavailable.');}
+    try {
+      await combatQueue.enqueue(async()=>{
+        const result=await request<CombatSnapshot>('/api/combat/state');
+        accept(result);setError('');
+      });
+    } catch(e){setError(e instanceof Error?e.message:'Combat data unavailable.');}
     finally{setLoading(false);}
-  },[accept]);
+  },[accept,combatQueue]);
   useEffect(()=>{void load();},[load]);
   const beat=useCallback(async()=>{
     const current=stateRef.current;
-    if(!current||runtime.current.busy||(!runtime.current.manual&&(!runtime.current.auto||runtime.current.paused||Boolean(error))))return;
+    const manuallyRequested=runtime.current.manual;
+    // Do not accumulate timer ticks behind an equip/skill request. User actions
+    // enqueue behind an in-flight beat; beats resume once the queue drains.
+    if(!current||runtime.current.busy||combatQueue.pending>0||(!manuallyRequested&&(!runtime.current.auto||runtime.current.paused||Boolean(error)))){
+      if(manuallyRequested)runtime.current.manual=false;
+      return;
+    }
     runtime.current.busy=true;setProcessing(true);
     try {
-      const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:runtime.current.intent});
-      accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));runtime.current.intent='strike';setIntent('strike');setError('');
+      await combatQueue.enqueue(async()=>{
+        // Read sequence at execution time, and apply the response before the
+        // next queued operation can start. This keeps the server/client order
+        // identical even when a gear equip or skill roll is waiting in line.
+        const latest=stateRef.current;
+        if(!latest)return;
+        const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:latest.sequence+1,intent:runtime.current.intent});
+        accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));runtime.current.intent='strike';setIntent('strike');setError('');
+      });
     } catch(e) {
       const message=e instanceof Error?e.message:'Combat beat failed.';
       if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
       else {setError(message);setAuto(false);}
     } finally {runtime.current.busy=false;runtime.current.manual=false;setProcessing(false);}
-  },[accept,error,load]);
+  },[accept,combatQueue,error,load]);
   useEffect(()=>{
     if(!auto||paused||loading||Boolean(error))return;
     const timer=window.setInterval(()=>void beat(),1000);
@@ -75,8 +99,12 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const manualBeat=()=>{setError('');runtime.current.manual=true;void beat();};
   const mutate=async(url:string,body?:unknown)=>{
     setMutating(true);
-    try { const result=await request<ApiResponse>(url,'POST',body);accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError(''); }
-    catch(e){setError(e instanceof Error?e.message:'Combat action failed.');setAuto(false);}
+    try {
+      await combatQueue.enqueue(async()=>{
+        const result=await request<ApiResponse>(url,'POST',body);
+        accept(result);if(result.skillRoll)setLastSkill(result.skillRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));setError('');
+      });
+    } catch(e){setError(e instanceof Error?e.message:'Combat action failed.');setAuto(false);}
     finally{setMutating(false);}
   };
   if(loading&&!state)return <section className="io-combat-screen"><div className="io-combat-loading">ENTERING THE UNDERCRYPT…</div></section>;
@@ -104,7 +132,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
         </div>
         <div className="io-combat-stage-foot"><span><Zap size={14}/> {state.energy}/{state.maxEnergy} ENERGY</span><span>{fmt(stats.speed)} SPD</span><span>{fmt(stats.damage)} DMG</span><span>{percent(stats.critChance)} CRIT</span></div>
       </div>
-      <div className="io-combat-control-row"><div className="io-combat-command-group">{(['strike','heavy','guard','mend'] as CombatIntent[]).map(cmd=><button key={cmd} type="button" onClick={()=>setIntent(cmd)} className={intent===cmd?'io-combat-command is-selected':'io-combat-command'}><span>{cmd==='strike'?'Strike':cmd==='heavy'?'Heavy':cmd==='guard'?'Guard':'Mend'}</span><small>{cmd==='strike'?'FREE':cmd==='heavy'?'3 EN':cmd==='guard'?'2 EN':'4 EN'}</small></button>)}</div><div className="io-combat-run-controls"><button type="button" className="io-combat-button" onClick={()=>setPaused(!paused)}>{paused?<Play size={14}/>:<Pause size={14}/>} {paused?'Resume':'Pause'}</button><button type="button" className="io-combat-button" onClick={()=>setAuto(!auto)}>Auto: {auto?'ON':'OFF'}</button><button type="button" disabled={processing} className="io-combat-button is-secondary" onClick={manualBeat}>{processing?'Resolving…':'Next Beat'}</button></div></div>
+      <div className="io-combat-control-row"><div className="io-combat-command-group">{(['strike','heavy','guard','mend'] as CombatIntent[]).map(cmd=><button key={cmd} type="button" onClick={()=>setIntent(cmd)} className={intent===cmd?'io-combat-command is-selected':'io-combat-command'}><span>{cmd==='strike'?'Strike':cmd==='heavy'?'Heavy':cmd==='guard'?'Guard':'Mend'}</span><small>{cmd==='strike'?'FREE':cmd==='heavy'?'3 EN':cmd==='guard'?'2 EN':'4 EN'}</small></button>)}</div><div className="io-combat-run-controls"><button type="button" className="io-combat-button" onClick={()=>setPaused(!paused)}>{paused?<Play size={14}/>:<Pause size={14}/>} {paused?'Resume':'Pause'}</button><button type="button" className="io-combat-button" onClick={()=>setAuto(!auto)}>Auto: {auto?'ON':'OFF'}</button><button type="button" disabled={processing||mutating} className="io-combat-button is-secondary" onClick={manualBeat}>{processing?'Resolving…':'Next Beat'}</button></div></div>
       <div className="io-combat-stat-strip"><div><span>DELVER COINS</span><strong>{fmt(state.coins)}</strong></div><div><span>GEAR CARRIED</span><strong>{state.inventory.length}/30</strong></div><div><span>SKILL RANKS</span><strong>{ownedSkills.reduce((n,[,v])=>n+Number(v),0)}</strong></div><div><span>KILLS</span><strong>{fmt(state.totalKills)}</strong></div></div>
       <div className="io-combat-columns"><section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">FIELD NOTES</span><h2>Combat log</h2></div><span>{processing?'RESOLVING':paused?'PAUSED':auto?'AUTO-RUN':'MANUAL'}</span></div><div className="io-combat-log" aria-live="polite">{actions.length?actions.map((a,i)=><p key={state.sequence+'-'+i} className={'io-log-'+a.actor+' io-log-'+a.kind}>{a.text}</p>):<p>The Delver readies a weapon. The first beat is imminent.</p>}</div></section>
         <section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">YOUR LOADOUT</span><h2>Equipped</h2></div><button className="io-combat-text-link" type="button" onClick={()=>onNavigate('gear')}>Armory →</button></div><div className="io-combat-equipped-line"><span>WEAPON</span><strong>{weapon?.name||'Empty slot'}</strong><small>{weapon?.effect||'No effect'}</small></div><div className="io-combat-equipped-line"><span>ARMOR</span><strong>{armor?.name||'Empty slot'}</strong><small>{armor?.effect||'No effect'}</small></div><button className="io-combat-button is-primary" type="button" onClick={()=>onNavigate('skills')}>Open Skill Gacha</button></section></div>
