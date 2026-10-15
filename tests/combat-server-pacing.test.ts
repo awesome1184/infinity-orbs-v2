@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { context, redis, reddit, configureDevvitRuntime } from '../src/server/devvit-mock.js';
 import { getCombatSnapshot, performCombatBeat } from '../src/server/combat.js';
+import { createCombatState } from '../src/shared/combat.js';
 
 test('server rejects combat fast-forwarding and preserves the next valid sequence', async () => {
   const originalNow = Date.now;
@@ -31,6 +32,22 @@ test('server rejects combat fast-forwarding and preserves the next valid sequenc
     const second = await performCombatBeat(2, 'strike');
     assert.equal(second.state.sequence, 2);
     assert.equal(second.state.lastBeatAt, now);
+
+    // A slightly-ahead instance clock must not pin the saved cooldown forever.
+    const futureUserId = 'combat-pacing-future-clock-player';
+    const futureState = createCombatState();
+    futureState.lastBeatAt = now + 2_000;
+    await redis.set('infinity-orbs:combat:' + futureUserId, JSON.stringify(futureState));
+    configureDevvitRuntime({
+      redis,
+      context: { ...originalContext, userId: futureUserId },
+      reddit,
+    });
+    await assert.rejects(performCombatBeat(1, 'strike'), /combat beat cooling down/);
+    now = futureState.lastBeatAt + 1_000;
+    const afterClockSkew = await performCombatBeat(1, 'strike');
+    assert.equal(afterClockSkew.state.sequence, 1);
+    assert.equal(afterClockSkew.state.lastBeatAt, now);
   } finally {
     Date.now = originalNow;
     configureDevvitRuntime({ redis, context: originalContext, reddit });
