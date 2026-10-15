@@ -194,10 +194,11 @@ export function synchronizeCombatStats(state: CombatState): CombatStats {
  * Enemy speed can be below the player's action rate, so a tick with no
  * incoming attack must not silently consume the player's defensive command.
  */
-export function tickCombatGuard(guardBeats: number, enemyActions: number): number {
+export function tickCombatGuard(guardBeats: number, enemyActions: number, enemyDefeated = false): number {
   const active = Math.max(0, Math.floor(Number.isFinite(guardBeats) ? guardBeats : 0));
   const actions = Math.max(0, Math.floor(Number.isFinite(enemyActions) ? enemyActions : 0));
-  return Math.max(0, active - (actions > 0 ? 1 : 0));
+  // If the enemy dies before its queued action, retain Guard for the next room.
+  return Math.max(0, active - (!enemyDefeated && actions > 0 ? 1 : 0));
 }
 
 export interface CombatSkillCopyResult {
