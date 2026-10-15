@@ -849,24 +849,49 @@ export function createApp() {
 
   app.get('/api/combat/state', async (_req, res) => {
     try { res.setHeader('Cache-Control','no-store'); res.json(await getCombatSnapshot()); }
-    catch (e:any) { const message=e?.message||'Could not load combat state.';res.status(message==='REDDIT_LOGIN_REQUIRED'?401:500).json({error:message}); }
+    catch (e:any) {
+      const message=e?.message||'Could not load combat state.';
+      reportRedisTransactionFailure(e);
+      const busy=transientContentionError(e);
+      res.status(busy?503:message==='REDDIT_LOGIN_REQUIRED'?401:500).json({
+        error:busy?'Combat is busy loading your save. Please retry.':message,
+      });
+    }
   });
   app.post('/api/combat/beat', async (req,res) => {
     const sequence=req.body?.sequence, intent=req.body?.intent;
     if(!Number.isSafeInteger(sequence)||sequence<1)return res.status(400).json({error:'A valid combat sequence is required.'});
     if(!['strike','heavy','guard','mend'].includes(intent))return res.status(400).json({error:'Invalid combat command.'});
     try { res.setHeader('Cache-Control','no-store');res.json(await performCombatBeat(sequence,intent)); }
-    catch(e:any){const message=e?.message||'Combat beat failed.';const status=message==='stale combat sequence'?409:message==='REDDIT_LOGIN_REQUIRED'?401:message==='Combat state changed repeatedly. Please retry.'?503:500;res.status(status).json({error:message});}
+    catch(e:any){
+      const message=e?.message||'Combat beat failed.';
+      reportRedisTransactionFailure(e);
+      const busy=transientContentionError(e);
+      const status=message==='stale combat sequence'?409:message==='REDDIT_LOGIN_REQUIRED'?401:busy?503:500;
+      res.status(status).json({error:busy?'Combat is busy resolving your action. Please retry.':message});
+    }
   });
   app.post('/api/combat/equip', async (req,res) => {
     const itemId=req.body?.itemId;
     if(typeof itemId!=='string'||!itemId.trim()||itemId.length>160)return res.status(400).json({error:'A valid gear item is required.'});
     try{res.setHeader('Cache-Control','no-store');res.json(await equipCombatItem(itemId));}
-    catch(e:any){const message=e?.message||'Could not equip gear.';const status=message==='item not owned'?404:message==='REDDIT_LOGIN_REQUIRED'?401:500;res.status(status).json({error:message});}
+    catch(e:any){
+      const message=e?.message||'Could not equip gear.';
+      reportRedisTransactionFailure(e);
+      const busy=transientContentionError(e);
+      const status=message==='item not owned'?404:message==='REDDIT_LOGIN_REQUIRED'?401:busy?503:500;
+      res.status(status).json({error:busy?'Combat is busy saving your loadout. Please retry.':message});
+    }
   });
   app.post('/api/combat/skills/roll', async (_req,res) => {
     try{res.setHeader('Cache-Control','no-store');res.json(await rollCombatSkill());}
-    catch(e:any){const message=e?.message||'Skill roll failed.';const status=message==='Not enough Delver Coins.'?400:message==='REDDIT_LOGIN_REQUIRED'?401:500;res.status(status).json({error:message});}
+    catch(e:any){
+      const message=e?.message||'Skill roll failed.';
+      reportRedisTransactionFailure(e);
+      const busy=transientContentionError(e);
+      const status=message==='Not enough Delver Coins.'?400:message==='REDDIT_LOGIN_REQUIRED'?401:busy?503:500;
+      res.status(status).json({error:busy?'Combat is busy saving your skill roll. Please retry.':message});
+    }
   });
 
   app.get('/api/me', async (_req, res) => {
@@ -1095,7 +1120,7 @@ export function createApp() {
 
   const transientContentionError = (error: unknown): boolean => {
     const message = error instanceof Error ? error.message : String(error ?? '');
-    return /max(?:imum)? concurrency|concurrency limit|redis.*transaction|transaction.*failed|PLAYER_MUTATION_LEASE_LOST|another game action is still finishing|guild.*changed|shared state changed|data changed before the roll saved|player state changed while saving|player activity changed repeatedly|could not safely save player data|could not create a roll prediction ticket|community event changed while|community progress changed while|daily streak community goal changed while/i.test(message);
+    return /combat state changed repeatedly|max(?:imum)? concurrency|concurrency limit|redis.*transaction|transaction.*failed|PLAYER_MUTATION_LEASE_LOST|another game action is still finishing|guild.*changed|shared state changed|data changed before the roll saved|player state changed while saving|player activity changed repeatedly|could not safely save player data|could not create a roll prediction ticket|community event changed while|community progress changed while|daily streak community goal changed while/i.test(message);
   };
 
   const reportRedisTransactionFailure = (error: unknown) => {
