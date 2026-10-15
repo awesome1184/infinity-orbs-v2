@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { createAsyncSerialQueue } from '../src/client/async-serial-queue.js';
 
@@ -44,4 +45,26 @@ test('a rejected request does not block later combat actions', async () => {
   assert.equal(queue.pending, 0);
   assert.equal(await queue.enqueue(() => 'recovered'), 'recovered');
   assert.equal(queue.pending, 0);
+});
+
+test('CombatSection routes state reads, beats, and gear/skill mutations through one queue', async () => {
+  const source = await readFile(new URL('../src/client/components/CombatSection.tsx', import.meta.url), 'utf8');
+
+  assert.match(
+    source,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*const result=await request<CombatSnapshot>\('\/api\/combat\/state'\);/,
+    'initial/retry state reads must share the combat queue',
+  );
+  assert.match(
+    source,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*\/\/ Read sequence at execution time[\s\S]*?request<ApiResponse>\('\/api\/combat\/beat'/,
+    'beat sequence must be read and posted inside the queue',
+  );
+  assert.match(
+    source,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*const result=await request<ApiResponse>\(url,'POST',body\);/,
+    'equip and skill-roll mutations must use the same queue',
+  );
+  assert.match(source, /'\/api\/combat\/equip'/);
+  assert.match(source, /'\/api\/combat\/skills\/roll'/);
 });
