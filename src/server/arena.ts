@@ -247,7 +247,10 @@ export async function joinArenaQueue(): Promise<ArenaStatus> {
   return mutateArenaStore(store => {
     pruneQueue(store, now);
     const existing = store.queue.find(entry => entry.fighter.userId === userId);
-    if (existing) return statusFromStore(store, userId, now);
+    if (existing) {
+      capPlayerRecords(store, [userId]);
+      return statusFromStore(store, userId, now);
+    }
 
     const record = recordFor(store, userId, now);
     if (store.queue.length >= MAX_QUEUE_SIZE) {
@@ -272,6 +275,7 @@ export async function joinArenaQueue(): Promise<ArenaStatus> {
       store.queue.push({ fighter, queuedAt: now });
       record.updatedAt = now;
     }
+    capPlayerRecords(store, [userId]);
     return statusFromStore(store, userId, now);
   });
 }
