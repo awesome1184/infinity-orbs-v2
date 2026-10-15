@@ -53,3 +53,25 @@ test('mock SET NX and expiration behave like the Redis lock contract', async () 
   await redis.set(expiredKey, 'stale', { expiration: new Date(Date.now() - 1) });
   assert.equal(await redis.get(expiredKey), null);
 });
+
+test('mock WATCH supports transactional HDEL and rejects stale delete after a profile refresh', async () => {
+  const key = uniqueKey('profile-hdel');
+  await redis.hSet(key, { stale: 'expired-profile', keep: 'active-profile' });
+
+  const txn = await redis.watch(key);
+  assert.deepEqual(await redis.hGetAll(key), {
+    stale: 'expired-profile',
+    keep: 'active-profile',
+  });
+  await txn.multi();
+  await txn.hDel(key, 'stale');
+  assert.deepEqual(await txn.exec(), []);
+  assert.deepEqual(await redis.hGetAll(key), { keep: 'active-profile' });
+
+  const raceTxn = await redis.watch(key);
+  await redis.hSet(key, { keep: 'refreshed-profile' });
+  await raceTxn.multi();
+  await raceTxn.hDel(key, 'keep');
+  assert.equal(await raceTxn.exec(), null);
+  assert.equal(await redis.hGet(key, 'keep'), 'refreshed-profile');
+});
