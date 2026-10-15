@@ -57,7 +57,7 @@ test('CombatSection routes state reads, beats, and gear/skill mutations through 
   );
   assert.match(
     source,
-    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*\/\/ Read sequence at execution time[\s\S]*?request<ApiResponse>\('\/api\/combat\/beat'/,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*\/\/ Read the latest sequence at execution time[\s\S]*?request<ApiResponse>\('\/api\/combat\/beat'/,
     'beat sequence must be read and posted inside the queue',
   );
   assert.match(
@@ -67,4 +67,9 @@ test('CombatSection routes state reads, beats, and gear/skill mutations through 
   );
   assert.match(source, /'\/api\/combat\/equip'/);
   assert.match(source, /'\/api\/combat\/skills\/roll'/);
+  assert.match(
+    source,
+    /combatQueue\.enqueue\(async\(\)\s*=>\s*\{\s*const result=await request<ApiResponse>\('\/api\/combat\/arena\/challenge'/,
+    'Arena challenges must not race with PvE snapshot mutations',
+  );
 });
