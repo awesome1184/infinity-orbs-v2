@@ -1,5 +1,5 @@
 export type CombatPage = 'fight' | 'dungeons' | 'gear' | 'skills' | 'arena';
-export type CombatIntent = 'strike' | 'heavy' | 'guard' | 'mend';
+export type CombatIntent = 'auto' | 'strike' | 'heavy' | 'guard' | 'mend';
 export type CombatRarity = 'Common' | 'Uncommon' | 'Rare' | 'Epic' | 'Mythic';
 export type CombatSkillStat = 'damagePct' | 'speedFlat' | 'healthPct' | 'critChance' | 'coinBonus';
 export type CombatTrait = 'bleed' | 'keen' | 'first-strike' | 'bulwark' | 'regeneration' | 'desperation';
@@ -213,6 +213,17 @@ export function combatStatsFor(state: CombatState): CombatStats {
     coinMultiplier:1+coinBonus, coreProgressionBonus,
   };
 }
+/** Choose a safe, deterministic action when the player enables auto tactics. */
+export function chooseAutoCombatIntent(state: CombatState, stats: CombatStats, playerActions: number, enemyActions: number): CombatIntent {
+  if (playerActions <= 0) return 'strike';
+  const missingHealth = Math.max(0, stats.maxHealth - state.health);
+  if (state.energy >= 4 && state.health <= stats.maxHealth * 0.5 &&
+      missingHealth >= stats.maxHealth * 0.14) return 'mend';
+  if (state.energy >= 2 && enemyActions > 0 && state.health <= stats.maxHealth * 0.6) return 'guard';
+  if (state.energy >= 3) return 'heavy';
+  return 'strike';
+}
+
 export function synchronizeCombatStats(state: CombatState): CombatStats {
   const stats=combatStatsFor(state);
   state.baseDamage=stats.damage; state.speed=stats.speed;
