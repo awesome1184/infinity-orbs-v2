@@ -340,3 +340,11 @@ export function coreProgressionCombatBonus(coreLevelValue: unknown, highestRarit
   const rarityBonus = Math.min(0.05, Math.max(0, Math.floor(Math.log10(rarity)) * 0.003));
   return Math.round((levelBonus + rarityBonus) * 10_000) / 10_000;
 }
+
+/** Returns the Warden depth being fought, or the next Warden depth during regular rooms. */
+export function nextUndercryptWardenDepth(depthValue: unknown): number {
+  const rawDepth = Number(depthValue);
+  const depth = Number.isFinite(rawDepth) ? Math.max(1, Math.min(50_000, Math.floor(rawDepth))) : 1;
+  return depth % 10 === 0 ? depth : (Math.floor(depth / 10) + 1) * 10;
+}
+
