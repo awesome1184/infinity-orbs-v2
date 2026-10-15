@@ -4,7 +4,7 @@
 Combat is a mode inside Infinity Orbs, not a separate app or a replacement for orb rolling. The menu-bar Combat control switches between the core menu and a combat menu. In combat mode the core Roll button is replaced by Fight, with Dungeons, Gear, Skills, and Arena navigation. The mode control glows chartreuse while active. Combat visuals use the Auto-Dungeons charcoal, bone, chartreuse, and copper palette.
 
 ## First playable slice
-- Server-authoritative Undercrypt combat resolves in discrete one-second beats. Auto tactics (Balanced, Aggressive, Defensive, Recovery) choose commands from current health and energy on the server; a manually queued Strike, Heavy, Guard, or Mend overrides the next automatic beat once.
+- Server-authoritative Undercrypt combat resolves in discrete one-second beats. Auto tactics (Balanced, Aggressive, Defensive, Recovery) choose commands from current health and energy on the server; a manually queued Strike, Heavy, Guard, or Mend overrides the next automatic beat once. The server persists the last accepted beat timestamp and rejects requests less than 1,000 ms apart with HTTP 429, so the client timer is not the anti-cheat boundary.
 - Auto-run is the default; Pause, Auto toggle, manual Next Beat, and Strike / Heavy / Guard / Mend selection are available.
 - Speed controls actions resolved per beat. Presentation timing is not a combat stat.
 - Health persists between encounters. Death restarts the push at Depth 1, while best depth, gear, skill ranks, combat level, and Delver Coins persist.
