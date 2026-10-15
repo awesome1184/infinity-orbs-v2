@@ -39,7 +39,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [stats,setStats]=useState<CombatStats|null>(null);
   const [actions,setActions]=useState<CombatAction[]>([]);
   const [loading,setLoading]=useState(true),[processing,setProcessing]=useState(false),[mutating,setMutating]=useState(false);
-  const [auto,setAuto]=useState(true),[paused,setPaused]=useState(false),[intent,setIntent]=useState<CombatIntent>('strike');
+  const [auto,setAuto]=useState(true),[paused,setPaused]=useState(false),[intent,setIntent]=useState<CombatIntent>('auto');
   const [showAllSkills,setShowAllSkills]=useState(true);
   const [lastSkill,setLastSkill]=useState<ApiResponse['skillRoll']|null>(null);
   const [error,setError]=useState('');
@@ -49,7 +49,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [arenaResult,setArenaResult]=useState<CombatArenaResult|null>(null);
   const [arenaCooldownMs,setArenaCooldownMs]=useState(0);
   const stateRef=useRef<CombatState|null>(null);
-  const runtime=useRef({intent:'strike' as CombatIntent,auto:true,paused:false,busy:false,manual:false});
+  const runtime=useRef({intent:'auto' as CombatIntent,auto:true,paused:false,busy:false,manual:false});
   runtime.current.intent=intent; runtime.current.auto=auto; runtime.current.paused=paused;
   const accept=useCallback((result:CombatSnapshot)=>{
     stateRef.current=result.state;setState(result.state);setEnemy(result.enemy);setStats(result.stats);
@@ -89,7 +89,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     runtime.current.busy=true;setProcessing(true);
     try {
       const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:runtime.current.intent});
-      accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));runtime.current.intent='strike';setIntent('strike');setError('');
+      accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));const nextIntent:CombatIntent=runtime.current.auto?'auto':'strike';runtime.current.intent=nextIntent;setIntent(nextIntent);setError('');
     } catch(e) {
       const message=e instanceof Error?e.message:'Combat beat failed.';
       if(message==='stale combat sequence'||message.includes('changed repeatedly'))await load();
@@ -133,7 +133,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
         </div>
         <div className="io-combat-stage-foot"><span><Zap size={14}/> {state.energy}/{state.maxEnergy} ENERGY</span><span>{fmt(stats.speed)} SPD</span><span>{fmt(stats.damage)} DMG</span><span>{percent(stats.critChance)} CRIT</span></div>
       </div>
-      <div className="io-combat-control-row"><div className="io-combat-command-group">{(['strike','heavy','guard','mend'] as CombatIntent[]).map(cmd=><button key={cmd} type="button" onClick={()=>setIntent(cmd)} className={intent===cmd?'io-combat-command is-selected':'io-combat-command'}><span>{cmd==='strike'?'Strike':cmd==='heavy'?'Heavy':cmd==='guard'?'Guard':'Mend'}</span><small>{cmd==='strike'?'FREE':cmd==='heavy'?'3 EN':cmd==='guard'?'2 EN':'4 EN'}</small></button>)}</div><div className="io-combat-run-controls"><button type="button" className="io-combat-button" onClick={()=>setPaused(!paused)}>{paused?<Play size={14}/>:<Pause size={14}/>} {paused?'Resume':'Pause'}</button><button type="button" className="io-combat-button" onClick={()=>setAuto(!auto)}>Auto: {auto?'ON':'OFF'}</button><button type="button" disabled={processing} className="io-combat-button is-secondary" onClick={manualBeat}>{processing?'Resolving…':'Next Beat'}</button></div></div>
+      <div className="io-combat-control-row"><div className="io-combat-command-group"><small className="io-combat-eyebrow">{intent==='auto'?'AUTO TACTICS':'NEXT ACTION'}</small>{(['strike','heavy','guard','mend'] as CombatIntent[]).map(cmd=><button key={cmd} type="button" disabled={processing} onClick={()=>{runtime.current.intent=cmd;setIntent(cmd);}} className={intent===cmd?'io-combat-command is-selected':'io-combat-command'}><span>{cmd==='strike'?'Strike':cmd==='heavy'?'Heavy':cmd==='guard'?'Guard':'Mend'}</span><small>{cmd==='strike'?'FREE':cmd==='heavy'?'3 EN':cmd==='guard'?'2 EN':'4 EN'}</small></button>)}</div><div className="io-combat-run-controls"><button type="button" className="io-combat-button" onClick={()=>setPaused(!paused)}>{paused?<Play size={14}/>:<Pause size={14}/>} {paused?'Resume':'Pause'}</button><button type="button" className="io-combat-button" onClick={()=>{const next=!auto;runtime.current.auto=next;setAuto(next);const nextIntent:CombatIntent=next?'auto':'strike';runtime.current.intent=nextIntent;setIntent(nextIntent);}}>Auto: {auto?'ON':'OFF'}</button><button type="button" disabled={processing} className="io-combat-button is-secondary" onClick={manualBeat}>{processing?'Resolving…':'Next Beat'}</button></div></div>
       <div className="io-combat-stat-strip"><div><span>DELVER COINS</span><strong>{fmt(state.coins)}</strong></div><div><span>GEAR CARRIED</span><strong>{state.inventory.length}/30</strong></div><div><span>SKILL RANKS</span><strong>{ownedSkills.reduce((n,[,v])=>n+Number(v),0)}</strong></div><div><span>KILLS</span><strong>{fmt(state.totalKills)}</strong></div></div>
       <div className="io-combat-columns"><section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">FIELD NOTES</span><h2>Combat log</h2></div><span>{processing?'RESOLVING':paused?'PAUSED':auto?'AUTO-RUN':'MANUAL'}</span></div><div className="io-combat-log" aria-live="polite">{actions.length?actions.map((a,i)=><p key={state.sequence+'-'+i} className={'io-log-'+a.actor+' io-log-'+a.kind}>{a.text}</p>):<p>The Delver readies a weapon. The first beat is imminent.</p>}</div></section>
         <section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">YOUR LOADOUT</span><h2>Equipped</h2></div><button className="io-combat-text-link" type="button" onClick={()=>onNavigate('gear')}>Armory →</button></div><div className="io-combat-equipped-line"><span>WEAPON</span><strong>{weapon?.name||'Empty slot'}</strong><small>{weapon?.effect||'No effect'}</small></div><div className="io-combat-equipped-line"><span>ARMOR</span><strong>{armor?.name||'Empty slot'}</strong><small>{armor?.effect||'No effect'}</small></div><button className="io-combat-button is-primary" type="button" onClick={()=>onNavigate('skills')}>Open Skill Gacha</button></section></div>
