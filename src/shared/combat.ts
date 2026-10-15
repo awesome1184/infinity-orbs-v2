@@ -189,6 +189,17 @@ export function synchronizeCombatStats(state: CombatState): CombatStats {
   return stats;
 }
 
+/**
+ * Keep a one-beat Guard armed until the enemy actually gets an action.
+ * Enemy speed can be below the player's action rate, so a tick with no
+ * incoming attack must not silently consume the player's defensive command.
+ */
+export function tickCombatGuard(guardBeats: number, enemyActions: number): number {
+  const active = Math.max(0, Math.floor(Number.isFinite(guardBeats) ? guardBeats : 0));
+  const actions = Math.max(0, Math.floor(Number.isFinite(enemyActions) ? enemyActions : 0));
+  return Math.max(0, active - (actions > 0 ? 1 : 0));
+}
+
 export interface CombatSkillCopyResult {
   rank: number;
   duplicate: boolean;
