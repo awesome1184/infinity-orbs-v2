@@ -17,6 +17,7 @@ async function request<T>(url:string,method='GET',body?:unknown):Promise<T> {
 }
 const fmt=(n:number)=>Math.max(0,Math.floor(n||0)).toLocaleString();
 const percent=(n:number)=>(n*100).toFixed(1)+'%';
+const fmtSigned=(n:number)=>(n>0?'+':n<0?'−':'')+Math.abs(Math.floor(n||0)).toLocaleString();
 const rarityClass=(rarity:string)=>'io-rarity-'+rarity.toLowerCase();
 const rankOf=(state:CombatState,id:string)=>Math.max(0,Math.min(SKILL_RANK_CAP,Math.floor(Number(state.skillLevels[id as keyof typeof state.skillLevels])||0)));
 const equipped=(state:CombatState,slot:'weapon'|'armor')=>state.inventory.find(item=>item.id===state.equipment[slot]&&item.slot===slot)??null;
@@ -169,7 +170,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
           <p>{fmt(arenaStatus.lastMatch.rounds)} rounds · Your HP {fmt(arenaStatus.lastMatch.remainingHealth)} / {fmt(arenaStatus.lastMatch.maxHealth)} · Opponent HP {fmt(arenaStatus.lastMatch.opponentRemainingHealth)} / {fmt(arenaStatus.lastMatch.opponentMaxHealth)}</p>
           <small>Opponent level {fmt(arenaStatus.lastMatch.opponentLevel)} · best depth {fmt(arenaStatus.lastMatch.opponentBestDepth)}</small>
         </div>
-        <span>{arenaStatus.lastMatch.ratingDelta>0?'+':''}{fmt(arenaStatus.lastMatch.ratingDelta)} RATING</span>
+        <span>{fmtSigned(arenaStatus.lastMatch.ratingDelta)} RATING</span>
       </div>}
       {arenaStatus?.status==='queued'?<div className="io-combat-panel io-combat-rule-panel">
         <span className="io-combat-eyebrow">MATCHMAKING</span><h2>Searching for an opponent…</h2>
