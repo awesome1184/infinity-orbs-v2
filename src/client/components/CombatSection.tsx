@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatEnemy, CombatGear, CombatIntent, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats } from '../../shared/combat.js';
-import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
+import { COMBAT_SKILLS, SKILL_RANK_CAP, nextUndercryptWardenDepth, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
 
 interface Props { page: CombatPage; onNavigate:(page:CombatPage)=>void; }
 interface ApiResponse extends CombatSnapshot {
@@ -113,7 +113,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
 
   const weapon=equipped(state,'weapon'), armor=equipped(state,'armor');
   const ownedSkills=Object.entries(state.skillLevels).filter(([,v])=>Number(v)>0);
-  const nextBoss=(Math.floor(state.depth/10)+1)*10;
+  const nextBoss=nextUndercryptWardenDepth(state.depth);
   const wardensDefeated=undercryptWardensDefeated(state.bestDepth);
   const orbLuckBonusPct=Math.round((undercryptOrbLuckMultiplier(state.bestDepth)-1)*100);
   const pullCost=skillPullCost(state.skillRolls);
@@ -122,10 +122,10 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const enemyPct=Math.max(0,Math.min(100,enemy.hp/Math.max(1,enemy.maxHp)*100));
   return <section className="io-combat-screen">
     <header className="io-combat-page-head"><div><span className="io-combat-eyebrow">INFINITY ORBS · COMBAT EXPANSION</span><h1>{page==='fight'?'Fight':page==='dungeons'?'Dungeons':page==='gear'?'Armory':page==='skills'?'Skill Gacha':'Arena'}</h1><p>{page==='fight'?'The next beat resolves on the server. Configure a command; your build handles the rest.':page==='dungeons'?'Push deeper into the Undercrypt, discover new rooms and keep permanent rewards when a run ends.':page==='gear'?'Quality is a real stat roll. Compare item effects, not just power.':page==='skills'?'Duplicates rank skills up to Rank 5. Every rank has an explicit numeric effect.':'The Arena will open after the PvE combat rules are stable.'}</p></div><div className="io-combat-run-stamp"><span>RUN {fmt(state.runId)}</span><strong>DEPTH {fmt(state.depth)}</strong><span>BEST {fmt(state.bestDepth)}</span></div></header>
-    {error&&<div className="io-combat-error" role="status">{error} <button className="io-combat-text-link" type="button" onClick={()=>{setError('');if(!state)void load();}}>Dismiss / retry</button></div>}
+    {error&&<div className="io-combat-error" role="status">{error} <button className="io-combat-text-link" type="button" onClick={()=>{setLoading(true);setAuto(true);void load();}}>Retry combat</button></div>}
 
     {page==='fight'&&<>
-      <div className="io-combat-stage"><div className="io-combat-stage-top"><span>{enemy.room.toUpperCase()}</span><span>{enemy.kind.toUpperCase()} · NEXT WARDEN {fmt(nextBoss)}</span></div>
+      <div className="io-combat-stage"><div className="io-combat-stage-top"><span>{enemy.room.toUpperCase()}</span><span>{enemy.kind.toUpperCase()} · {enemy.boss?'CURRENT WARDEN':'NEXT WARDEN'} {fmt(nextBoss)}</span></div>
         <div className="io-combat-duel">
           <div className="io-combat-combatant io-combat-hero"><div className="io-combat-sprite">∞</div><div className="io-combat-name">DELVER <span>LV {state.level}</span></div><div className="io-combat-hp"><span style={{width:hpPct+'%'}}/></div><small>{fmt(state.health)} / {fmt(state.maxHealth)} HP</small></div>
           <div className="io-combat-versus">VS</div>
@@ -140,7 +140,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     </>}
 
     {page==='dungeons'&&<>
-      <div className="io-combat-dungeon-hero"><div className="io-combat-dungeon-art"><div className="io-combat-door">⌁</div><span>THE UNDERCRYPT</span><small>ONE WAY DOWN. DEATH SENDS YOU BACK TO THE DOOR.</small></div><div className="io-combat-dungeon-summary"><span className="io-combat-eyebrow">ACTIVE EXPEDITION</span><h2>The Undercrypt</h2><p>Enemy types and rooms rotate with depth. Every tenth depth ends in a Crypt Warden boss fight. Auto-combat resumes from the current room while this mode is open.</p><div className="io-combat-dungeon-metrics"><div><span>CURRENT DEPTH</span><strong>{fmt(state.depth)}</strong></div><div><span>PERSONAL BEST</span><strong>{fmt(state.bestDepth)}</strong></div><div><span>NEXT WARDEN</span><strong>{fmt(nextBoss)}</strong></div><div><span>ORB LUCK BONUS</span><strong>+{orbLuckBonusPct}%</strong></div></div><p className="io-combat-resonance-note">{fmt(wardensDefeated)} Crypt Wardens defeated · +1% permanent effective Luck per Warden, capped at +25%. Applies to Infinity Orbs rolls.</p><button type="button" className="io-combat-button is-primary" onClick={()=>onNavigate('fight')}>Return to Fight →</button></div></div>
+      <div className="io-combat-dungeon-hero"><div className="io-combat-dungeon-art"><div className="io-combat-door">⌁</div><span>THE UNDERCRYPT</span><small>ONE WAY DOWN. DEATH SENDS YOU BACK TO THE DOOR.</small></div><div className="io-combat-dungeon-summary"><span className="io-combat-eyebrow">ACTIVE EXPEDITION</span><h2>The Undercrypt</h2><p>Enemy types and rooms rotate with depth. Every tenth depth ends in a Crypt Warden boss fight. Auto-combat resumes from the current room while this mode is open.</p><div className="io-combat-dungeon-metrics"><div><span>CURRENT DEPTH</span><strong>{fmt(state.depth)}</strong></div><div><span>PERSONAL BEST</span><strong>{fmt(state.bestDepth)}</strong></div><div><span>{state.depth%10===0?'CURRENT WARDEN':'NEXT WARDEN'}</span><strong>{fmt(nextBoss)}</strong></div><div><span>ORB LUCK BONUS</span><strong>+{orbLuckBonusPct}%</strong></div></div><p className="io-combat-resonance-note">{fmt(wardensDefeated)} Crypt Wardens defeated · +1% permanent effective Luck per Warden, capped at +25%. Applies to Infinity Orbs rolls.</p><button type="button" className="io-combat-button is-primary" onClick={()=>onNavigate('fight')}>Return to Fight →</button></div></div>
       <div className="io-combat-panel io-combat-rule-panel"><span className="io-combat-eyebrow">RUN RULES</span><h2>Death is a setback, not a wipe.</h2><p>Health persists between rooms. On death, a new push begins at Depth 1 with full health. Best depth, Delver Coins, levels, skill ranks, and collected gear stay with you.</p><p>Gear quality rolls from 0.00% to 100.00%. Weapon and armor traits activate while equipped; nearly perfect quality rolls are rare.</p><p>Main-game attunement currently grants <b>+{(stats.coreProgressionBonus*100).toFixed(1)}%</b> combat damage and max HP. Every 10 core-game levels grants +2% (capped at +20%); each order of magnitude in your highest orb rarity grants +0.3% (capped at +5%). This refreshes when you enter Combat.</p></div>
     </>}
 
