@@ -154,7 +154,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   if(loading&&!state)return <section className="io-combat-screen"><div className="io-combat-loading">ENTERING THE UNDERCRYPT…</div></section>;
   if(!state||!enemy||!stats)return <section className="io-combat-screen"><header className="io-combat-page-head"><div><span className="io-combat-eyebrow">COMBAT SYSTEM</span><h1>Could not enter the Undercrypt</h1></div></header><p className="io-combat-error">{error||'Combat data unavailable.'}</p><button type="button" className="io-combat-button" onClick={()=>{setLoading(true);void load();}}>Retry</button></section>;
 
-  const weapon=equipped(state,'weapon'), armor=equipped(state,'chest');
+
   const ownedSkills=Object.entries(state.skillLevels).filter(([,v])=>Number(v)>0);
   const nextBoss=(Math.floor((state.depth-1)/10)+1)*10;
   const undercryptBestDepth=state.dungeonBestDepths.undercrypt;
