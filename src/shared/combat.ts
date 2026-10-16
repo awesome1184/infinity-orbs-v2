@@ -194,17 +194,14 @@ export function skillPullCost(skillRolls: number): number {
 export function createCombatState(): CombatState {
   const weapon: CombatGear = { id:'starter-weapon', name:'Delver Knife', slot:'weapon', quality:35, floor:1, power:8, effect:'Adds +4 damage and +10 Speed. Critical chance +4 percentage points.', trait:'keen', damageBonus:4, speedBonus:10, maxHealthBonus:0, armorBonus:0, critChanceBonus:0 };
   const armor: CombatGear = { id:'starter-armor', name:'Worn Leathers', slot:'chest', quality:28, floor:1, power:5, effect:'Adds +40 max HP and reduces incoming damage by 4%.', trait:'bulwark', damageBonus:0, speedBonus:0, maxHealthBonus:40, armorBonus:0, critChanceBonus:0 };
-  const helmet: CombatGear = { id:'starter-helmet', name:'Ashen Delver Visor', slot:'helmet', quality:22, floor:1, power:4, effect:'A light helm that adds a little protection.', trait:'bulwark', damageBonus:0, speedBonus:0, maxHealthBonus:10, armorBonus:4, critChanceBonus:0.01 };
-  const ring: CombatGear = { id:'starter-ring', name:'Quiet Ember Signet', slot:'ring', quality:31, floor:1, power:4, effect:'A warm signet that sharpens critical strikes.', trait:'keen', damageBonus:1, speedBonus:0, maxHealthBonus:0, armorBonus:0, critChanceBonus:0.02 };
-  const boots: CombatGear = { id:'starter-boots', name:'Hollow Riftwalk Boots', slot:'boots', quality:18, floor:1, power:3, effect:'Light boots that improve combat tempo.', trait:'desperation', damageBonus:0, speedBonus:5, maxHealthBonus:5, armorBonus:2, critChanceBonus:0 };
   const state: CombatState = {
     version:1, runId:1, dungeonId:'undercrypt', dungeonBestDepths:{undercrypt:1,'cinder-vault':1,'glass-labyrinth':1}, depth:1, bestDepth:1,
     level:1, xp:0, xpToNext:100, health:1040, maxHealth:1040, speed:310,
     baseDamage:54, coins:250, totalKills:0, skillRolls:0, sequence:0, lastAcceptedBeatAtMs:0,
     combatBeats:0, playerActionsResolved:0, enemyActionsResolved:0,
     energy:3, maxEnergy:5, guardBeats:0, enemyHp:130,
-    encounterFirstStrikeUsed:false, pendingHealAmount:0, inventory:[weapon,armor,helmet,ring,boots],
-    equipment:{weapon:weapon.id,helmet:helmet.id,chest:armor.id,gloves:null,boots:boots.id,ring:ring.id,amulet:null}, skillLevels:{},
+    encounterFirstStrikeUsed:false, pendingHealAmount:0, inventory:[weapon,armor],
+    equipment:{weapon:weapon.id,helmet:null,chest:armor.id,gloves:null,boots:null,ring:null,amulet:null}, skillLevels:{},
     arenaRating:1000, arenaWins:0, arenaLosses:0, arenaLastChallengeAt:0,
     coreLevel:1, coreHighestRarity:2, autoTactic:'balanced',
   };
