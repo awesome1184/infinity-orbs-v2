@@ -27,7 +27,7 @@ test('equipped gear from different slots contributes its own combat bonuses', ()
   assert.ok(combatStatsFor(state).critChance<withLoadout.critChance);
 });
 
-test('the loadout uses the new chest slot instead of the old armor key', () => {
+test('starter armor is represented by the chest slot in the new loadout', () => {
   const state = createCombatState();
   const chest = state.inventory.find(item => item.id === state.equipment.chest);
   assert.ok(chest);
