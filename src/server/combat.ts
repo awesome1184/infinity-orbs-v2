@@ -105,12 +105,24 @@ function createGear(depth:number):CombatGear {
   const power=Math.max(3,Math.round(Math.min(1_000_000,depth)*(.65+quality/80)));
   const isProtective=['helmet','chest','gloves','boots'].includes(slot);
   // The slot sets a natural bias, but any item can roll useful cross-slot affixes.
-  const damageBonus=slot==='weapon'?Math.max(1,Math.round(power*.8)):secureRandom()<.45?Math.max(1,Math.round(power*.7)):0;
-  const speedBonus=slot==='weapon'?Math.min(400,Math.round(power*.25)):slot==='boots'?Math.min(150,Math.max(1,Math.round(power*.18))):secureRandom()<.2?Math.max(1,Math.round(power*.18)):0;
-  const maxHealthBonus=slot==='chest'?Math.max(5,Math.round(power*4)):isProtective?Math.max(0,Math.round(power*1.4)):secureRandom()<.2?Math.max(1,Math.round(power*.9)):0;
-  const armorBonus=isProtective?Math.max(1,Math.round(power*(slot==='chest' ? .65 : .55))):secureRandom()<.25?Math.max(1,Math.round(power*.3)):0;
-  const critChanceBonus=slot==='ring'||slot==='amulet'?Math.min(.30,.05+quality*.0025):secureRandom()<.28?Math.min(.30,.06+quality*.0028):0;
-  const majorAbilityChance=quality>=90 ? .25 : quality>=70 ? .12 : quality>=40 ? .04 : quality>=15 ? .01 : .0025;
+  const damageBonus = slot==='weapon'
+    ? Math.max(1,Math.round(power*.8))
+    : secureRandom()<.45 ? Math.max(1,Math.round(power*.7)) : 0;
+  const speedBonus = slot==='weapon'
+    ? Math.min(400,Math.round(power*.25))
+    : slot==='boots' ? Math.min(150,Math.max(1,Math.round(power*.18)))
+    : secureRandom()<.2 ? Math.max(1,Math.round(power*.18)) : 0;
+  const maxHealthBonus = slot==='chest'
+    ? Math.max(5,Math.round(power*4))
+    : isProtective ? Math.max(0,Math.round(power*1.4))
+    : secureRandom()<.2 ? Math.max(1,Math.round(power*.9)) : 0;
+  const armorBonus = isProtective
+    ? Math.max(1,Math.round(power*(slot==='chest' ? .65 : .55)))
+    : secureRandom()<.25 ? Math.max(1,Math.round(power*.3)) : 0;
+  const critChanceBonus = slot==='ring'||slot==='amulet'
+    ? Math.min(.30,.05+quality*.0025)
+    : secureRandom()<.28 ? Math.min(.30,.06+quality*.0028) : 0;
+  const majorAbilityChance = quality>=90 ? .25 : quality>=70 ? .12 : quality>=40 ? .04 : quality>=15 ? .01 : .0025;
   const majorAbility:CombatMajorAbility|undefined=secureRandom()<majorAbilityChance?{id:'second-dawn',name:'Second Dawn',trigger:'on-damage',healPercent:.15,description:'After taking damage, heal 15% of Max HP at the start of your next turn.'}:undefined;
   const firstWord=pick(firstWords),secondWord=pick(secondWords.filter(word=>word!==firstWord));
   return {id:'gear-'+Date.now().toString(36)+'-'+Math.floor(secureRandom()*0x7fffffff).toString(36),name:firstWord+' '+secondWord+' '+pick(nouns[slot]),slot,quality,floor:Math.max(1,Math.floor(depth)),power,trait,effect:traitText(trait),damageBonus,speedBonus,maxHealthBonus,armorBonus,critChanceBonus,...(majorAbility?{majorAbility}:{})};
