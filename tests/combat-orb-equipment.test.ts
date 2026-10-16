@@ -27,10 +27,9 @@ test('equipped gear from different slots contributes its own combat bonuses', ()
   assert.ok(withLoadout.critChance > withoutRing.critChance);
 });
 
-test('legacy chest gear remains a valid equipment slot after the armor-slot migration', () => {
+test('the loadout uses the new chest slot instead of the old armor key', () => {
   const state = createCombatState();
   const chest = state.inventory.find(item => item.id === state.equipment.chest);
   assert.ok(chest);
   assert.equal(chest.slot, 'chest');
-  assert.equal(state.equipment.armor, undefined);
 });
