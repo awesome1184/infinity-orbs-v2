@@ -257,7 +257,7 @@ function arenaBuild(rawState: CombatState): { state: CombatState; stats: ReturnT
 function createArenaProfile(userId: string, username: string, state: CombatState, updatedAt: number): CombatArenaProfile {
   const build = arenaBuild(state);
   const weapon = build.state.inventory.find(item => item.id === build.state.equipment.weapon && item.slot === 'weapon');
-  const armor = build.state.inventory.find(item => item.id === build.state.equipment.armor && item.slot === 'armor');
+  const armor = build.state.inventory.find(item => item.id === build.state.equipment.chest && item.slot === 'chest');
   return {
     userId,
     username: arenaName(username),
@@ -344,7 +344,7 @@ function resolveArenaDuel(challengerState: CombatState, opponentState: CombatSta
       const actor = isChallenger ? challenger : opponent;
       const actorHp = () => isChallenger ? challengerHp : opponentHp;
       const foeHp = () => isChallenger ? opponentHp : challengerHp;
-      const ownArmor = actor.state.inventory.find(item => item.id === actor.state.equipment.armor);
+      const ownArmor = actor.state.inventory.find(item => item.id === actor.state.equipment.chest && item.slot === 'chest');
       const speed = Math.min(800, actor.stats.speed + (ownArmor?.trait === 'desperation' && actorHp() <= actor.stats.maxHealth * .4 ? 20 : 0));
       const actionCount = Math.min(8, Math.max(1, Math.floor(speed / 100)));
       for (let action = 0; action < actionCount && foeHp() > 0; action += 1) attack(side);
