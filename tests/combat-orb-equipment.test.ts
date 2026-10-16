@@ -13,18 +13,18 @@ test('orb rarity scales base damage monotonically from a 1x baseline', () => {
 
 test('equipped gear from different slots contributes its own combat bonuses', () => {
   const state = createCombatState();
+  const withoutExtras = combatStatsFor(state);
+  const ring = { id:'test-ring', name:'Quiet Ember Signet', slot:'ring' as const, quality:31, floor:3, power:5, effect:'Test ring.', trait:'keen' as const, damageBonus:2, speedBonus:0, maxHealthBonus:0, armorBonus:0, critChanceBonus:.02 };
+  const helmet = { id:'test-helmet', name:'Ashen Riftbound Helm', slot:'helmet' as const, quality:72, floor:3, power:8, effect:'Test helmet.', trait:'bulwark' as const, damageBonus:0, speedBonus:0, maxHealthBonus:10, armorBonus:12, critChanceBonus:0 };
+  state.inventory.push(ring,helmet);
+  state.equipment.ring=ring.id;
+  state.equipment.helmet=helmet.id;
   const withLoadout = combatStatsFor(state);
-  assert.ok(state.equipment.helmet);
-  assert.ok(state.equipment.ring);
-  assert.ok(state.equipment.boots);
-  assert.ok(withLoadout.armor > 0);
-
-  const ring = state.inventory.find(item => item.id === state.equipment.ring);
-  assert.ok(ring);
-  state.equipment.ring = null;
-  const withoutRing = combatStatsFor(state);
-  assert.equal(withLoadout.damage - withoutRing.damage, ring.damageBonus);
-  assert.ok(withLoadout.critChance > withoutRing.critChance);
+  assert.equal(withLoadout.damage-withoutExtras.damage,ring.damageBonus);
+  assert.equal(withLoadout.armor-withoutExtras.armor,helmet.armorBonus);
+  assert.ok(withLoadout.critChance>withoutExtras.critChance);
+  state.equipment.ring=null;
+  assert.ok(combatStatsFor(state).critChance<withLoadout.critChance);
 });
 
 test('the loadout uses the new chest slot instead of the old armor key', () => {
