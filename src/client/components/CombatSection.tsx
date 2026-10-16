@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
+import { Check, Coins, Info, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatEnemy, CombatGear, CombatGearSlot, CombatIntent, CombatOrbRoll, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats, CombatTactic } from '../../shared/combat.js';
 import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
 
@@ -30,6 +30,7 @@ function skillValue(skill:CombatSkillDefinition,rank:number):string {
   return skill.stat==='speedFlat'?'+'+fmt(amount)+' Speed':skill.stat==='critChance'?'+'+(amount*100).toFixed(1)+' percentage points critical chance':'+'+(amount*100).toFixed(1)+'% '+(skill.stat==='damagePct'?'damage':skill.stat==='healthPct'?'max HP':'Delver Coins');
 }
 function GearCard({item,isEquipped,onEquip,busy}:{item:CombatGear;isEquipped:boolean;onEquip:()=>void;busy:boolean}) {
+  const [showTooltip,setShowTooltip]=useState(false);
   const grade=item.quality>=90?'Mythic':item.quality>=70?'Epic':item.quality>=40?'Rare':item.quality>=15?'Uncommon':'Common';
   const bonuses=[
     item.damageBonus>0?{label:'+'+fmt(item.damageBonus)+' DMG',detail:'Adds this amount to base damage'}:null,
@@ -39,11 +40,11 @@ function GearCard({item,isEquipped,onEquip,busy}:{item:CombatGear;isEquipped:boo
     item.critChanceBonus>0?{label:'+'+(item.critChanceBonus*100).toFixed(1)+'% CRIT',detail:'Adds critical-hit chance'}:null,
   ].filter((entry):entry is {label:string;detail:string}=>Boolean(entry));
   return <article tabIndex={0} className={'io-combat-gear-card '+rarityClass(grade)}>
-    <div className="io-combat-gear-head"><div><span className="io-combat-eyebrow">{item.quality.toFixed(2)}% · F{fmt(item.floor)} · {slotLabel(item.slot).toUpperCase()}</span><h3>{item.name}</h3></div><span className="io-combat-power">PWR {fmt(item.power)}</span></div>
+    <div className="io-combat-gear-head"><div><span className="io-combat-eyebrow">{item.quality.toFixed(2)}% · F{fmt(item.floor)} · {slotLabel(item.slot).toUpperCase()}</span><h3>{item.name}</h3></div><div className="io-combat-gear-actions"><span className="io-combat-power">PWR {fmt(item.power)}</span><button type="button" className="io-combat-inspect-button" onClick={()=>setShowTooltip(value=>!value)} aria-expanded={showTooltip} aria-label={'Inspect '+item.name}><Info size={12}/> Details</button></div></div>
     <p>{item.effect}</p>
     <div className="io-combat-gear-stats">{bonuses.map(stat=><span key={stat.label} title={stat.detail}>{stat.label}</span>)}</div>
     {item.majorAbility&&<div className="io-combat-major-ability"><span>✦ MAJOR ABILITY</span><strong>{item.majorAbility.name}</strong><p>{item.majorAbility.description}</p></div>}
-    <div className="io-combat-gear-tooltip" role="tooltip">
+    <div className={'io-combat-gear-tooltip '+(showTooltip?'is-open':'')} role="tooltip">
       <span className="io-combat-eyebrow">{grade.toUpperCase()} ITEM · {item.quality.toFixed(2)}% QUALITY · FLOOR {fmt(item.floor)}</span>
       <strong>{item.name}</strong><p>{slotLabel(item.slot)} · Power {fmt(item.power)}</p>
       <div>{bonuses.length?bonuses.map(stat=><span key={stat.label}>{stat.label}</span>):<span>No direct stat bonuses</span>}</div>
