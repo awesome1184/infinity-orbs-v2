@@ -6,18 +6,26 @@ export type CombatDungeonId = 'undercrypt' | 'cinder-vault' | 'glass-labyrinth';
 export type CombatRarity = 'Common' | 'Uncommon' | 'Rare' | 'Epic' | 'Mythic';
 export type CombatSkillStat = 'damagePct' | 'speedFlat' | 'healthPct' | 'critChance' | 'coinBonus';
 export type CombatTrait = 'bleed' | 'keen' | 'first-strike' | 'bulwark' | 'regeneration' | 'desperation';
+export type CombatGearSlot = 'weapon' | 'helmet' | 'chest' | 'gloves' | 'boots' | 'ring' | 'amulet';
+export interface CombatMajorAbility { id: 'second-dawn'; name: string; trigger: 'on-damage'; healPercent: number; description: string; }
+export interface CombatOrbRoll { rarity: number; tier: string; name: string; damageMultiplier: number; baseDamage: number; }
 
 export interface CombatGear {
   id: string;
   name: string;
-  slot: 'weapon' | 'armor';
+  slot: CombatGearSlot;
   quality: number;
+  /** Dungeon floor where this item dropped. */
+  floor: number;
   power: number;
   effect: string;
   trait: CombatTrait;
   damageBonus: number;
   speedBonus: number;
   maxHealthBonus: number;
+  armorBonus: number;
+  critChanceBonus: number;
+  majorAbility?: CombatMajorAbility;
 }
 export type CombatSkillId =
   | 'ember-lung' | 'surefoot' | 'ironbark' | 'lucky-fang' | 'penny-hunter'
@@ -91,8 +99,10 @@ export interface CombatState {
   guardBeats: number;
   enemyHp: number;
   encounterFirstStrikeUsed: boolean;
+  /** Healing queued by equipment abilities for the next combat beat. */
+  pendingHealAmount: number;
   inventory: CombatGear[];
-  equipment: { weapon: string | null; armor: string | null };
+  equipment: Record<CombatGearSlot, string | null>;
   skillLevels: CombatSkillLevels;
   arenaRating: number;
   arenaWins: number;
@@ -106,6 +116,7 @@ export interface CombatStats {
   damage: number;
   speed: number;
   maxHealth: number;
+  armor: number;
   critChance: number;
   damageReduction: number;
   coinMultiplier: number;
@@ -150,6 +161,12 @@ export interface CombatArenaResult {
   ratingAfter: number;
   opponentRatingAfter: number;
 }
+/** A rarity of 2 is baseline; every order of magnitude raises its damage contribution. */
+export function combatOrbDamageMultiplier(rarity: number): number {
+  const safeRarity = Number.isFinite(Number(rarity)) ? Math.max(2, Number(rarity)) : 2;
+  return Math.max(1, Math.min(20, 1 + Math.log10(safeRarity / 2)));
+}
+
 export const SKILL_RANK_CAP = 5;
 export const COMBAT_INVENTORY_CAP = 30;
 
@@ -175,16 +192,19 @@ export function skillPullCost(skillRolls: number): number {
   return Math.round(SKILL_PULL_BASE_COST * Math.pow(1.09, pulls));
 }
 export function createCombatState(): CombatState {
-  const weapon: CombatGear = { id:'starter-weapon', name:'Delver Knife', slot:'weapon', quality:35, power:8, effect:'Adds +4 damage and +10 Speed. Critical chance +4 percentage points.', trait:'keen', damageBonus:4, speedBonus:10, maxHealthBonus:0 };
-  const armor: CombatGear = { id:'starter-armor', name:'Worn Leathers', slot:'armor', quality:28, power:5, effect:'Adds +40 max HP and reduces incoming damage by 4%.', trait:'bulwark', damageBonus:0, speedBonus:0, maxHealthBonus:40 };
+  const weapon: CombatGear = { id:'starter-weapon', name:'Delver Knife', slot:'weapon', quality:35, floor:1, power:8, effect:'Adds +4 damage and +10 Speed. Critical chance +4 percentage points.', trait:'keen', damageBonus:4, speedBonus:10, maxHealthBonus:0, armorBonus:0, critChanceBonus:0 };
+  const armor: CombatGear = { id:'starter-armor', name:'Worn Leathers', slot:'chest', quality:28, floor:1, power:5, effect:'Adds +40 max HP and reduces incoming damage by 4%.', trait:'bulwark', damageBonus:0, speedBonus:0, maxHealthBonus:40, armorBonus:0, critChanceBonus:0 };
+  const helmet: CombatGear = { id:'starter-helmet', name:'Ashen Delver Visor', slot:'helmet', quality:22, floor:1, power:4, effect:'A light helm that adds a little protection.', trait:'bulwark', damageBonus:0, speedBonus:0, maxHealthBonus:10, armorBonus:4, critChanceBonus:0.01 };
+  const ring: CombatGear = { id:'starter-ring', name:'Quiet Ember Signet', slot:'ring', quality:31, floor:1, power:4, effect:'A warm signet that sharpens critical strikes.', trait:'keen', damageBonus:1, speedBonus:0, maxHealthBonus:0, armorBonus:0, critChanceBonus:0.02 };
+  const boots: CombatGear = { id:'starter-boots', name:'Hollow Riftwalk Boots', slot:'boots', quality:18, floor:1, power:3, effect:'Light boots that improve combat tempo.', trait:'desperation', damageBonus:0, speedBonus:5, maxHealthBonus:5, armorBonus:2, critChanceBonus:0 };
   const state: CombatState = {
     version:1, runId:1, dungeonId:'undercrypt', dungeonBestDepths:{undercrypt:1,'cinder-vault':1,'glass-labyrinth':1}, depth:1, bestDepth:1,
     level:1, xp:0, xpToNext:100, health:1040, maxHealth:1040, speed:310,
     baseDamage:54, coins:250, totalKills:0, skillRolls:0, sequence:0, lastAcceptedBeatAtMs:0,
     combatBeats:0, playerActionsResolved:0, enemyActionsResolved:0,
     energy:3, maxEnergy:5, guardBeats:0, enemyHp:130,
-    encounterFirstStrikeUsed:false, inventory:[weapon,armor],
-    equipment:{weapon:weapon.id,armor:armor.id}, skillLevels:{},
+    encounterFirstStrikeUsed:false, pendingHealAmount:0, inventory:[weapon,armor,helmet,ring,boots],
+    equipment:{weapon:weapon.id,helmet:helmet.id,chest:armor.id,gloves:null,boots:boots.id,ring:ring.id,amulet:null}, skillLevels:{},
     arenaRating:1000, arenaWins:0, arenaLosses:0, arenaLastChallengeAt:0,
     coreLevel:1, coreHighestRarity:2, autoTactic:'balanced',
   };
@@ -193,8 +213,18 @@ export function createCombatState(): CombatState {
   return state;
 }
 export function combatStatsFor(state: CombatState): CombatStats {
+  const equippedItems = (Object.entries(state.equipment) as [CombatGearSlot,string|null][])
+    .map(([slot,id]) => state.inventory.find(item => item.id === id && item.slot === slot))
+    .filter((item): item is CombatGear => Boolean(item));
   const weapon = state.inventory.find(item => item.id === state.equipment.weapon && item.slot === 'weapon');
-  const armor = state.inventory.find(item => item.id === state.equipment.armor && item.slot === 'armor');
+  const armorBonus = equippedItems.reduce((sum,item) => sum + item.armorBonus, 0);
+  const damageBonus = equippedItems.reduce((sum,item) => sum + item.damageBonus, 0);
+  const speedBonus = equippedItems.reduce((sum,item) => sum + item.speedBonus, 0);
+  const maxHealthBonus = equippedItems.reduce((sum,item) => sum + item.maxHealthBonus, 0);
+  const critGearBonus = equippedItems.reduce((sum,item) => sum + item.critChanceBonus, 0);
+  const hasBulwark = equippedItems.some(item => item.trait === 'bulwark');
+  const hasDesperation = equippedItems.some(item => item.trait === 'desperation');
+  const hasKeen = equippedItems.some(item => item.trait === 'keen');
   let damagePct=0, speedFlat=0, healthPct=0, critChance=.08, coinBonus=0;
   for (const skill of COMBAT_SKILLS) {
     const rank = Math.max(0, Math.min(SKILL_RANK_CAP, Math.floor(Number(state.skillLevels[skill.id]) || 0)));
@@ -218,9 +248,9 @@ export function combatStatsFor(state: CombatState): CombatStats {
   critChance += dungeonCritBonus;
   return {
     damage:Math.max(1,Math.round(flatDamage*(1+damagePct)*(1+coreProgressionBonus)*(1+dungeonDamageBonus))),
-    speed:Math.min(800,speed), maxHealth,
+    speed:Math.min(800,speed), maxHealth, armor:armorBonus,
     critChance:Math.min(.75,Math.max(0,critChance)),
-    damageReduction: armor?.trait === 'bulwark' ? 0.04 : 0,
+    damageReduction,
     coinMultiplier:1+coinBonus, coreProgressionBonus,
   };
 }
