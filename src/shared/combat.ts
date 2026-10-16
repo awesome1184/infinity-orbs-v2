@@ -179,7 +179,7 @@ export function addCombatGearToInventory(state: CombatState, item: CombatGear, m
     let removable = -1;
     for (let index = state.inventory.length - 1; index >= 0; index -= 1) {
       const candidate = state.inventory[index]!;
-      const equipped = candidate.id === state.equipment.weapon || candidate.id === state.equipment.armor;
+      const equipped = Object.values(state.equipment).includes(candidate.id);
       if (!equipped) { removable = index; break; }
     }
     if (removable < 0) break;
