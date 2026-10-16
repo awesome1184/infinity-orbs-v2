@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { combatOrbDamageMultiplier, combatStatsFor, createCombatState } from '../src/shared/combat.js';
+import { combatDelayedHealForDamage, combatOrbDamageMultiplier, combatStatsFor, createCombatState } from '../src/shared/combat.js';
 
 test('orb rarity scales base damage monotonically from a 1x baseline', () => {
   assert.equal(combatOrbDamageMultiplier(0), 1);
@@ -32,4 +32,11 @@ test('starter armor is represented by the chest slot in the new loadout', () => 
   const chest = state.inventory.find(item => item.id === state.equipment.chest);
   assert.ok(chest);
   assert.equal(chest.slot, 'chest');
+});
+
+test('major ability restores 15% of the damage taken on the following beat', () => {
+  assert.equal(combatDelayedHealForDamage(100, .15), 15);
+  assert.equal(combatDelayedHealForDamage(101, .15), 15);
+  assert.equal(combatDelayedHealForDamage(0, .15), 0);
+  assert.equal(combatDelayedHealForDamage(100, 2), 100);
 });

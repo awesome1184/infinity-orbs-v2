@@ -1,7 +1,7 @@
 import { context, redis } from './devvit-mock.js';
 import { loadRaw } from './game.js';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatDungeonId, CombatEnemy, CombatGear, CombatGearSlot, CombatIntent, CombatOrbRoll, CombatSkillId, CombatSnapshot, CombatState, CombatTactic, CombatTrait, CombatMajorAbility } from '../shared/combat.js';
-import { calculateCombatArenaRatingUpdate, chooseAutoCombatIntent, COMBAT_INVENTORY_CAP, COMBAT_SKILLS, SKILL_RANK_CAP, addCombatGearToInventory, applyCombatSkillCopy, combatOrbDamageMultiplier, combatStatsFor, createCombatState, getEnemyForDungeonDepth, skillPullCost, synchronizeCombatStats } from '../shared/combat.js';
+import { calculateCombatArenaRatingUpdate, chooseAutoCombatIntent, COMBAT_INVENTORY_CAP, COMBAT_SKILLS, SKILL_RANK_CAP, addCombatGearToInventory, applyCombatSkillCopy, combatDelayedHealForDamage, combatOrbDamageMultiplier, combatStatsFor, createCombatState, getEnemyForDungeonDepth, skillPullCost, synchronizeCombatStats } from '../shared/combat.js';
 import { getOrbInfo, luckMultiplier, rollContinuum } from '../shared/game.js';
 
 const MAX_CAS_ATTEMPTS=8, INVENTORY_CAP=COMBAT_INVENTORY_CAP;
@@ -123,7 +123,7 @@ function createGear(depth:number):CombatGear {
     ? Math.min(.30,.05+quality*.0025)
     : secureRandom()<.28 ? Math.min(.30,.06+quality*.0028) : 0;
   const majorAbilityChance = quality>=90 ? .25 : quality>=70 ? .12 : quality>=40 ? .04 : quality>=15 ? .01 : .0025;
-  const majorAbility:CombatMajorAbility|undefined=secureRandom()<majorAbilityChance?{id:'second-dawn',name:'Second Dawn',trigger:'on-damage',healPercent:.15,description:'After taking damage, heal 15% of Max HP at the start of your next turn.'}:undefined;
+  const majorAbility:CombatMajorAbility|undefined=secureRandom()<majorAbilityChance?{id:'second-dawn',name:'Second Dawn',trigger:'on-damage',healPercent:.15,description:'After taking damage, recover 15% of the damage taken at the start of your next turn.'}:undefined;
   const firstWord=pick(firstWords),secondWord=pick(secondWords.filter(word=>word!==firstWord));
   return {id:'gear-'+Date.now().toString(36)+'-'+Math.floor(secureRandom()*0x7fffffff).toString(36),name:firstWord+' '+secondWord+' '+pick(nouns[slot]),slot,quality,floor:Math.max(1,Math.floor(depth)),power,trait,effect:traitText(trait),damageBonus,speedBonus,maxHealthBonus,armorBonus,critChanceBonus,...(majorAbility?{majorAbility}:{})};
 }
@@ -181,7 +181,7 @@ export async function performCombatBeat(sequence:number,intent:CombatCommand):Pr
     let enemy=getEnemyForDungeonDepth(s.dungeonId,s.depth);const stats=combatStatsFor(s);
     // One real, cryptographically random orb roll occurs on every accepted combat beat.
     const orbRarity=rollContinuum(orbLuck,secureRandom),orbInfo=getOrbInfo(orbRarity),damageMultiplier=combatOrbDamageMultiplier(orbRarity);
-    const orbRoll:CombatOrbRoll={rarity:orbRarity,tier:orbInfo.tier,name:orbInfo.name,damageMultiplier,baseDamage:Math.max(1,Math.round(stats.damage*damageMultiplier))};
+    const orbRoll:CombatOrbRoll={rarity:orbRarity,tier:orbInfo.tier,name:orbInfo.name,color:orbInfo.color,bgGradient:orbInfo.bgGradient,damageMultiplier,baseDamage:Math.max(1,Math.round(stats.damage*damageMultiplier))};
     actions.push({actor:'player',kind:'ability',text:'Orb roll: '+orbInfo.name+' · 1 / '+orbRarity.toLocaleString()+' · ×'+damageMultiplier.toFixed(2)+' damage.'});
     const resolvedIntent:CombatIntent=intent==='auto'?chooseAutoCombatIntent(s):intent;
     const playerActions=Math.min(12,Math.max(0,Math.floor(s.combatBeats*stats.speed/100)-s.playerActionsResolved));
@@ -218,10 +218,10 @@ export async function performCombatBeat(sequence:number,intent:CombatCommand):Pr
       if(enemy.boss&&s.combatBeats%4===0){incoming=Math.round(incoming*1.75);strike='The '+enemy.name+' cleaves for ';}
       else if(enemy.id.endsWith('ember-acolyte')&&s.combatBeats%3===0){incoming+=Math.round(s.maxHealth*.035);strike='The Ember Acolyte burns for ';}
       if(s.guardBeats>0){incoming=Math.round(incoming*.45);guardWasUsed=true;}
-      incoming=Math.max(1,Math.round(incoming*(1-stats.damageReduction)));s.health=Math.max(0,s.health-incoming);
+      incoming=Math.max(1,Math.round(incoming*(1-stats.damageReduction)));const damageTaken=Math.min(s.health,incoming);s.health=Math.max(0,s.health-incoming);
       actions.push({actor:'enemy',kind:'attack',damage:incoming,text:strike+incoming+' damage.'});
       const defensiveAbility=s.inventory.find(g=>g.majorAbility?.trigger==='on-damage'&&Object.values(s.equipment).includes(g.id))?.majorAbility;
-      if(defensiveAbility&&s.pendingHealAmount===0){s.pendingHealAmount=Math.max(1,Math.round(s.maxHealth*defensiveAbility.healPercent));actions.push({actor:'player',kind:'ability',text:defensiveAbility.name+' triggered: '+Math.round(defensiveAbility.healPercent*100)+'% Max HP healing queued for your next turn.'});}
+      if(defensiveAbility&&damageTaken>0){const healAmount=combatDelayedHealForDamage(damageTaken,defensiveAbility.healPercent);if(healAmount>0){s.pendingHealAmount=Math.min(Number.MAX_SAFE_INTEGER,s.pendingHealAmount+healAmount);actions.push({actor:'player',kind:'ability',text:defensiveAbility.name+' triggered: '+healAmount.toLocaleString()+' HP (15% of damage taken) queued for your next turn.'});}}
       if(s.health<=0){died=true;s.pendingHealAmount=0;actions.push({actor:'enemy',kind:'death',text:'Run '+s.runId+' ended at Depth '+s.depth+'. Permanent progress retained.'});s.runId+=1;s.depth=1;s.health=s.maxHealth;s.combatBeats=0;s.playerActionsResolved=0;s.enemyActionsResolved=0;s.energy=Math.min(s.maxEnergy,3);s.guardBeats=0;s.encounterFirstStrikeUsed=false;s.enemyHp=getEnemyForDungeonDepth(s.dungeonId,1).maxHp;actions.push({actor:'player',kind:'advance',text:'A new descent begins automatically at Depth 1.'});break;}
     }
     if(guardWasUsed)s.guardBeats=0;

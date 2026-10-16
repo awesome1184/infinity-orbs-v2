@@ -8,7 +8,7 @@ export type CombatSkillStat = 'damagePct' | 'speedFlat' | 'healthPct' | 'critCha
 export type CombatTrait = 'bleed' | 'keen' | 'first-strike' | 'bulwark' | 'regeneration' | 'desperation';
 export type CombatGearSlot = 'weapon' | 'helmet' | 'chest' | 'gloves' | 'boots' | 'ring' | 'amulet';
 export interface CombatMajorAbility { id: 'second-dawn'; name: string; trigger: 'on-damage'; healPercent: number; description: string; }
-export interface CombatOrbRoll { rarity: number; tier: string; name: string; damageMultiplier: number; baseDamage: number; }
+export interface CombatOrbRoll { rarity: number; tier: string; name: string; color: string; bgGradient: string; damageMultiplier: number; baseDamage: number; }
 
 export interface CombatGear {
   id: string;
@@ -165,6 +165,13 @@ export interface CombatArenaResult {
 export function combatOrbDamageMultiplier(rarity: number): number {
   const safeRarity = Number.isFinite(Number(rarity)) ? Math.max(2, Number(rarity)) : 2;
   return Math.max(1, Math.min(20, 1 + Math.log10(safeRarity / 2)));
+}
+
+/** Convert a real hit into the amount recovered at the start of the next beat. */
+export function combatDelayedHealForDamage(damageTaken: number, healPercent: number): number {
+  const safeDamage = Number.isFinite(Number(damageTaken)) ? Math.max(0, Number(damageTaken)) : 0;
+  const safePercent = Number.isFinite(Number(healPercent)) ? Math.max(0, Math.min(1, Number(healPercent))) : 0;
+  return Math.round(safeDamage * safePercent);
 }
 
 export const SKILL_RANK_CAP = 5;

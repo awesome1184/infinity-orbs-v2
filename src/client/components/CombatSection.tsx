@@ -179,7 +179,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
         <div className="io-combat-stage-foot"><span><Zap size={14}/> {state.energy}/{state.maxEnergy} ENERGY</span><span>{fmt(stats.speed)} SPD</span><span>{fmt(stats.damage)} BASE DMG</span><span>{percent(stats.critChance)} CRIT</span></div>
       </div>
       <div className={'io-combat-orb-panel '+(lastOrb?'has-orb':'')} aria-live="polite">
-        <div className="io-combat-orb-art"><span>✦</span></div>
+        <div className="io-combat-orb-art" style={lastOrb?{background:lastOrb.bgGradient,borderColor:lastOrb.color,color:lastOrb.color,boxShadow:`0 0 26px ${lastOrb.color}66, inset 0 0 12px rgba(255,255,255,.17)`}:undefined}><span>✦</span></div>
         <div className="io-combat-orb-copy"><span className="io-combat-eyebrow">{processing?'ROLLING THIS BEAT':'LAST BEAT ORB'} {lastOrb?'· '+lastOrb.tier.toUpperCase():'· AWAITING FIRST ROLL'}</span><h2>{lastOrb?lastOrb.name:'Every beat rolls an orb'}</h2><p>{lastOrb?'Rarity 1 / '+fmt(lastOrb.rarity)+' · Damage multiplier ×'+lastOrb.damageMultiplier.toFixed(2):'Orb rarity directly scales every attack on the beat.'}</p></div>
         <div className="io-combat-orb-damage"><span>ORB BASE DAMAGE</span><strong>{lastOrb?fmt(lastOrb.baseDamage):'—'}</strong><small>{lastOrb?'before crits and abilities':'not rolled yet'}</small></div>
       </div>
