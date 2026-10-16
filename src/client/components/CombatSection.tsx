@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, Pause, Play, Sparkles, Swords, Zap } from 'lucide-react';
-import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatEnemy, CombatGear, CombatIntent, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats, CombatTactic } from '../../shared/combat.js';
+import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatEnemy, CombatGear, CombatGearSlot, CombatIntent, CombatOrbRoll, CombatPage, CombatSkillDefinition, CombatSnapshot, CombatState, CombatStats, CombatTactic } from '../../shared/combat.js';
 import { COMBAT_SKILLS, SKILL_RANK_CAP, skillPullCost, undercryptOrbLuckMultiplier, undercryptWardensDefeated } from '../../shared/combat.js';
 
 interface Props { page: CombatPage; onNavigate:(page:CombatPage)=>void; }
 interface ApiResponse extends CombatSnapshot {
-  actions?:CombatAction[]; defeated?:boolean; died?:boolean; item?:CombatGear;
+  actions?:CombatAction[]; defeated?:boolean; died?:boolean; item?:CombatGear; orbRoll?:CombatOrbRoll;
   skillRoll?:{id:string;name:string;rarity:string;rank:number;duplicate:boolean;convertedCoins:number}; cost?:number;
   arenaResult?:CombatArenaResult;
 }
@@ -19,18 +19,38 @@ const fmt=(n:number)=>Math.max(0,Math.floor(n||0)).toLocaleString();
 const percent=(n:number)=>(n*100).toFixed(1)+'%';
 const rarityClass=(rarity:string)=>'io-rarity-'+rarity.toLowerCase();
 const rankOf=(state:CombatState,id:string)=>Math.max(0,Math.min(SKILL_RANK_CAP,Math.floor(Number(state.skillLevels[id as keyof typeof state.skillLevels])||0)));
-const equipped=(state:CombatState,slot:'weapon'|'armor')=>state.inventory.find(item=>item.id===state.equipment[slot]&&item.slot===slot)??null;
+const GEAR_SLOTS:{slot:CombatGearSlot;label:string}[]=[
+  {slot:'weapon',label:'Weapon'},{slot:'helmet',label:'Helmet'},{slot:'chest',label:'Chest'},{slot:'gloves',label:'Gloves'},
+  {slot:'boots',label:'Boots'},{slot:'ring',label:'Ring'},{slot:'amulet',label:'Amulet'},
+];
+const slotLabel=(slot:CombatGearSlot)=>GEAR_SLOTS.find(entry=>entry.slot===slot)?.label??slot;
+const equipped=(state:CombatState,slot:CombatGearSlot)=>state.inventory.find(item=>item.id===state.equipment[slot]&&item.slot===slot)??null;
 function skillValue(skill:CombatSkillDefinition,rank:number):string {
   const amount=skill.value*rank;
   return skill.stat==='speedFlat'?'+'+fmt(amount)+' Speed':skill.stat==='critChance'?'+'+(amount*100).toFixed(1)+' percentage points critical chance':'+'+(amount*100).toFixed(1)+'% '+(skill.stat==='damagePct'?'damage':skill.stat==='healthPct'?'max HP':'Delver Coins');
 }
 function GearCard({item,isEquipped,onEquip,busy}:{item:CombatGear;isEquipped:boolean;onEquip:()=>void;busy:boolean}) {
   const grade=item.quality>=90?'Mythic':item.quality>=70?'Epic':item.quality>=40?'Rare':item.quality>=15?'Uncommon':'Common';
-  return <article className={'io-combat-gear-card '+rarityClass(grade)}>
-    <div className="io-combat-gear-head"><div><span className="io-combat-eyebrow">{item.slot==='weapon'?'WEAPON':'ARMOR'} · {item.quality.toFixed(2)}% QUALITY</span><h3>{item.name}</h3></div><span className="io-combat-power">PWR {fmt(item.power)}</span></div>
-    <p>{item.effect}</p><div className="io-combat-gear-stats">
-      {item.damageBonus>0&&<span>+{fmt(item.damageBonus)} DMG</span>}{item.speedBonus>0&&<span>+{fmt(item.speedBonus)} SPD</span>}{item.maxHealthBonus>0&&<span>+{fmt(item.maxHealthBonus)} MAX HP</span>}
-    </div><button type="button" disabled={busy||isEquipped} onClick={onEquip} className={isEquipped?'io-combat-button is-equipped':'io-combat-button'}>{isEquipped?<><Check size={14}/> Equipped</>:'Equip'}</button>
+  const bonuses=[
+    item.damageBonus>0?{label:'+'+fmt(item.damageBonus)+' DMG',detail:'Adds this amount to base damage'}:null,
+    item.speedBonus>0?{label:'+'+fmt(item.speedBonus)+' SPD',detail:'Advances turn frequency'}:null,
+    item.maxHealthBonus>0?{label:'+'+fmt(item.maxHealthBonus)+' MAX HP',detail:'Increases maximum health'}:null,
+    item.armorBonus>0?{label:'+'+fmt(item.armorBonus)+' ARMOR',detail:'Reduces incoming damage'}:null,
+    item.critChanceBonus>0?{label:'+'+(item.critChanceBonus*100).toFixed(1)+'% CRIT',detail:'Adds critical-hit chance'}:null,
+  ].filter((entry):entry is {label:string;detail:string}=>Boolean(entry));
+  return <article tabIndex={0} className={'io-combat-gear-card '+rarityClass(grade)}>
+    <div className="io-combat-gear-head"><div><span className="io-combat-eyebrow">{item.quality.toFixed(2)}% · F{fmt(item.floor)} · {slotLabel(item.slot).toUpperCase()}</span><h3>{item.name}</h3></div><span className="io-combat-power">PWR {fmt(item.power)}</span></div>
+    <p>{item.effect}</p>
+    <div className="io-combat-gear-stats">{bonuses.map(stat=><span key={stat.label} title={stat.detail}>{stat.label}</span>)}</div>
+    {item.majorAbility&&<div className="io-combat-major-ability"><span>✦ MAJOR ABILITY</span><strong>{item.majorAbility.name}</strong><p>{item.majorAbility.description}</p></div>}
+    <div className="io-combat-gear-tooltip" role="tooltip">
+      <span className="io-combat-eyebrow">{grade.toUpperCase()} ITEM · {item.quality.toFixed(2)}% QUALITY · FLOOR {fmt(item.floor)}</span>
+      <strong>{item.name}</strong><p>{slotLabel(item.slot)} · Power {fmt(item.power)}</p>
+      <div>{bonuses.length?bonuses.map(stat=><span key={stat.label}>{stat.label}</span>):<span>No direct stat bonuses</span>}</div>
+      <p>{item.effect}</p>
+      {item.majorAbility&&<section><b>✦ {item.majorAbility.name}</b><p>{item.majorAbility.description}</p></section>}
+    </div>
+    <button type="button" disabled={busy||isEquipped} onClick={onEquip} className={isEquipped?'io-combat-button is-equipped':'io-combat-button'}>{isEquipped?<><Check size={14}/> Equipped</>:'Equip'}</button>
   </article>;
 }
 export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
@@ -38,6 +58,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   const [enemy,setEnemy]=useState<CombatEnemy|null>(null);
   const [stats,setStats]=useState<CombatStats|null>(null);
   const [actions,setActions]=useState<CombatAction[]>([]);
+  const [lastOrb,setLastOrb]=useState<CombatOrbRoll|null>(null);
   const [loading,setLoading]=useState(true),[processing,setProcessing]=useState(false),[mutating,setMutating]=useState(false);
   const [auto,setAuto]=useState(true),[paused,setPaused]=useState(false),[intent,setIntent]=useState<CombatIntent>('strike');
   const [showAllSkills,setShowAllSkills]=useState(true);
@@ -97,7 +118,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     runtime.current.beatPromise=thisBeat;
     try {
       const result=await request<ApiResponse>('/api/combat/beat','POST',{sequence:current.sequence+1,intent:beatIntent});
-      accept(result);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));
+      accept(result);if(result.orbRoll)setLastOrb(result.orbRoll);if(result.actions?.length)setActions(old=>[...result.actions!,...old].slice(0,30));
       if(queuedIntent){runtime.current.pendingIntent=false;runtime.current.intent='strike';setIntent('strike');}
       setError('');
     } catch(e) {
@@ -133,7 +154,7 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
   if(loading&&!state)return <section className="io-combat-screen"><div className="io-combat-loading">ENTERING THE UNDERCRYPT…</div></section>;
   if(!state||!enemy||!stats)return <section className="io-combat-screen"><header className="io-combat-page-head"><div><span className="io-combat-eyebrow">COMBAT SYSTEM</span><h1>Could not enter the Undercrypt</h1></div></header><p className="io-combat-error">{error||'Combat data unavailable.'}</p><button type="button" className="io-combat-button" onClick={()=>{setLoading(true);void load();}}>Retry</button></section>;
 
-  const weapon=equipped(state,'weapon'), armor=equipped(state,'armor');
+  const weapon=equipped(state,'weapon'), armor=equipped(state,'chest');
   const ownedSkills=Object.entries(state.skillLevels).filter(([,v])=>Number(v)>0);
   const nextBoss=(Math.floor((state.depth-1)/10)+1)*10;
   const undercryptBestDepth=state.dungeonBestDepths.undercrypt;
@@ -154,13 +175,37 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
           <div className="io-combat-versus">VS</div>
           <div className="io-combat-combatant io-combat-foe"><div className="io-combat-sprite">{enemy.emoji}</div><div className="io-combat-name">{enemy.name.toUpperCase()}</div><div className="io-combat-hp is-enemy"><span style={{width:enemyPct+'%'}}/></div><small>{fmt(enemy.hp)} / {fmt(enemy.maxHp)} HP</small></div>
         </div>
-        <div className="io-combat-stage-foot"><span><Zap size={14}/> {state.energy}/{state.maxEnergy} ENERGY</span><span>{fmt(stats.speed)} SPD</span><span>{fmt(stats.damage)} DMG</span><span>{percent(stats.critChance)} CRIT</span></div>
+        <div className="io-combat-stage-foot"><span><Zap size={14}/> {state.energy}/{state.maxEnergy} ENERGY</span><span>{fmt(stats.speed)} SPD</span><span>{fmt(stats.damage)} BASE DMG</span><span>{percent(stats.critChance)} CRIT</span></div>
       </div>
+      <div className={'io-combat-orb-panel '+(lastOrb?'has-orb':'')} aria-live="polite">
+        <div className="io-combat-orb-art"><span>✦</span></div>
+        <div className="io-combat-orb-copy"><span className="io-combat-eyebrow">{processing?'ROLLING THIS BEAT':'LAST BEAT ORB'} {lastOrb?'· '+lastOrb.tier.toUpperCase():'· AWAITING FIRST ROLL'}</span><h2>{lastOrb?lastOrb.name:'Every beat rolls an orb'}</h2><p>{lastOrb?'Rarity 1 / '+fmt(lastOrb.rarity)+' · Damage multiplier ×'+lastOrb.damageMultiplier.toFixed(2):'Orb rarity directly scales every attack on the beat.'}</p></div>
+        <div className="io-combat-orb-damage"><span>ORB BASE DAMAGE</span><strong>{lastOrb?fmt(lastOrb.baseDamage):'—'}</strong><small>{lastOrb?'before crits and abilities':'not rolled yet'}</small></div>
+      </div>
+      {(()=>{
+        const playerNext=(state.playerActionsResolved+1)*100/Math.max(1,stats.speed);
+        const enemyNext=(state.enemyActionsResolved+1)*100/Math.max(1,enemy.speed);
+        const playerCharge=Math.round(100*(1-Math.min(1,Math.max(0,playerNext-state.combatBeats))));
+        const enemyCharge=Math.round(100*(1-Math.min(1,Math.max(0,enemyNext-state.combatBeats))));
+        const events=[
+          ...Array.from({length:5},(_,i)=>({actor:'player' as const,time:(state.playerActionsResolved+i+1)*100/Math.max(1,stats.speed),step:i})),
+          ...Array.from({length:5},(_,i)=>({actor:'enemy' as const,time:(state.enemyActionsResolved+i+1)*100/Math.max(1,enemy.speed),step:i})),
+        ].sort((a,b)=>a.time-b.time).slice(0,7);
+        const nextActor=playerNext<=enemyNext?'player':'enemy';
+        return <section className="io-combat-turn-tracker" aria-label="Combat speed and turn order">
+          <div className="io-combat-turn-head"><div><span className="io-combat-eyebrow">SPEED & INITIATIVE</span><h2>Turn order</h2></div><strong>Next: {nextActor==='player'?'DELVER':enemy.name.toUpperCase()}</strong></div>
+          <div className="io-combat-speed-bars">
+            <div className="io-combat-speed-row"><span>∞ DELVER <b>{fmt(stats.speed)} SPD</b></span><div className="io-combat-speed-track"><span className="is-player" style={{width:playerCharge+'%'}}/></div><strong>{playerCharge}%</strong></div>
+            <div className="io-combat-speed-row"><span>{enemy.emoji} {enemy.name.toUpperCase()} <b>{fmt(enemy.speed)} SPD</b></span><div className="io-combat-speed-track"><span className="is-enemy" style={{width:enemyCharge+'%'}}/></div><strong>{enemyCharge}%</strong></div>
+          </div>
+          <div className="io-combat-turn-sequence">{events.map((event,index)=><div key={event.actor+'-'+event.step} className={'io-combat-turn-chip '+(index===0?'is-next':'')+(event.actor==='enemy'?' is-foe':'')}><small>{index===0?'NEXT':index===1?'THEN':'+'+(index+1)}</small><strong>{event.actor==='player'?'DELVER':enemy.name}</strong><span>{Math.max(0,event.time-state.combatBeats).toFixed(2)} beats</span></div>)}</div>
+        </section>;
+      })()}
       <div className="io-combat-tactic-row"><label htmlFor="io-combat-auto-tactic"><span className="io-combat-eyebrow">AUTO TACTIC</span><strong>{state.autoTactic==='balanced'?'Balanced':state.autoTactic==='aggressive'?'Aggressive':state.autoTactic==='defensive'?'Defensive':'Recovery'}</strong></label><select id="io-combat-auto-tactic" value={state.autoTactic} disabled={mutating} onChange={event=>void mutate('/api/combat/tactics',{tactic:event.target.value as CombatTactic})}><option value="balanced">Balanced — heal low, otherwise strike hard</option><option value="aggressive">Aggressive — spend energy on Heavy</option><option value="defensive">Defensive — heal and guard earlier</option><option value="recovery">Recovery — prioritize staying healthy</option></select></div>
       <div className="io-combat-control-row"><div className="io-combat-command-group">{(['strike','heavy','guard','mend'] as CombatIntent[]).map(cmd=><button key={cmd} type="button" onClick={()=>{runtime.current.intent=cmd;runtime.current.pendingIntent=true;setIntent(cmd);}} className={intent===cmd?'io-combat-command is-selected':'io-combat-command'}><span>{cmd==='strike'?'Strike':cmd==='heavy'?'Heavy':cmd==='guard'?'Guard':'Mend'}</span><small>{cmd==='strike'?'FREE':cmd==='heavy'?'3 EN':cmd==='guard'?'2 EN':'4 EN'}</small></button>)}</div><div className="io-combat-run-controls"><button type="button" className="io-combat-button" onClick={()=>setPaused(!paused)}>{paused?<Play size={14}/>:<Pause size={14}/>} {paused?'Resume':'Pause'}</button><button type="button" className="io-combat-button" onClick={()=>setAuto(!auto)}>Auto: {auto?'ON':'OFF'}</button><button type="button" disabled={processing} className="io-combat-button is-secondary" onClick={manualBeat}>{processing?'Resolving…':'Next Beat'}</button></div></div>
       <div className="io-combat-stat-strip"><div><span>DELVER COINS</span><strong>{fmt(state.coins)}</strong></div><div><span>GEAR CARRIED</span><strong>{state.inventory.length}/30</strong></div><div><span>SKILL RANKS</span><strong>{ownedSkills.reduce((n,[,v])=>n+Number(v),0)}</strong></div><div><span>KILLS</span><strong>{fmt(state.totalKills)}</strong></div></div>
       <div className="io-combat-columns"><section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">FIELD NOTES</span><h2>Combat log</h2></div><span>{processing?'RESOLVING':paused?'PAUSED':auto?'AUTO-RUN':'MANUAL'}</span></div><div className="io-combat-log" aria-live="polite">{actions.length?actions.map((a,i)=><p key={state.sequence+'-'+i} className={'io-log-'+a.actor+' io-log-'+a.kind}>{a.text}</p>):<p>The Delver readies a weapon. The first beat is imminent.</p>}</div></section>
-        <section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">YOUR LOADOUT</span><h2>Equipped</h2></div><button className="io-combat-text-link" type="button" onClick={()=>onNavigate('gear')}>Armory →</button></div><div className="io-combat-equipped-line"><span>WEAPON</span><strong>{weapon?.name||'Empty slot'}</strong><small>{weapon?.effect||'No effect'}</small></div><div className="io-combat-equipped-line"><span>ARMOR</span><strong>{armor?.name||'Empty slot'}</strong><small>{armor?.effect||'No effect'}</small></div><button className="io-combat-button is-primary" type="button" onClick={()=>onNavigate('skills')}>Open Skill Gacha</button></section></div>
+        <section className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">YOUR LOADOUT</span><h2>Equipped</h2></div><button className="io-combat-text-link" type="button" onClick={()=>onNavigate('gear')}>Armory →</button></div><div className="io-combat-equipped-lines">{GEAR_SLOTS.map(({slot,label})=>{const item=equipped(state,slot);return <div className="io-combat-equipped-line" key={slot}><span>{label.toUpperCase()}</span><strong>{item?.name||'Empty slot'}</strong><small>{item?item.effect:'No item equipped'}</small></div>;})}</div><button className="io-combat-button is-primary" type="button" onClick={()=>onNavigate('skills')}>Open Skill Gacha</button></section></div>
     </>}
 
     {page==='dungeons'&&<>
@@ -177,8 +222,8 @@ export const CombatSection:React.FC<Props>=({page,onNavigate})=>{
     </>}
 
     {page==='gear'&&<>
-      <div className="io-combat-stat-strip"><div><span>WEAPON DAMAGE</span><strong>+{fmt(weapon?.damageBonus||0)}</strong></div><div><span>WEAPON SPEED</span><strong>+{fmt(weapon?.speedBonus||0)}</strong></div><div><span>ARMOR HEALTH</span><strong>+{fmt(armor?.maxHealthBonus||0)}</strong></div><div><span>DAMAGE MITIGATION</span><strong>{percent(stats.damageReduction)}</strong></div></div>
-      <div className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">ACTIVE BUILD</span><h2>Every stat matters</h2></div></div><div className="io-combat-equipped-grid">{([{slot:'weapon' as const,item:weapon,label:'WEAPON'},{slot:'armor' as const,item:armor,label:'ARMOR'}]).map(s=><div className="io-combat-equipped-card" key={s.slot}><span>{s.label}</span><strong>{s.item?.name||'Empty'}</strong><p>{s.item?.effect||'No special effect.'}</p><small>{s.slot==='weapon'?'+'+fmt(s.item?.damageBonus||0)+' DMG · +'+fmt(s.item?.speedBonus||0)+' SPD':'+'+fmt(s.item?.maxHealthBonus||0)+' MAX HP'}</small></div>)}</div></div>
+      <div className="io-combat-stat-strip"><div><span>BASE DAMAGE</span><strong>{fmt(stats.damage)}</strong></div><div><span>SPEED</span><strong>{fmt(stats.speed)}</strong></div><div><span>ARMOR</span><strong>{fmt(stats.armor)}</strong></div><div><span>CRIT CHANCE</span><strong>{percent(stats.critChance)}</strong></div></div>
+      <div className="io-combat-panel"><div className="io-combat-panel-head"><div><span className="io-combat-eyebrow">ACTIVE BUILD</span><h2>Equipment slots</h2></div></div><div className="io-combat-equipped-grid io-combat-equipment-slot-grid">{GEAR_SLOTS.map(({slot,label})=>{const item=equipped(state,slot);return <div className="io-combat-equipped-card" key={slot}><span>{label.toUpperCase()}</span><strong>{item?.name||'Empty slot'}</strong><p>{item?.effect||'No item equipped.'}</p><small>{item?['+'+fmt(item.damageBonus)+' DMG','+'+fmt(item.speedBonus)+' SPD','+'+fmt(item.maxHealthBonus)+' HP','+'+fmt(item.armorBonus)+' ARMOR','+'+(item.critChanceBonus*100).toFixed(1)+'% CRIT'].join(' · '):'Equip an item from your bag.'}</small>{item?.majorAbility&&<p className="io-combat-major-inline">✦ {item.majorAbility.name}: {item.majorAbility.description}</p>}</div>;})}</div></div>
       <div className="io-combat-inventory-head"><div><span className="io-combat-eyebrow">BAG</span><h2>Collected gear</h2></div><span>{state.inventory.length} / 30 · newest first</span></div>
       <div className="io-combat-gear-grid">{state.inventory.map(item=><GearCard key={item.id} item={item} isEquipped={state.equipment[item.slot]===item.id} busy={mutating} onEquip={()=>void mutate('/api/combat/equip',{itemId:item.id})}/>)}</div>
     </>}
