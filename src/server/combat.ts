@@ -68,7 +68,6 @@ function normalizeState(raw:string|null|undefined):CombatState {
   const inv=Array.isArray(s.inventory)?s.inventory.map(normalizeGear).filter((g):g is CombatGear=>Boolean(g)):[];
   s.inventory=inv.length?inv:createCombatState().inventory;
   const savedEquipment=(s.equipment&&typeof s.equipment==='object'?s.equipment:{}) as Record<string,unknown>;
-  const preferredWeaponId=typeof savedEquipment.weapon==='string'?savedEquipment.weapon:null;
   const preferredIds=new Set(Object.values(savedEquipment).filter((value):value is string=>typeof value==='string'));
   const legacyChestId=typeof savedEquipment.chest==='string'?savedEquipment.chest:typeof savedEquipment.armor==='string'?savedEquipment.armor:null;
   if(legacyChestId)preferredIds.add(legacyChestId);
@@ -112,7 +111,8 @@ function createGear(depth:number):CombatGear {
   const critChanceBonus=slot==='ring'||slot==='amulet'?Math.min(.30,.05+quality*.0025):slot==='weapon'||slot==='helmet'?Math.min(.15,quality*.001):0;
   const majorAbilityChance=quality>=90?.25:quality>=70?.12:quality>=40?.04:quality>=15?.01:.0025;
   const majorAbility:CombatMajorAbility|undefined=secureRandom()<majorAbilityChance?{id:'second-dawn',name:'Second Dawn',trigger:'on-damage',healPercent:.15,description:'After taking damage, heal 15% of Max HP at the start of your next turn.'}:undefined;
-  return {id:'gear-'+Date.now().toString(36)+'-'+Math.floor(secureRandom()*0x7fffffff).toString(36),name:pick(firstWords)+' '+pick(secondWords)+' '+pick(nouns[slot]),slot,quality,floor:Math.max(1,Math.floor(depth)),power,trait,effect:traitText(trait),damageBonus,speedBonus,maxHealthBonus,armorBonus,critChanceBonus,...(majorAbility?{majorAbility}:{})};
+  const firstWord=pick(firstWords),secondWord=pick(secondWords.filter(word=>word!==firstWord));
+  return {id:'gear-'+Date.now().toString(36)+'-'+Math.floor(secureRandom()*0x7fffffff).toString(36),name:firstWord+' '+secondWord+' '+pick(nouns[slot]),slot,quality,floor:Math.max(1,Math.floor(depth)),power,trait,effect:traitText(trait),damageBonus,speedBonus,maxHealthBonus,armorBonus,critChanceBonus,...(majorAbility?{majorAbility}:{})};
 }
 function enemySnapshot(s:CombatState):CombatEnemy { const e=getEnemyForDungeonDepth(s.dungeonId,s.depth); return {...e,hp:Math.max(0,Math.min(e.maxHp,s.enemyHp||e.maxHp))}; }
 function snapshot(s:CombatState):CombatSnapshot { return {state:s,enemy:enemySnapshot(s),stats:synchronizeCombatStats(s)}; }
@@ -344,8 +344,8 @@ function resolveArenaDuel(challengerState: CombatState, opponentState: CombatSta
       const actor = isChallenger ? challenger : opponent;
       const actorHp = () => isChallenger ? challengerHp : opponentHp;
       const foeHp = () => isChallenger ? opponentHp : challengerHp;
-      const ownArmor = actor.state.inventory.find(item => item.id === actor.state.equipment.chest && item.slot === 'chest');
-      const speed = Math.min(800, actor.stats.speed + (ownArmor?.trait === 'desperation' && actorHp() <= actor.stats.maxHealth * .4 ? 20 : 0));
+      const hasDesperation = Object.values(actor.state.equipment).some(id => actor.state.inventory.some(item => item.id === id && item.trait === 'desperation'));
+       const speed = Math.min(800, actor.stats.speed + (hasDesperation && actorHp() <= actor.stats.maxHealth * .4 ? 20 : 0));
       const actionCount = Math.min(8, Math.max(1, Math.floor(speed / 100)));
       for (let action = 0; action < actionCount && foeHp() > 0; action += 1) attack(side);
       if (challengerHp <= 0 || opponentHp <= 0) break;
