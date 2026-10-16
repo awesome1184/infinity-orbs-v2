@@ -216,7 +216,6 @@ export function combatStatsFor(state: CombatState): CombatStats {
   const equippedItems = (Object.entries(state.equipment) as [CombatGearSlot,string|null][])
     .map(([slot,id]) => state.inventory.find(item => item.id === id && item.slot === slot))
     .filter((item): item is CombatGear => Boolean(item));
-  const weapon = state.inventory.find(item => item.id === state.equipment.weapon && item.slot === 'weapon');
   const armorBonus = equippedItems.reduce((sum,item) => sum + item.armorBonus, 0);
   const damageBonus = equippedItems.reduce((sum,item) => sum + item.damageBonus, 0);
   const speedBonus = equippedItems.reduce((sum,item) => sum + item.speedBonus, 0);
@@ -239,13 +238,14 @@ export function combatStatsFor(state: CombatState): CombatStats {
   const dungeonDamageBonus = state.dungeonId === 'cinder-vault' ? 0.10 : 0;
   const dungeonSpeedBonus = state.dungeonId === 'glass-labyrinth' ? 35 : 0;
   const dungeonCritBonus = state.dungeonId === 'glass-labyrinth' ? 0.05 : 0;
-  const flatDamage = 50 + (Math.max(1,state.level)-1)*4 + (weapon?.damageBonus||0);
-  const flatHealth = 1000 + (Math.max(1,state.level)-1)*30 + (armor?.maxHealthBonus||0);
+  const flatDamage = 50 + (Math.max(1,state.level)-1)*4 + damageBonus;
+  const flatHealth = 1000 + (Math.max(1,state.level)-1)*30 + maxHealthBonus;
   const maxHealth = Math.max(1,Math.round(flatHealth*(1+healthPct)*(1+coreProgressionBonus)));
-  let speed = 300 + (weapon?.speedBonus||0) + speedFlat + dungeonSpeedBonus;
-  if (armor?.trait==='desperation' && state.health>0 && state.health<=maxHealth*.4) speed+=20;
-  if (weapon?.trait==='keen') critChance+=.04;
-  critChance += dungeonCritBonus;
+  let speed = 300 + speedBonus + speedFlat + dungeonSpeedBonus;
+  if (hasDesperation && state.health>0 && state.health<=maxHealth*.4) speed+=20;
+  if (hasKeen) critChance+=.04;
+  critChance += critGearBonus + dungeonCritBonus;
+  const damageReduction = Math.min(.75, Math.max(0, armorBonus / 250) + (hasBulwark ? .04 : 0));
   return {
     damage:Math.max(1,Math.round(flatDamage*(1+damagePct)*(1+coreProgressionBonus)*(1+dungeonDamageBonus))),
     speed:Math.min(800,speed), maxHealth, armor:armorBonus,
