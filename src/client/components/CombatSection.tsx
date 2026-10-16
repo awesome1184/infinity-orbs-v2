@@ -45,7 +45,7 @@ function GearCard({item,isEquipped,onEquip,busy}:{item:CombatGear;isEquipped:boo
     <div className="io-combat-gear-stats">{bonuses.map(stat=><span key={stat.label} title={stat.detail}>{stat.label}</span>)}</div>
     {item.majorAbility&&<div className="io-combat-major-ability"><span>✦ MAJOR ABILITY</span><strong>{item.majorAbility.name}</strong><p>{item.majorAbility.description}</p></div>}
     <div className={'io-combat-gear-tooltip '+(showTooltip?'is-open':'')} role="tooltip">
-      <span className="io-combat-eyebrow">{grade.toUpperCase()} ITEM · {item.quality.toFixed(2)}% QUALITY · FLOOR {fmt(item.floor)}</span>
+      <span className="io-combat-eyebrow">{grade.toUpperCase()} ITEM · {item.quality.toFixed(0)}% QUALITY · FLOOR {fmt(item.floor)}</span>
       <strong>{item.name}</strong><p>{slotLabel(item.slot)} · Power {fmt(item.power)}</p>
       <div>{bonuses.length?bonuses.map(stat=><span key={stat.label}>{stat.label}</span>):<span>No direct stat bonuses</span>}</div>
       <p>{item.effect}</p>
