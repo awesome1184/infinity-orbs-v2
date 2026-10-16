@@ -104,11 +104,12 @@ function createGear(depth:number):CombatGear {
   const trait=slot==='weapon'?pick(weaponTraits):pick(armorTraits);
   const power=Math.max(3,Math.round(Math.min(1_000_000,depth)*(.65+quality/80)));
   const isProtective=['helmet','chest','gloves','boots'].includes(slot);
-  const damageBonus=slot==='weapon'?Math.max(1,Math.round(power*.8)):(slot==='ring'||slot==='amulet'?Math.round(power*.25):0);
-  const speedBonus=slot==='weapon'?Math.min(400,Math.round(power*.25)):slot==='boots'?Math.min(150,Math.max(1,Math.round(power*.18))):slot==='ring'?Math.max(0,Math.round(power*.08)):0;
-  const maxHealthBonus=slot==='chest'?Math.max(5,Math.round(power*4)):slot==='helmet'||slot==='gloves'?Math.max(0,Math.round(power*1.4)):slot==='boots'?Math.max(0,Math.round(power*.65)):0;
-  const armorBonus=isProtective?Math.max(1,Math.round(power*(slot==='chest' ? .55 : .3))):0;
-  const critChanceBonus=slot==='ring'||slot==='amulet'?Math.min(.30,.05+quality*.0025):slot==='weapon'||slot==='helmet'?Math.min(.15,quality*.001):0;
+  // The slot sets a natural bias, but any item can roll useful cross-slot affixes.
+  const damageBonus=slot==='weapon'?Math.max(1,Math.round(power*.8)):secureRandom()<.45?Math.max(1,Math.round(power*.7)):0;
+  const speedBonus=slot==='weapon'?Math.min(400,Math.round(power*.25)):slot==='boots'?Math.min(150,Math.max(1,Math.round(power*.18))):secureRandom()<.2?Math.max(1,Math.round(power*.18)):0;
+  const maxHealthBonus=slot==='chest'?Math.max(5,Math.round(power*4)):isProtective?Math.max(0,Math.round(power*1.4)):secureRandom()<.2?Math.max(1,Math.round(power*.9)):0;
+  const armorBonus=isProtective?Math.max(1,Math.round(power*(slot==='chest' ? .65 : .55))):secureRandom()<.25?Math.max(1,Math.round(power*.3)):0;
+  const critChanceBonus=slot==='ring'||slot==='amulet'?Math.min(.30,.05+quality*.0025):secureRandom()<.28?Math.min(.30,.06+quality*.0028):0;
   const majorAbilityChance=quality>=90 ? .25 : quality>=70 ? .12 : quality>=40 ? .04 : quality>=15 ? .01 : .0025;
   const majorAbility:CombatMajorAbility|undefined=secureRandom()<majorAbilityChance?{id:'second-dawn',name:'Second Dawn',trigger:'on-damage',healPercent:.15,description:'After taking damage, heal 15% of Max HP at the start of your next turn.'}:undefined;
   const firstWord=pick(firstWords),secondWord=pick(secondWords.filter(word=>word!==firstWord));
