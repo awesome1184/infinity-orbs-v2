@@ -1,6 +1,7 @@
 import { context, redis } from './devvit-mock.js';
 import { loadRaw } from './game.js';
 import { getOrbInfo, luckMultiplier, rollContinuum } from '../shared/game.js';
+import { createRuneDrop, normalizeRuneItem, runeBonusesFromLoadout, RUNE_EQUIPMENT_SLOTS, RUNE_INVENTORY_CAP } from '../shared/runes.js';
 import type { CombatAction, CombatArenaProfile, CombatArenaResult, CombatCommand, CombatDungeonId, CombatEnemy, CombatGear, CombatGearSlot, CombatIntent, CombatMajorAbility, CombatOrbRoll, CombatSkillId, CombatSnapshot, CombatState, CombatTactic, CombatTrait, CombatRarity } from '../shared/combat.js';
 import { calculateCombatArenaRatingUpdate, chooseAutoCombatIntent, COMBAT_ABILITY_SLOTS, COMBAT_INVENTORY_CAP, COMBAT_MAX_DEPTH, COMBAT_SKILLS, DEFAULT_COMBAT_AUTO_SCRAP_SETTINGS, SKILL_GACHA_RANK_MAX, SKILL_RANK_CAP, COMBAT_UPGRADES, addCombatGearToInventory, applyCombatSkillCopy, combatMajorAbilityChance, combatOrbDamageMultiplier, combatAbilityType, combatBountyReward, combatEffectiveFlurryBonusAttacks, combatEnergyAfterRegen, combatFlurryAttackMultiplier, combatForgeCost, combatMarkMultiplier, combatScrapValue, combatSkillCooldown, combatSkillEnergyCost, combatSkillCopiesForNextRank, combatStatsFor, combatUpgradeCost, combatUpgradeRank, createCombatState, gearQualityEffectiveness, getEnemyForDungeonDepth, normalizeCombatAutoScrapSettings, resetCombatRunCarry, resolveCombatSkillRarity, skillGachaRankRequirement, skillPullCost, skillRarityUnlocked, synchronizeCombatStats, COMBAT_BEAT_INTERVAL_MS, combatForgeQualityCost } from '../shared/combat.js';
 
@@ -148,6 +149,14 @@ function normalizeState(raw:string|null|undefined):CombatState {
   const ownedSkillIds=COMBAT_SKILLS.filter(skill=>(levels[skill.id]??0)>0).map(skill=>skill.id);
   const requestedEquipped=Array.isArray(p.equippedAbilities)?p.equippedAbilities.filter((id):id is CombatSkillId=>typeof id==='string'&&COMBAT_SKILLS.some(skill=>skill.id===id)&&ownedSkillIds.includes(id)):ownedSkillIds.slice(0,COMBAT_ABILITY_SLOTS);
   s.equippedAbilities=[...new Set(requestedEquipped)].slice(0,COMBAT_ABILITY_SLOTS);
+  const seenRuneIds=new Set<string>();
+  s.runes=(Array.isArray(p.runes)?p.runes:[]).map(normalizeRuneItem).filter((rune):rune is NonNullable<ReturnType<typeof normalizeRuneItem>>=>{
+    if(!rune||seenRuneIds.has(rune.id))return false;
+    seenRuneIds.add(rune.id);return true;
+  }).slice(0,RUNE_INVENTORY_CAP);
+  const ownedRuneIds=new Set(s.runes.map(rune=>rune.id));
+  const savedEquippedRunes=Array.isArray(p.equippedRunes)?p.equippedRunes.filter((id):id is string=>typeof id==='string'&&ownedRuneIds.has(id)):[];
+  s.equippedRunes=[...new Set(savedEquippedRunes)].slice(0,RUNE_EQUIPMENT_SLOTS);
   synchronizeCombatStats(s);
   const enemy=getEnemyForDungeonDepth(s.dungeonId,s.depth);s.enemyHp=finiteInt(s.enemyHp,enemy.maxHp,1,enemy.maxHp);
   return s;
@@ -197,6 +206,26 @@ async function mutate<T>(fn:(s:CombatState)=>T):Promise<T> {
     finally { if(!closed)await txn.unwatch().catch(()=>undefined); }
   }
   throw new Error('Combat state changed repeatedly. Please retry.');
+}
+/** Read a player's permanent Rune stash and main-game bonuses. */
+export async function getCombatRunes():Promise<{runes:CombatState['runes'];equippedRunes:string[];bonuses:ReturnType<typeof runeBonusesFromLoadout>}>{
+  const s=normalizeState(await redis.get(combatKey()));
+  return {runes:s.runes,equippedRunes:s.equippedRunes,bonuses:runeBonusesFromLoadout(s.runes,s.equippedRunes)};
+}
+export async function equipCombatRune(runeIdValue:unknown,equip:boolean):Promise<{runes:CombatState['runes'];equippedRunes:string[];bonuses:ReturnType<typeof runeBonusesFromLoadout>}>{
+  const runeId=typeof runeIdValue==='string'?runeIdValue.trim():'';
+  if(!runeId||runeId.length>160)throw new Error('A valid Rune is required.');
+  return mutate(s=>{
+    const rune=s.runes.find(item=>item.id===runeId);
+    if(!rune)throw new Error('Rune not owned.');
+    if(equip){
+      if(!s.equippedRunes.includes(runeId)){
+        if(s.equippedRunes.length>=RUNE_EQUIPMENT_SLOTS)throw new Error('All Rune slots are full.');
+        s.equippedRunes.push(runeId);
+      }
+    }else s.equippedRunes=s.equippedRunes.filter(id=>id!==runeId);
+    return {runes:s.runes,equippedRunes:s.equippedRunes,bonuses:runeBonusesFromLoadout(s.runes,s.equippedRunes)};
+  });
 }
 /** Read the shared Combat Marks wallet for the global HUD without creating/writing combat state. */
 export async function getCombatMarksBalance():Promise<number>{
@@ -328,6 +357,14 @@ export async function performCombatBeat(sequence:number,intent:CombatCommand,ski
             actions.push({actor:'player',kind:'loot',text:'Auto-scrapped '+item.name+' ('+item.quality.toFixed(2)+'% quality) for '+gained+' Scrap.'});
             item=undefined;
           } else {addCombatGearToInventory(s,item);actions.push({actor:'player',kind:'loot',text:'Gear found: '+item.name+' ('+item.quality.toFixed(2)+'% quality).'});}
+        }
+        const runeDropChance = enemy.boss ? 1 : enemy.kind === 'elite' ? 0.30 : 0.08;
+        if(secureRandom()<runeDropChance){
+          if(s.runes.length<RUNE_INVENTORY_CAP){
+            const rune=createRuneDrop(s.depth,secureRandom,now);
+            s.runes.push(rune);
+            actions.push({actor:'player',kind:'loot',text:'Rune found: '+rune.name+' · '+rune.rarity+' · '+Object.entries(rune.stats).map(([stat,value])=>stat.toUpperCase()+' +'+(Number(value)*100).toFixed(2)+'%').join(', ')+'. Equip it in the Runes menu for permanent main-game bonuses.'});
+          }else actions.push({actor:'player',kind:'loot',text:'Rune found, but your Rune stash is full. Make room in the Runes menu to collect more.'});
         }
         const regeneration=s.inventory.find(g=>Object.values(s.equipment).includes(g.id)&&g.trait==='regeneration');
         if(regeneration&&enemy.kind!=='common'){s.health=Math.min(s.maxHealth,s.health+Math.round(s.maxHealth*.02*gearQualityEffectiveness(regeneration,Math.max(0,s.depth-1))));actions.push({actor:'player',kind:'ability',text:'Regeneration restored 2% max HP.'});}
