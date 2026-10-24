@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   COMBAT_MAX_DEPTH, combatGearQualityFromRoll, combatGearRarityForQuality, combatGearRarityOdds,
   combatActionsDue, combatTurnsCrossedThree, combatGearStatBudgetMultiplier, combatNextBeatDelayMs, combatRuneMajorAbilityChance,
-  combatRuneMajorAbilityMultiplier, combatScrapValue, combatStatsFor, createCombatState,
+  combatRuneMajorAbilityMultiplier, combatRuneMajorAbilityEffects, combatRuneMajorAbilitySummary, combatScrapValue, combatStatsFor, createCombatState,
   getEnemyForDungeonDepth, type CombatRune,
 } from '../src/shared/combat.js';
 
@@ -38,6 +38,20 @@ test('Rune Major Ability chance and strength rise with rarity',()=>{
   assert.ok(combatRuneMajorAbilityChance('Cosmic')>combatRuneMajorAbilityChance('Common'));
   assert.ok(combatRuneMajorAbilityMultiplier('Cosmic')>combatRuneMajorAbilityMultiplier('Mythic'));
   assert.ok(combatRuneMajorAbilityMultiplier('Mythic')>combatRuneMajorAbilityMultiplier('Common'));
+});
+
+test('new Rune Major Abilities add fractional Shard rewards and rarity-floored discovery rolls',()=>{
+  const shardTithe:CombatRune={id:'tithe',name:'Shard Tithe',rarity:'Cosmic',stat:'shardChancePct',value:.035,level:1,sourceDepth:10,sourceDungeon:'undercrypt',majorAbility:{id:'shard-tithe',name:'Shard Tithe',valuePct:20,description:'fractional Shards'}};
+  const discovery:CombatRune={...shardTithe,id:'discovery',majorAbility:{id:'discovery-oracle',name:'Discovery Oracle',valuePct:20,description:'discovery rolls'}};
+  const refinery:CombatRune={...shardTithe,id:'refinery',majorAbility:{id:'dry-streak-refinery',name:'Dry-Streak Refinery',valuePct:20,description:'dry-streak Shards'}};
+  const effects=combatRuneMajorAbilityEffects([shardTithe,discovery,refinery],[shardTithe.id,discovery.id,refinery.id]);
+  assert.equal(effects.shardTithePerRoll,0.001);
+  assert.equal(effects.discoveryOraclePct,20);
+  assert.ok(effects.discoveryOracleBonusRolls>=1);
+  assert.equal(effects.dryStreakRefineryRate,0.0001);
+  assert.match(combatRuneMajorAbilitySummary(shardTithe.majorAbility!,1),/fractional Shards/);
+  assert.match(combatRuneMajorAbilitySummary(discovery.majorAbility!,1),/first-time rarity discovery/i);
+  assert.match(combatRuneMajorAbilitySummary(refinery.majorAbility!,1),/100 rolls since your best rarity/i);
 });
 
 test('Auto cadence derives its deadline from the accepted server beat timestamp',()=>{

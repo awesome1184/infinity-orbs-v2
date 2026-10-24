@@ -161,7 +161,8 @@ test('Prestige explains what resets and groups permanent-upgrade filters', () =>
   const profile = source('src/client/components/ProfileAndPrestige.tsx');
   assert.match(profile, /Before you prestige/);
   assert.match(profile, /Coins retained depend on Cosmic Inheritance \(minimum 50\)/);
-  assert.match(profile, /All Shards, Codex discoveries, permanent upgrades, and cosmetics are kept/);
+  assert.match(profile, /Before you prestige/);
+  assert.doesNotMatch(profile, /cosmetics are kept/i);
   assert.match(profile, /role="group" aria-label="Filter permanent Prestige upgrades"/);
   assert.equal((profile.match(/aria-pressed=\{filterCategory ===/g) || []).length, 4);
 });

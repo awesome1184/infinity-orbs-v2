@@ -52,6 +52,7 @@ import {
   applyLevelProgress,
   createInitialState,
   grantFreeShards,
+  spendShards,
   todayKey,
   canShowDailyFrenzyPrompt,
   frenzyCooldownRemaining,
@@ -63,7 +64,6 @@ import {
   masterySkillCost,
   PREMIUM_BOOSTERS,
   AUTOMATIONS,
-  COSMETICS_LIST,
   FEATURE_UNLOCK_LEVELS,
 
 } from '../shared/game.js';
@@ -90,6 +90,26 @@ import { ChangelogModal } from './components/ChangelogModal.js';
 import { SplashScreen } from './components/SplashScreen.js';
 import { APP_VERSION } from '../shared/version.js';
 import './styles.css';
+
+function optimisticShardSpend(
+  state: PlayerState,
+  amount: number,
+): Pick<PlayerState, 'shards' | 'purchasedShards' | 'purchasedShardLots'> | null {
+  const next: PlayerState = {
+    ...state,
+    purchasedShardLots: { ...(state.purchasedShardLots ?? {}) },
+  };
+  try {
+    spendShards(next, amount);
+    return {
+      shards: next.shards,
+      purchasedShards: next.purchasedShards,
+      purchasedShardLots: next.purchasedShardLots,
+    };
+  } catch {
+    return null;
+  }
+}
 
 type ActiveTab =
   | 'roll'
@@ -1454,13 +1474,12 @@ export function App() {
     const turboReductionPercent = durationMinutes === 60 ? 35 : 25;
     const durationMs = durationMinutes * 60 * 1000;
     const rollback = beginOptimisticState(current => {
-      if ((current.shards ?? 0) < 5) return current;
+      const wallet = optimisticShardSpend(current, 50);
+      if (!wallet) return current;
       const now = Date.now();
-      const purchased = current.purchasedShards ?? 0;
       return {
         ...current,
-        shards: current.shards - 5,
-        purchasedShards: Math.max(0, purchased - Math.min(5, purchased)),
+        ...wallet,
         turboRollUntil: Math.max(now, current.turboRollUntil ?? 0) + durationMs,
       };
     });
@@ -1544,12 +1563,11 @@ export function App() {
           globalBoosterCredits: Math.max(0, (current.globalBoosterCredits ?? 0) - 1),
         };
       }
-      if ((current.shards ?? 0) < 25) return current;
-      const purchased = current.purchasedShards ?? 0;
+      const wallet = optimisticShardSpend(current, 250);
+      if (!wallet) return current;
       return {
         ...current,
-        shards: current.shards - 25,
-        purchasedShards: Math.max(0, purchased - Math.min(25, purchased)),
+        ...wallet,
       };
     });
     try {
@@ -1593,12 +1611,11 @@ export function App() {
     setBusy(true);
     const rollback = beginOptimisticState(current => {
       const info = PREMIUM_BOOSTERS[id];
-      if (!info || (current.shards ?? 0) < info.costShards) return current;
-      const purchased = current.purchasedShards ?? 0;
+      const wallet = info ? optimisticShardSpend(current, info.costShards) : null;
+      if (!info || !wallet) return current;
       return {
         ...current,
-        shards: current.shards - info.costShards,
-        purchasedShards: Math.max(0, purchased - Math.min(info.costShards, purchased)),
+        ...wallet,
         activeBoosters: {
           ...(current.activeBoosters ?? {}),
           [id]: Math.max(Date.now(), current.activeBoosters?.[id] ?? 0) + info.durationMs,
@@ -1627,12 +1644,12 @@ export function App() {
     setBusy(true);
     const rollback = beginOptimisticState(current => {
       const info = AUTOMATIONS[id];
-      if (!info || current.automations?.[id] || (current.shards ?? 0) < info.costShards) return current;
-      const purchased = current.purchasedShards ?? 0;
+      if (!info || current.automations?.[id]) return current;
+      const wallet = optimisticShardSpend(current, info.costShards);
+      if (!wallet) return current;
       return {
         ...current,
-        shards: current.shards - info.costShards,
-        purchasedShards: Math.max(0, purchased - Math.min(info.costShards, purchased)),
+        ...wallet,
         automations: { ...(current.automations ?? {}), [id]: true },
       };
     });
@@ -1995,12 +2012,11 @@ export function App() {
   const handleSynthesizeDust = async () => {
     setBusy(true);
     const rollback = beginOptimisticState(current => {
-      if ((current.shards ?? 0) < 10) return current;
-      const purchased = current.purchasedShards ?? 0;
+      const wallet = optimisticShardSpend(current, 100);
+      if (!wallet) return current;
       return {
         ...current,
-        shards: current.shards - 10,
-        purchasedShards: Math.max(0, purchased - Math.min(10, purchased)),
+        ...wallet,
         cosmicDust: (current.cosmicDust ?? 0) + 1,
       };
     });
@@ -2039,40 +2055,6 @@ export function App() {
     }
   };
 
-  // Cosmetics
-  const handleBuyCosmetic = async (id: string) => {
-    setBusy(true);
-    const rollback = beginOptimisticState(current => {
-      const cosmetic = COSMETICS_LIST.find(item => item.id === id);
-      if (!cosmetic) return current;
-      if (current.unlockedCosmetics.includes(id)) return { ...current, activeCosmetic: id };
-      if (current.coins < cosmetic.costCoins || (current.shards ?? 0) < cosmetic.costShards) return current;
-      const purchased = current.purchasedShards ?? 0;
-      return {
-        ...current,
-        coins: current.coins - cosmetic.costCoins,
-        shards: current.shards - cosmetic.costShards,
-        purchasedShards: Math.max(0, purchased - Math.min(cosmetic.costShards, purchased)),
-        unlockedCosmetics: [...current.unlockedCosmetics, id],
-        activeCosmetic: id,
-      };
-    });
-    try {
-      const res = await getJson<{ state: PlayerState }>('/api/cosmetics/buy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      applyPlayerState(res.state);
-      sound.playChime(523.25, 'sine', 0.2);
-      showToast('Cosmetic equipped!', 'success');
-    } catch (e: any) {
-      rollback?.();
-      showToast(e.message || 'Cosmetic purchase failed', 'warn');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   // Guilds
   const handleCreateGuild = async (name: string, tag: string): Promise<boolean> => {
@@ -2890,7 +2872,6 @@ export function App() {
             onPrestige={handlePrestige}
             onBuyPrestigeUpgrade={handleBuyPrestigeUpgrade}
             onSynthesizeDust={handleSynthesizeDust}
-            onBuyCosmetic={handleBuyCosmetic}
             busy={false}
           />
         )}
@@ -2913,8 +2894,7 @@ export function App() {
             <div className="io-frenzy-prompt-reward">
               <div className="text-3xl font-black text-fuchsia-200">+{FRENZY_OWNER_SHARD_REWARD} Shards</div>
               <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                When someone claims your Frenzy, you receive these Shards. The reward
-                <strong className="text-slate-200"> bypasses the 50 Shard daily cap</strong>.
+                When someone claims your Frenzy, you receive these Shards. This is a separate bonus and does not count toward your roll-earned Shard total.
               </div>
             </div>
             <div className="io-modal-actions">

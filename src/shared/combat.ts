@@ -38,7 +38,10 @@ export type CombatRuneMajorAbilityId =
   | 'rarity-ladder'
   | 'stellar-dividend'
   | 'shard-jackpot'
-  | 'milestone-engine';
+  | 'milestone-engine'
+  | 'shard-tithe'
+  | 'discovery-oracle'
+  | 'dry-streak-refinery';
 export interface CombatRuneMajorAbility {
   id: CombatRuneMajorAbilityId;
   name: string;
@@ -71,6 +74,10 @@ export interface CombatRuneMajorAbilityEffects {
   milestoneEnginePct:number;
   milestoneEngineBonusRolls:number;
   milestoneEngineBonusShards:number;
+  shardTithePerRoll:number;
+  discoveryOraclePct:number;
+  discoveryOracleBonusRolls:number;
+  dryStreakRefineryRate:number;
 }
 export interface CombatRune {
   id: string;
@@ -248,6 +255,9 @@ export function combatRuneMajorAbilitySummary(ability:CombatRuneMajorAbility,lev
     case 'stellar-dividend':return 'Every '+Math.max(20,Math.floor(100/(1+power/100)))+' lifetime rolls triggers '+rolls+' bonus roll'+(rolls===1?'':'s')+'.';
     case 'shard-jackpot':return pct(Math.min(50,power))+' chance to multiply a Shard payout by up to '+(1+Math.min(5,power/25)).toFixed(2)+'×.';
     case 'milestone-engine':return 'Each time your all-time rarity crosses a new power of ten, gain '+(1+Math.min(9,Math.floor(power/20)))+' bonus Shards and '+rolls+' rarity-floored bonus roll'+(rolls===1?'':'s')+'.';
+    case 'shard-tithe':return 'Adds +'+Math.min(.005,power/20000).toFixed(4)+' fractional Shards to every main-game roll.';
+    case 'discovery-oracle':return pct(Math.min(20,power/5))+' chance for a first-time rarity discovery to grant '+rolls+' extra roll'+(rolls===1?'':'s')+' with the same rarity floor.';
+    case 'dry-streak-refinery':return 'Each 100 rolls since your best rarity adds +'+Math.min(.005,power/200000).toFixed(4)+' Shards to every roll, up to +0.005 Shards per roll.';
   }
 }
 export function combatRuneMajorAbilityEffects(runesValue:unknown,equippedValue:unknown):CombatRuneMajorAbilityEffects {
@@ -262,6 +272,7 @@ export function combatRuneMajorAbilityEffects(runesValue:unknown,equippedValue:u
     stellarDividendPct:0,stellarDividendBonusRolls:1,
     shardJackpotPct:0,shardJackpotExtraMultiplier:0,
     milestoneEnginePct:0,milestoneEngineBonusRolls:1,milestoneEngineBonusShards:1,
+    shardTithePerRoll:0,discoveryOraclePct:0,discoveryOracleBonusRolls:1,dryStreakRefineryRate:0,
   };
   const equipped=new Set((Array.isArray(equippedValue)?equippedValue:[]).filter((id):id is string=>typeof id==='string'));
   if(!equipped.size||!Array.isArray(runesValue))return effects;
@@ -319,6 +330,16 @@ export function combatRuneMajorAbilityEffects(runesValue:unknown,equippedValue:u
         effects.milestoneEnginePct=add(effects.milestoneEnginePct,power);
         effects.milestoneEngineBonusRolls=Math.max(effects.milestoneEngineBonusRolls,runeMajorBonusRollCount(power,level));
         effects.milestoneEngineBonusShards=Math.max(effects.milestoneEngineBonusShards,1+Math.min(9,Math.floor(power/20)));
+        break;
+      case 'shard-tithe':
+        effects.shardTithePerRoll=Math.min(.02,effects.shardTithePerRoll+Math.min(.005,power/20000));
+        break;
+      case 'discovery-oracle':
+        effects.discoveryOraclePct=add(effects.discoveryOraclePct,power);
+        effects.discoveryOracleBonusRolls=Math.max(effects.discoveryOracleBonusRolls,runeMajorBonusRollCount(power,level));
+        break;
+      case 'dry-streak-refinery':
+        effects.dryStreakRefineryRate=Math.min(.005,effects.dryStreakRefineryRate+Math.min(.005,power/200000));
         break;
     }
   }

@@ -1,5 +1,5 @@
-// [TESTER] Shards reset regression coverage for BOSS Round 69.
-// Static source assertions supplement the deterministic helper-level cap scenario.
+// [TESTER] Fractional Shard reward and stale-snapshot regression coverage.
+// Static source assertions supplement deterministic helper-level uncapped scenarios.
 // They are not an executed React/Express race test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,36 +10,36 @@ import {
   createInitialState,
   predictRollActivation,
   grantRollShards,
-  FREE_SHARD_DAILY_CAP,
   todayKey,
 } from '../src/shared/game.js';
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('prediction respects the authoritative daily Shard cap', () => {
+test('prediction and authoritative grant both preserve fractional Shards beyond the old daily cap', () => {
   const now = Date.now();
   const predictedSource = createInitialState(now);
   predictedSource.shards = 0;
   predictedSource.upgrades.shardChance = 1000; // Test-only setting forces proc chance to 100%.
   predictedSource.lastFreeShardReset = todayKey(now);
-  predictedSource.freeShardsEarnedToday = FREE_SHARD_DAILY_CAP;
+  predictedSource.freeShardsEarnedToday = 50;
 
   const prediction = predictRollActivation(predictedSource, 1337, false, 1);
 
-  assert.equal(prediction.shardsGained, 0);
-  assert.equal(prediction.state.shards, 0);
-  assert.equal(prediction.state.freeShardsEarnedToday, FREE_SHARD_DAILY_CAP);
+  assert.ok(prediction.shardsGained >= 0.001);
+  assert.equal(prediction.state.shards, prediction.shardsGained);
+  assert.ok(prediction.state.freeShardsEarnedToday > 50);
 
   const authoritative = createInitialState(now);
   authoritative.shards = 0;
   authoritative.lastFreeShardReset = todayKey(now);
-  authoritative.freeShardsEarnedToday = FREE_SHARD_DAILY_CAP;
+  authoritative.freeShardsEarnedToday = 50;
 
   const granted = grantRollShards(authoritative, prediction.shardsGained, now);
-  assert.equal(granted, 0);
-  assert.equal(authoritative.shards, 0);
+  assert.equal(granted, prediction.shardsGained);
+  assert.equal(authoritative.shards, prediction.shardsGained);
+  assert.ok(authoritative.freeShardsEarnedToday > 50);
 
-  // Both paths must use the same helper so the UI never promises capped-out Shards.
+  // Both paths must use the same helper so the UI agrees with the uncapped wallet.
   const shared = source('src/shared/game.ts');
   const server = source('src/server/game.ts');
   assert.match(shared, /shardsGained = grantRollShards\(s, shardsGained, predictionNow\)/);

@@ -32,7 +32,9 @@ test('Rune Strengthen is tooltip-driven and Auto Sacrifice only consumes un-equi
   const combat=source('src/server/combat.ts');
   const api=source('src/server/app.ts');
   assert.ok(ui.includes('>Strengthen</button>'),'Rune tooltip must expose a Strengthen action');
-  assert.ok(ui.includes('handleRuneClick(rune)'),'clicking a Rune must act as the sacrifice donor while Strengthen is active');
+  assert.ok(ui.includes('handleRuneClick(rune)'),'Rune icons must remain active while Strengthen is selected');
+  assert.ok(ui.includes('setSacrificeDonorId(rune.id)'),'clicking a Rune must select it as donor, never sacrifice it implicitly');
+  assert.ok(ui.includes('Sacrifice selected Rune'),'a separate confirmation action must perform the sacrifice');
   assert.ok(combat.includes('!equipped.has(rune.id) && combatRuneRarityAtOrBelow'),'bulk auto-sacrifice must protect equipped donors');
   assert.ok(combat.includes('const target = pick(targets);'),'each donor must select an equipped Rune target at random');
   assert.ok(combat.includes('const qualifiesForAutoSacrifice = s.runeAutoSacrifice.enabled'),'new eligible drops must use the saved auto-sacrifice setting');
@@ -153,7 +155,7 @@ test('Chain Patcher is server-authoritative, arms exactly one guaranteed rarity,
   const shared = source('src/shared/game.ts');
   assert.match(shared, /CHAIN_PATCHER_COOLDOWN_MS = 24 \* 60 \* 60 \* 1_000/);
   assert.match(shared, /nextCodexChainRarity/);
-  assert.match(shared, /Math\.floor\(targetRarity \/ 100\) \+ 1/);
+  assert.match(shared, /10 \* \(Math\.floor\(targetRarity \/ 100\) \+ 1\)/);
 
   const game = source('src/server/game.ts');
   assert.match(game, /export async function buyChainPatcher/);
@@ -546,8 +548,8 @@ test('comprehensive admin tests atomically reset cooldown, issue a roll ticket, 
   assert.match(modal.slice(mechanicStart, mechanicEnd), /xp: 600/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /level: 4,\s*levelXpFloor: 533/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /freeShardsEarnedToday: 0/);
-  assert.match(debug, /'globalBoosterCredits', 'freeShardsEarnedToday'/);
-  assert.match(modal, /shardSynthesis: 1 \}, \{ shards: 10, xp: 32_000, level: 20, levelXpFloor: 0 \}/);
+  assert.match(debug, /for \(const field of \['shards', 'lifetimeShards', 'freeShardsEarnedToday'\]\)/);
+  assert.match(modal, /shardSynthesis: 1 \}, \{ shards: 100, xp: 32_000, level: 20, levelXpFloor: 0 \}/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /lastFreeShardReset: '2020-01-01'/);
   assert.match(modal, /await new Promise\(resolve => setTimeout\(resolve, 5_200\)\)/);
   assert.match(modal, /collection endpoint/);
@@ -910,23 +912,45 @@ test('Daily Streak reward and community tier commit atomically with player state
 });
 
 
-test('rolling Shard grants fail closed on malformed daily counters and requests', () => {
+test('rolling Shard grants preserve fractions, repair telemetry, and have no daily cap', () => {
   const shared = source('src/shared/game.ts');
   const start = shared.indexOf('export function grantRollShards');
   const end = shared.indexOf('export function spendShards', start);
   assert.ok(start >= 0 && end > start);
   const grant = shared.slice(start, end);
-  assert.match(grant, /Number\.isFinite\(requested\)/);
-  assert.match(grant, /Number\.isSafeInteger\(rawEarnedToday\)/);
-  assert.match(grant, /: FREE_SHARD_DAILY_CAP/);
-  assert.match(grant, /Math\.max\(0, FREE_SHARD_DAILY_CAP - earnedToday\)/);
-  assert.match(grant, /s\.freeShardsEarnedToday = earnedToday \+ granted/);
+  assert.match(grant, /Number\.isFinite\(rawEarnedToday\)/);
+  assert.match(grant, /const granted = addShardsWithinSafeIntegerLimit\(s, requested\)/);
+  assert.doesNotMatch(grant, /FREE_SHARD_DAILY_CAP/);
+  assert.match(grant, /s\.freeShardsEarnedToday = roundShardAmount\(earnedToday \+ granted\)/);
   const shardHelperStart = shared.indexOf('function addShardsWithinSafeIntegerLimit');
   const shardHelperEnd = shared.indexOf('\nexport function grantFreeShards', shardHelperStart);
   assert.ok(shardHelperStart >= 0 && shardHelperEnd > shardHelperStart);
   const shardHelper = shared.slice(shardHelperStart, shardHelperEnd);
-  assert.match(shardHelper, /Number\.isSafeInteger\(rawLifetimeShards\)/);
-  assert.match(shardHelper, /Math\.min\(Number\.MAX_SAFE_INTEGER, lifetimeShards \+ granted\)/);
+  assert.match(shardHelper, /Number\.isFinite\(rawLifetimeShards\)/);
+  assert.match(shardHelper, /roundShardAmount\(Math\.min\(Number\.MAX_SAFE_INTEGER, lifetimeShards \+ granted\)\)/);
+});
+
+test('manual Rune sacrifice has a direct donor selector and consumes only the donor while granting XP', () => {
+  const ui = source('src/client/components/RunesSection.tsx');
+  assert.match(ui, /Donor Rune/);
+  assert.match(ui, /Sacrifice selected Rune/);
+  assert.match(ui, /void sacrifice\(strengthenTargetRune\.id,donor\.id\)/);
+  const combat = source('src/server/combat.ts');
+  const start = combat.indexOf('export async function sacrificeCombatRuneInto');
+  assert.ok(start >= 0, 'server sacrifice function must exist');
+  const end = combat.indexOf('export async function rollCombatSkill', start + 10);
+  const sacrifice = combat.slice(start, end > start ? end : start + 1_500);
+  assert.match(sacrifice, /grantRuneSacrificeExperience\(target,\s*donor\)/);
+  assert.match(sacrifice, /s\.runes=s\.runes\.filter\(item=>item\.id!==donor\.id\)/);
+  assert.match(sacrifice, /s\.equippedRunes=s\.equippedRunes\.filter\(id=>id!==donor\.id\)/);
+});
+
+test('fractional Shard wallets survive parsing, save validation, and payment-state normalization', () => {
+  const game = source('src/server/game.ts');
+  assert.match(game, /Math\.abs\(record\.shards \* 1_000 - Math\.round\(record\.shards \* 1_000\)\) < 1e-6/);
+  assert.match(game, /const normalizedWalletShards = roundShardAmount\(record\.shards\)/);
+  assert.match(game, /s\.shards = roundShardAmount\(s\.shards\)/);
+  assert.match(game, /shardPityRolls: Math\.min\(SHARD_PITY_ROLLS_TO_REWARD - 1, finiteNonNegativeInteger\(parsed\.shardPityRolls, 0\)\)/);
 });
 
 test('roll rewards commit atomically with Guild and community progress', () => {
@@ -1145,7 +1169,7 @@ test('admin Global Booster credit grants unwrap and validate player saves before
   assert.match(parser, /if \(depth > 6 \|\| value == null\) return null/);
   assert.match(parser, /return unwrap\(JSON\.parse\(value\), depth \+ 1\)/);
   assert.match(parser, /'coins' in record &&\s*'shards' in record &&\s*'totalRolls' in record/);
-  assert.match(parser, /typeof record\.coins === 'number'[\s\S]*?Number\.isFinite\(record\.coins\)[\s\S]*?Number\.isSafeInteger\(record\.shards\)[\s\S]*?Number\.isSafeInteger\(record\.totalRolls\)/);
+  assert.match(parser, /typeof record\.coins === 'number'[\s\S]*?Number\.isFinite\(record\.coins\)[\s\S]*?Number\.isFinite\(record\.shards\)[\s\S]*?Math\.abs\(record\.shards \* 1_000 - Math\.round\(record\.shards \* 1_000\)\) < 1e-6[\s\S]*?Number\.isSafeInteger\(record\.totalRolls\)/);
   assert.match(parser, /record\.stateRevision == null[\s\S]*?Number\.isSafeInteger\(record\.stateRevision\)/);
   assert.match(parser, /for \(const key of \['value', 'state', 'player', 'data', 'payload', 'result'\]\)/);
   assert.match(parser, /const nested = unwrap\(record\[key\], depth \+ 1\)/);
@@ -1758,8 +1782,10 @@ test('persisted PlayerState parser rejects malformed wallet and roll-counter cor
   assert.match(parser, /typeof record\.coins === 'number'/);
   assert.match(parser, /Number\.isFinite\(record\.coins\)/);
   assert.match(parser, /record\.coins >= 0/);
-  assert.match(parser, /Number\.isSafeInteger\(record\.shards\)/);
-  assert.match(parser, /Number\(record\.shards\) >= 0/);
+  assert.match(parser, /typeof record\.shards === 'number'/);
+  assert.match(parser, /Number\.isFinite\(record\.shards\)/);
+  assert.match(parser, /record\.shards >= 0/);
+  assert.match(parser, /Math\.abs\(record\.shards \* 1_000 - Math\.round\(record\.shards \* 1_000\)\) < 1e-6/);
   assert.match(parser, /Number\.isSafeInteger\(record\.totalRolls\)/);
   assert.match(parser, /if \(!validCoreState\) return null/);
 });
@@ -2088,7 +2114,8 @@ test('malformed nested player-save shapes fall back before reaching gameplay cod
   assert.match(game, /collection: isValidCollection\(parsed\.collection\) \? parsed\.collection : base\.collection/);
   assert.match(game, /claimedAchievements: isStringList\(parsed\.claimedAchievements\) \? parsed\.claimedAchievements : base\.claimedAchievements/);
   assert.match(game, /streak: normalizePlayerStreak\(parsed\.streak, base\.streak\)/);
-  assert.match(game, /unlockedCosmetics: isStringList\(parsed\.unlockedCosmetics\)/);
+  assert.match(game, /activeCosmetic: 'default'/);
+  assert.match(game, /unlockedCosmetics: \['default'\]/);
 });
 
 
@@ -2860,7 +2887,7 @@ test('UI-only action buttons declare type=button to avoid accidental form submis
 
   const profile = source('src/client/components/ProfileAndPrestige.tsx');
   assert.ok(profile.includes('<button\n                  type="button"\n                  onClick={() => {\n                    sound.playClick();\n                    void onBuyPrestigeUpgrade(id);'));
-  assert.equal((profile.match(/type="button"\s+onClick=\{\(\) => \{\s+sound\.playClick\(\);\s+void onBuyCosmetic\(cosmetic\.id\);/g) ?? []).length, 2);
+  assert.doesNotMatch(profile, /onBuyCosmetic|Cosmetics & Customization/);
 
   const rarity = source('src/client/components/RarityTableModal.tsx');
   assert.equal((rarity.match(/<button\s+type="button"\s+onClick=\{onClose\}/g) ?? []).length, 2);

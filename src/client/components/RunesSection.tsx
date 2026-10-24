@@ -50,6 +50,7 @@ export const RunesSection:React.FC=()=>{
   const [busyRune,setBusyRune]=useState<string|null>(null);
   const [sacrificing,setSacrificing]=useState(false);
   const [strengthenTargetId,setStrengthenTargetId]=useState('');
+  const [sacrificeDonorId,setSacrificeDonorId]=useState('');
   const [inspectedRuneId,setInspectedRuneId]=useState('');
   const [runeFilter,setRuneFilter]=useState<'all'|'equipped'|'unequipped'|'auto'>('all');
   const [runeSearch,setRuneSearch]=useState('');
@@ -128,7 +129,7 @@ export const RunesSection:React.FC=()=>{
     setSacrificing(true);setError('');setNotice('');
     try{
       const result=await request<SacrificeResponse>('/api/combat/runes/sacrifice','POST',{targetRuneId:target.id,donorRuneId:donor.id});
-      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setStrengthenTargetId('');setInspectedRuneId('');
+      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setStrengthenTargetId('');setSacrificeDonorId('');setInspectedRuneId('');
       const detail=result.runeSacrifice;
       setNotice(detail
         ?detail.donorName+' sacrificed into '+detail.targetName+': +'+fmt(detail.gainedXp)+' Rune XP. '+detail.targetName+' is now Level '+fmt(detail.level)+'.'
@@ -140,12 +141,14 @@ export const RunesSection:React.FC=()=>{
     if(actionInFlightRef.current)return;
     if(strengthenTargetId){
       if(rune.id===strengthenTargetId){
-        setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');
+        setStrengthenTargetId('');setSacrificeDonorId('');setNotice('Strengthen selection cancelled.');
         return;
       }
-      if(state?.equippedRunes.includes(rune.id)&&typeof window!=='undefined'&&
-         !window.confirm('This Rune is equipped and contributes to your loadout. Sacrificing it permanently consumes it and removes its bonus. Continue?'))return;
-      void sacrifice(strengthenTargetId,rune.id);
+      // Selecting a target must never consume another Rune implicitly. Make the
+      // donor choice explicit, then require the dedicated confirmation button.
+      setSacrificeDonorId(rune.id);
+      setInspectedRuneId(rune.id);
+      setError('');setNotice('Selected '+rune.name+' as donor. Confirm Sacrifice selected Rune to consume it.');
       return;
     }
     setError('');setInspectedRuneId(current=>current===rune.id?'':rune.id);
@@ -197,8 +200,15 @@ export const RunesSection:React.FC=()=>{
       <section className="io-runes-panel">
         <div className="io-runes-panel-head"><h2>Rune inventory</h2><span className="io-runes-muted">{state.runes.length} / 200 · {visibleRunes.length} shown</span>{state.runes.length>=200&&<span className="io-runes-capacity-warning" role="status">Inventory full — new Rune drops need an open slot.</span>}</div>
         {strengthenTargetRune&&<div className="io-runes-strengthen-mode" role="status">
-          <div><strong>Strengthen: {strengthenTargetRune.name}</strong><span>Click another Rune to sacrifice it into this Rune. This permanently consumes the donor.</span></div>
-          <button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');}}>Cancel</button>
+          <div><strong>Strengthen: {strengthenTargetRune.name}</strong><span>Select a donor below and confirm. The donor Rune is permanently consumed for XP.</span></div>
+          <label className="io-runes-auto-rarity">Donor Rune
+            <select className="io-runes-button" value={sacrificeDonorId} disabled={operationPending||sacrificing||autoSacrificeBusy} onChange={event=>setSacrificeDonorId(event.target.value)} aria-label="Rune to sacrifice">
+              <option value="">Choose a Rune to consume…</option>
+              {runes.filter(rune=>rune.id!==strengthenTargetRune.id).map(rune=><option key={rune.id} value={rune.id}>{rune.name} · {rune.rarity} · Lv. {fmt(rune.level??1)}</option>)}
+            </select>
+          </label>
+          <button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy||!sacrificeDonorId||!runes.some(rune=>rune.id===sacrificeDonorId&&rune.id!==strengthenTargetRune.id)} onClick={()=>{const donor=runes.find(rune=>rune.id===sacrificeDonorId&&rune.id!==strengthenTargetRune.id);if(!donor)return;if(state?.equippedRunes.includes(donor.id)&&typeof window!=='undefined'&&!window.confirm('This Rune is equipped and contributes to your loadout. Sacrificing it permanently consumes it and removes its bonus. Continue?'))return;setSacrificeDonorId('');void sacrifice(strengthenTargetRune.id,donor.id);}}>Sacrifice selected Rune</button>
+          <button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setSacrificeDonorId('');setNotice('Strengthen selection cancelled.');}}>Cancel</button>
         </div>}
         <div className="io-runes-auto-sacrifice">
           <div className="io-runes-auto-sacrifice-heading"><strong>Auto Sacrifice</strong><span>Turn low-rarity drops into XP for your equipped loadout.</span></div>
@@ -241,7 +251,7 @@ export const RunesSection:React.FC=()=>{
             const xpProgress=progressRange>0?Math.max(0,Math.min(100,(levelXp-currentXp)/progressRange*100)):100;
             const iconLabel=(isEquipped?'Unequip ':'Equip ')+rune.name;
             return <article key={rune.id} className={'io-runes-icon-wrap '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(inspectedRuneId===rune.id?' is-inspected':'')}>
-              <button type="button" className={'io-runes-icon '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(strengthenTargetId===rune.id?' is-strengthen-target':'')} disabled={operationPending||sacrificing||(strengthenTargetId?false:busyRune===rune.id||(!isEquipped&&!canEquip))} onClick={()=>handleRuneClick(rune)} aria-describedby={'io-rune-tooltip-'+encodeURIComponent(rune.id)} aria-pressed={strengthenTargetId?strengthenTargetId===rune.id:isEquipped} aria-label={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Sacrifice '+rune.name+' into '+(strengthenTargetRune?.name??'selected Rune')):iconLabel} title={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Sacrifice into '+(strengthenTargetRune?.name??'selected Rune')):iconLabel}>
+              <button type="button" className={'io-runes-icon '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(strengthenTargetId===rune.id?' is-strengthen-target':'')} disabled={operationPending||sacrificing||(strengthenTargetId?false:busyRune===rune.id||(!isEquipped&&!canEquip))} onClick={()=>handleRuneClick(rune)} aria-describedby={'io-rune-tooltip-'+encodeURIComponent(rune.id)} aria-pressed={strengthenTargetId?strengthenTargetId===rune.id:isEquipped} aria-label={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Select '+rune.name+' as sacrifice donor'):iconLabel} title={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Select as donor for '+(strengthenTargetRune?.name??'selected Rune')):iconLabel}>
                 <span className="io-runes-icon-art">{STAT_ICON[rune.stat]}</span><small>Lv. {fmt(level)}</small>{isEquipped&&<span className="io-runes-equipped-mark"><ShieldCheck size={12}/></span>}
               </button>
               <div id={'io-rune-tooltip-'+encodeURIComponent(rune.id)} className="io-runes-tooltip" role="tooltip">
@@ -255,7 +265,7 @@ export const RunesSection:React.FC=()=>{
                   <button type="button" className="io-runes-button" disabled={operationPending||busyRune===rune.id||(!isEquipped&&!canEquip)||Boolean(strengthenTargetId)} onClick={()=>void mutate('/api/combat/runes/equip',{runeId:rune.id,equip:!isEquipped},rune.id,isEquipped?'Rune unequipped.':'Rune equipped.')}>{busyRune===rune.id?'Saving…':isEquipped?'Unequip':'Equip'}</button>
                   {strengthenTargetId===rune.id
                     ?<button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');}}>Cancel Strengthen</button>
-                    :<button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy} onClick={()=>{setStrengthenTargetId(rune.id);setError('');setNotice('Strengthen '+rune.name+': click another Rune to sacrifice it into this one.');}}>Strengthen</button>}
+                    :<button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy} onClick={()=>{setStrengthenTargetId(rune.id);setSacrificeDonorId('');setError('');setNotice('Strengthen '+rune.name+': choose a donor Rune from the selector above.');}}>Strengthen</button>}
                 </div>
                 {!isEquipped&&!canEquip&&<div className="io-runes-muted">All Rune slots are full.</div>}
               </div>

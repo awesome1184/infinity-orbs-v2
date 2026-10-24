@@ -21,7 +21,6 @@ import type {
 import type { WorldEvent } from '../../shared/social.js';
 import {
   AUTOMATIONS,
-  FREE_SHARD_DAILY_CAP,
   GLOBAL_BOOSTERS,
   decayGlobalBoosterState,
   globalBoosterRemainingMs,
@@ -36,6 +35,8 @@ import {
   onlinePlayerLuckMultiplier,
   premiumBoosterRemainingMs,
   formatNumber,
+  formatShardAmount,
+  roundShardAmount,
 } from '../../shared/game.js';
 
 interface BoostersAndAutomationProps {
@@ -151,9 +152,9 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
   const onlinePlayers = Number.isFinite(onlinePlayersRaw) ? Math.max(1, Math.floor(onlinePlayersRaw)) : 1;
   const onlineLuck = onlinePlayerLuckMultiplier(onlinePlayers);
   const freeShardsRaw = Number(state.freeShardsEarnedToday ?? 0);
-  const freeShards = Number.isFinite(freeShardsRaw) ? Math.max(0, Math.min(FREE_SHARD_DAILY_CAP, Math.floor(freeShardsRaw))) : 0;
+  const freeShards = roundShardAmount(freeShardsRaw);
   const walletShardsRaw = Number(state.shards ?? 0);
-  const walletShards = Number.isSafeInteger(walletShardsRaw) && walletShardsRaw >= 0 ? walletShardsRaw : 0;
+  const walletShards = Number.isFinite(walletShardsRaw) && walletShardsRaw >= 0 ? roundShardAmount(walletShardsRaw) : 0;
   const freeCreditsRaw = Number(state.globalBoosterCredits ?? 0);
   const freeCredits = Number.isSafeInteger(freeCreditsRaw) && freeCreditsRaw >= 0 ? freeCreditsRaw : 0;
   const communityGoalRaw = Number(worldEvent?.goal ?? 100_000);
@@ -228,11 +229,11 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
 
         <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
           <div>
-            <span className="font-black text-cyan-300">Roll-earned Shards today: {freeShards}/{FREE_SHARD_DAILY_CAP}</span>
-            <span className="text-slate-500 ml-2">The daily cap applies to roll drops; daily and quest rewards are separate.</span>
+            <span className="font-black text-cyan-300">Roll-earned Shards today: {formatShardAmount(freeShards)}</span>
+            <span className="text-slate-500 ml-2">No daily cap. Roll drops accumulate in fractional amounts.</span>
           </div>
           <div className="text-slate-400">
-            {formatNumber(walletShards)} Shards available
+            {formatShardAmount(walletShards)} Shards available
           </div>
         </div>
       </section>
@@ -245,7 +246,7 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
               <Users className="w-4 h-4 text-fuchsia-300" />
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Each booster has its own timer. Activating it adds 2 hours; higher tiers drain faster.
+              Each booster has a flat 250-Shard activation cost at every tier. Activating it adds 2 hours; higher tiers drain timers faster.
               Tier 1 drains at ×1.10 normal speed and Tier 10 at ×2.00.
             </p>
           </div>

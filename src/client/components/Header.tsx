@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Volume2, VolumeX, Sparkles, HelpCircle, Coins, Gem, Zap, Wrench, Star, Users, MessageSquarePlus, Bell, BellOff, ScrollText, Swords } from 'lucide-react';
 import type { PlayerState } from '../../shared/game.js';
-import { LEVEL_MILESTONES, getLevelBenefits, getLevelProgress, onlinePlayerLuckMultiplier } from '../../shared/game.js';
+import { LEVEL_MILESTONES, getLevelBenefits, getLevelProgress, onlinePlayerLuckMultiplier, formatShardAmount } from '../../shared/game.js';
 import { sound } from '../sound.js';
 
 interface HeaderProps {
@@ -161,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Shards */}
             <div className="flex items-center gap-1 text-cyan-400" title="Shards">
               <Gem className="w-3.5 h-3.5" />
-              <span>{fmt(state.shards ?? 0)}</span>
+              <span>{formatShardAmount(state.shards ?? 0)}</span>
             </div>
 
             {/* Cosmic Dust */}

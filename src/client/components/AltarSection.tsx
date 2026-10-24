@@ -14,6 +14,7 @@ import {
 import type { PlayerState } from '../../shared/game.js';
 import {
   formatNumber,
+  formatShardAmount,
   calculateAltarMultipliers,
   altarCoinDevotionChancePercent,
   altarCoinFloor,
@@ -276,7 +277,7 @@ export const AltarSection: React.FC<AltarSectionProps> = ({
           <div className="flex items-center gap-3 text-xs">
             <span className="text-amber-400 font-bold">{fmt(state.coins)} Coins</span>
             <span className="text-slate-600">•</span>
-            <span className="text-cyan-400 font-bold">{fmt(state.shards ?? 0)} Shards</span>
+            <span className="text-cyan-400 font-bold">{formatShardAmount(state.shards ?? 0)} Shards</span>
           </div>
         </div>
 

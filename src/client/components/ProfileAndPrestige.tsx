@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sparkles,
-  Palette,
   RotateCcw,
   Check,
   Clover,
@@ -27,13 +26,11 @@ import type {
   PlayerState,
   PrestigeUpgradeId,
   PrestigeUpgradeInfo,
-  CosmeticItem,
 } from '../../shared/game.js';
 import {
   calculateCosmicDust,
   getLevelProgress,
   LEVEL_MILESTONES,
-  COSMETICS,
   PRESTIGE_UPGRADES,
   prestigeUpgradeCost,
   SHARD_SYNTHESIS_COST,
@@ -49,7 +46,6 @@ interface ProfileAndPrestigeProps {
   onPrestige: () => Promise<void>;
   onBuyPrestigeUpgrade: (id: PrestigeUpgradeId) => Promise<void>;
   onSynthesizeDust: () => Promise<void>;
-  onBuyCosmetic: (id: string) => Promise<void>;
   busy: boolean;
 }
 
@@ -58,7 +54,6 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
   onPrestige,
   onBuyPrestigeUpgrade,
   onSynthesizeDust,
-  onBuyCosmetic,
   busy,
 }) => {
   const [confirmingPrestige, setConfirmingPrestige] = useState(false);
@@ -403,7 +398,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Resets current-run Collection Value and base upgrades, plus offline rolls and run counters. Cosmic Inheritance determines Coins retained (minimum 50). All Shards, Codex discoveries, permanent upgrades, and cosmetics are kept.
+                Resets current-run Collection Value and base upgrades, plus offline rolls and run counters. Cosmic Inheritance determines Coins retained (minimum 50). 
               </p>
             </div>
           </div>
@@ -413,7 +408,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
               <div role="status" className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-950/25 p-3 text-xs leading-relaxed text-slate-300">
                 <strong className="block text-fuchsia-200 mb-1">Before you prestige</strong>
                 <p>Reset: current-run Collection Value, base upgrades, offline rolls, and rolls-since-best counters.</p>
-                <p className="mt-1">Keep: all Shards, Codex discoveries, permanent upgrades, and cosmetics. Coins retained depend on Cosmic Inheritance (minimum 50).</p>
+                <p className="mt-1"> Coins retained depend on Cosmic Inheritance (minimum 50).</p>
                 <p className="mt-1">Gain: +{pendingDust} Cosmic Dust and +3 Mastery Points.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -481,7 +476,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Convert 10 Shards into 1 Cosmic Dust. Cosmic Dust is capped at {MAX_COSMIC_DUST}.
+                  Convert 100 Shards into 1 Cosmic Dust. Cosmic Dust is capped at {MAX_COSMIC_DUST}.
                 </p>
               </div>
             </div>
@@ -681,90 +676,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
         </div>
       </div>
 
-      {/* 3. Cosmetics & Customization */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Palette className="w-5 h-5 text-cyan-400" />
-            <h3 className="text-base font-black text-white">Orb Skins & Auras</h3>
-          </div>
-          <span className="text-xs text-slate-400">
-            {state.unlockedCosmetics.length}/{COSMETICS.length} Unlocked
-          </span>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {COSMETICS.map((cosmetic: CosmeticItem) => {
-            const isOwned = state.unlockedCosmetics.includes(cosmetic.id);
-            const isActive = state.activeCosmetic === cosmetic.id;
-            const canAfford =
-              state.coins >= cosmetic.costCoins &&
-              (state.shards ?? 0) >= cosmetic.costShards;
-
-            return (
-              <div
-                key={cosmetic.id}
-                className={`bg-slate-950/60 border rounded-2xl p-4 flex flex-col justify-between space-y-3 transition-all ${
-                  isActive
-                    ? 'border-cyan-500 ring-2 ring-cyan-500/20'
-                    : isOwned
-                    ? 'border-slate-700'
-                    : 'border-slate-800/80'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-white">{cosmetic.name}</span>
-                    {isActive && (
-                      <span className="text-[10px] font-bold bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">
-                        EQUIPPED
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400">{cosmetic.desc}</p>
-                </div>
-
-                {isOwned ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playClick();
-                      void onBuyCosmetic(cosmetic.id);
-                    }}
-                    disabled={isActive || busy}
-                    className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-slate-900 text-slate-500 cursor-default'
-                        : 'bg-slate-800 hover:bg-slate-700 text-white'
-                    }`}
-                  >
-                    {isActive ? 'Equipped' : 'Equip Skin'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playClick();
-                      void onBuyCosmetic(cosmetic.id);
-                    }}
-                    disabled={!canAfford || busy}
-                    className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                      canAfford
-                        ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-md active:scale-95 cursor-pointer'
-                        : 'bg-slate-900 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Gem className="w-3.5 h-3.5" />
-                    <span>
-                      Unlock ({cosmetic.costShards > 0 ? `${cosmetic.costShards} Shards` : `${fmt(cosmetic.costCoins)} Coins`})
-                    </span>
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 };

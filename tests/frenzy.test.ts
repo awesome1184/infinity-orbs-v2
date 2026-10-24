@@ -47,7 +47,7 @@ test('Frenzy claim size is capped safely', () => {
   );
 });
 
-test('Frenzy owner reward bypasses the normal 50-Shard daily cap', () => {
+test('Frenzy owner rewards remain separate from roll-earned Shard telemetry', () => {
   const state = createInitialState(NOW);
   state.shards = 50;
   state.lifetimeShards = 50;
@@ -136,7 +136,7 @@ test('daily Frenzy prompt appears after the delay and explains the owner reward'
   assert.match(source, /FRENZY_PROMPT_DELAY_MS/);
   assert.match(source, /Post today’s Frenzy/);
   assert.match(source, /\+\{FRENZY_OWNER_SHARD_REWARD\} Shards/);
-  assert.match(source, /bypasses the 50 Shard daily cap/);
+  assert.match(source, /does not count toward your roll-earned Shard total/);
   assert.match(source, /localStorage\.setItem\(storageKey, '1'\)/);
 });
 

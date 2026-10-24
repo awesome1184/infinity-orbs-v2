@@ -63,6 +63,8 @@ import {
   offlineRollCap,
   effectiveOfflineTickMs,
   calculateAltarMultipliers,
+  roundShardAmount,
+  SHARD_PITY_ROLLS_TO_REWARD,
   calculateCosmicDust,
   calculatePrestigeDust,
   critMultiplier,
@@ -444,8 +446,11 @@ function parseAdminPlayerSave(raw: unknown): Record<string, any> {
         typeof record.coins === 'number' &&
         Number.isFinite(record.coins) &&
         record.coins >= 0 &&
-        Number.isSafeInteger(record.shards) &&
-        Number(record.shards) >= 0 &&
+        typeof record.shards === 'number' &&
+        Number.isFinite(record.shards) &&
+        record.shards >= 0 &&
+        record.shards <= Number.MAX_SAFE_INTEGER &&
+        Math.abs(record.shards * 1_000 - Math.round(record.shards * 1_000)) < 1e-6 &&
         Number.isSafeInteger(record.totalRolls) &&
         Number(record.totalRolls) >= 0 &&
         (
@@ -1331,7 +1336,7 @@ function buildStatSpyStats(
       label: 'Bonus Shard Chance',
       total: shardChance,
       unit: 'chance',
-      detail: 'Proc chance for +1 bonus Shard, capped at 100%.',
+      detail: 'Proc chance for +0.001 bonus Shard; guarantees +0.01 after 100 consecutive misses; capped at 100%.',
       sources: [
         statSource('Shard Chance upgrade', Number(upgrades.shardChance ?? 0) * 0.15, 'pct', 'add', { level: Number(upgrades.shardChance ?? 0), detail: '+0.15 percentage points per level' }),
         statSource('Shard Resonance', Number(mastery.shardAttunement ?? 0) * 0.10, 'pct', 'add', { level: Number(mastery.shardAttunement ?? 0), detail: '+0.10 percentage points per level' }),
@@ -1602,8 +1607,8 @@ debugRouter.post('/state', async (req, res) => {
     const body = req.body || {};
 
     const numericFields = [
-      'coins', 'shards', 'cosmicDust', 'xp', 'totalRolls', 'totalCrits',
-      'lifetimeCoins', 'lifetimeShards', 'highestRarity', 'collectionValue',
+      'coins', 'cosmicDust', 'xp', 'totalRolls', 'totalCrits',
+      'lifetimeCoins', 'highestRarity', 'collectionValue',
       'lifetimeCollectionValue', 'offlineRolls', 'prestigeCount', 'rollsSinceBest',
       'turboRollUntil', 'onlinePlayers', 'purchasedShards',
       'currentRunRolls', 'questsCompleted', 'guildContribution', 'masteryPoints',
@@ -1611,12 +1616,17 @@ debugRouter.post('/state', async (req, res) => {
       'rollingSessionLastRollAt', 'longestRollingSessionMs',
       'communityRewardClaimedAt', 'communityRewardClaimedTier',
       'chainPatcherNextRarity', 'chainPatcherCooldownUntil',
-      'level', 'levelXpFloor', 'globalBoosterCredits', 'freeShardsEarnedToday',
+      'level', 'levelXpFloor', 'globalBoosterCredits',
     ];
 
     for (const field of numericFields) {
       if (field in body) (s as any)[field] = nonNegativeInteger(body[field]);
     }
+    // Shards support thousandth-unit precision; admin edits must preserve it too.
+    for (const field of ['shards', 'lifetimeShards', 'freeShardsEarnedToday']) {
+      if (field in body) (s as any)[field] = roundShardAmount(body[field]);
+    }
+    if ('shardPityRolls' in body) s.shardPityRolls = Math.min(SHARD_PITY_ROLLS_TO_REWARD - 1, nonNegativeInteger(body.shardPityRolls));
 
     if ('lastRollAt' in body) {
       s.lastRollAt = body.lastRollAt === null ? null : nonNegativeInteger(body.lastRollAt);

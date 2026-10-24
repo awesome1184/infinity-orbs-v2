@@ -2106,7 +2106,7 @@ export const DevDebugModal: React.FC<DevDebugModalProps> = ({
         await step(
           'Mechanic · Dust Synthesis',
           async () => {
-            await setMechanicState({ shardSynthesis: 1 }, { shards: 10, xp: 32_000, level: 20, levelXpFloor: 0 });
+            await setMechanicState({ shardSynthesis: 1 }, { shards: 100, xp: 32_000, level: 20, levelXpFloor: 0 });
             const before = await request<any>('/api/me');
             if (Number(before.level) < 20) {
               throw new Error('Could not seed Level 20 for synthesis; got Level ' + before.level + '.');

@@ -30,6 +30,7 @@ import {
   formatRarity,
   visibleContinuumTiers,
   formatNumber,
+  formatShardAmount,
   frenzyCooldownRemaining,
 } from '../../shared/game.js';
 
@@ -494,7 +495,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
                 </div>
                 <div className="reward-chip reward-chip-shards">
                   <Zap className="w-4 h-4" />
-                  <strong>+{formatNumber(batchSummary.shards)}</strong>
+                  <strong>+{formatShardAmount(batchSummary.shards)}</strong>
                   <span>Shards</span>
                 </div>
                 <div className="reward-chip reward-chip-value">
@@ -566,7 +567,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
             <div className="roll-reward-values">
               <span className="roll-reward-value coins"><Coins className="w-3.5 h-3.5" /> +{formatNumber(batchSummary.coins)} Coins</span>
               <span className="roll-reward-value xp"><Sparkles className="w-3.5 h-3.5" /> +{formatNumber(batchSummary.xp)} XP</span>
-              <span className="roll-reward-value shards"><Zap className="w-3.5 h-3.5" /> +{formatNumber(batchSummary.shards)} Shards</span>
+              <span className="roll-reward-value shards"><Zap className="w-3.5 h-3.5" /> +{formatShardAmount(batchSummary.shards)} Shards</span>
               <span className="roll-reward-value value"><Award className="w-3.5 h-3.5" /> +{formatNumber(batchSummary.totalVal)} Value</span>
             </div>
           </div>
@@ -869,7 +870,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
             </div>
             <div className="rounded-xl bg-slate-950/50 border border-slate-800 px-2 py-2">
               <div className="text-[10px] uppercase font-bold text-slate-500">Shards</div>
-              <div className="text-sm font-black text-cyan-300">+{formatNumber(batchSummary.shards)}</div>
+              <div className="text-sm font-black text-cyan-300">+{formatShardAmount(batchSummary.shards)}</div>
             </div>
           </div>
         </div>
@@ -894,7 +895,7 @@ export const RollSection: React.FC<RollSectionProps> = ({
               </span>
               {batchSummary.shards > 0 && (
                 <span className="text-xs font-semibold text-cyan-400">
-                  +{batchSummary.shards} Shards
+                  +{formatShardAmount(batchSummary.shards)} Shards
                 </span>
               )}
               <button
