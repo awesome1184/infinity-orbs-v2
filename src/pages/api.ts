@@ -7,6 +7,7 @@ import * as riftChallenges from '../server/rift-challenges.js';
 import { handlePagesAdminRequest } from './admin-api.js';
 import { context } from './devvit-client.js';
 import { globalFeaturesForRequest } from '../shared/admin-cli.js';
+import { getRiftChallengeDefinition } from '../shared/rift-challenges.js';
 
 type JsonRecord = Record<string, any>;
 
@@ -94,7 +95,7 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
         case '/api/rift-challenges':
           return jsonResponse(await riftChallenges.getRiftChallengeStatus());
         case '/api/rift-completion/info':
-          return jsonResponse(await riftChallenges.getRiftCompletionPostInfo());
+          return jsonResponse(await riftChallenges.getRiftCompletionPostInfo(url.searchParams.get('postId')));
         case '/api/me':
           return jsonResponse(await game.getMe());
         case '/api/roll-ticket':
@@ -198,8 +199,61 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
         return jsonResponse({ state: await game.acknowledgeFrenzyOfflineReward() });
       case '/api/rift-challenges/mark-opened':
         return jsonResponse(await riftChallenges.markRiftGameOpened());
+      case '/api/rift-completion/simulator/create': {
+        const ownerId = String(context.userId ?? '').trim();
+        if (!ownerId.startsWith('github-pages-test-')) {
+          throw new Error('The Rift completion post simulator is only available in the GitHub Pages test build.');
+        }
+        const challengeId = String(body.challengeId ?? '').trim();
+        const challenge = getRiftChallengeDefinition(challengeId);
+        if (!challenge) throw new Error('Choose a valid Rift challenge to preview.');
+
+        const cryptoApi = globalThis.crypto;
+        if (!cryptoApi?.getRandomValues) throw new Error('Secure preview ID generation is unavailable.');
+        const makeId = () => {
+          if (typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
+          return Array.from(cryptoApi.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('');
+        };
+
+        const ownerUsername = String(context.username ?? 'Redditor').trim().replace(/^u\\//i, '').slice(0, 32) || 'Redditor';
+        const subredditName = String(context.subredditName ?? 'infinityorbs').trim().replace(/^r\\//i, '').slice(0, 100) || 'infinityorbs';
+        const createdAt = Date.now();
+        const postId = 't3_pages_rift_preview-' + makeId();
+        const runId = 'pages-rift-preview-' + makeId();
+        const title = 'u/' + ownerUsername + ' has completed the Rift ' + challenge.name + ' for the first time!';
+        const postBody = 'u/' + ownerUsername + ' has completed the rift ' + challenge.name + ' for the first time!\\n\\n' +
+          'Celebrate this first clear with Kudos. Each player can send Kudos once, during the first 24 hours after the post is published.\\n\\n' +
+          'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\\n\\n' +
+          'Use the buttons below to open Infinity Orbs or send Kudos. Sending Kudos will not open the game.';
+
+        await riftChallenges.registerRiftCompletionPost({
+          postId,
+          runId,
+          ownerId,
+          ownerUsername,
+          challengeId: challenge.id,
+          challengeName: challenge.name,
+          subredditName,
+          createdAt,
+        });
+
+        return jsonResponse({
+          postId,
+          title,
+          body: postBody,
+          subredditName,
+          ownerUsername,
+          runAs: 'USER',
+          entry: 'rift',
+          flairId: null,
+          challengeId: challenge.id,
+          challengeName: challenge.name,
+          createdAt,
+          expiresAt: createdAt + 24 * 60 * 60_000,
+        });
+      }
       case '/api/rift-completion/kudos':
-        return jsonResponse(await riftChallenges.awardRiftCompletionKudos());
+        return jsonResponse(await riftChallenges.awardRiftCompletionKudos(body.postId));
       case '/api/rift-challenges/start':
         return jsonResponse(await riftChallenges.startRiftChallenge(body.challengeId));
       case '/api/rift-challenges/roll':
