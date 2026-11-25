@@ -68,8 +68,8 @@ export const RIFT_RELICS: Record<RiftRelicId, RiftRelicDefinition> = {
   },
   'stillness-engine': {
     id: 'stillness-engine', name: 'Stillness Engine',
-    description: 'Further reduces the Temporal Drag cooldown penalty.',
-    effect: '10% / 15% / 20% less remaining Temporal Drag penalty.',
+    description: 'In a No Automation challenge, reduce more of the Temporal Drag cooldown penalty.',
+    effect: '10% / 15% / 20% less Temporal Drag penalty in The First Spark.',
     baseScrapCost: 780, baseRiftPointCost: 8, costGrowth: 2.35, maxLevel: 3,
   },
   'rift-tithe': {
@@ -119,6 +119,7 @@ export function normalizeEquippedRiftRelics(
   const maxSlots = Number.isFinite(rawSlots)
     ? Math.max(0, Math.min(RIFT_RELIC_FORKED_EQUIP_SLOTS, Math.floor(rawSlots)))
     : RIFT_RELIC_EQUIP_SLOTS;
+  if (maxSlots <= 0) return [];
   const result: RiftRelicId[] = [];
   for (const entry of value) {
     if (typeof entry !== 'string' || !Object.prototype.hasOwnProperty.call(RIFT_RELICS, entry)) continue;
