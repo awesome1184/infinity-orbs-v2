@@ -25,6 +25,7 @@ import {
   RIFT_MUTATIONS,
   type RiftChallengeArchive,
   type RiftChallengeMainProgress,
+  type RiftChallengeRun,
 } from '../shared/rift-challenges.js';
 
 const notifications = (notificationsModule as any).notifications;
@@ -4443,7 +4444,7 @@ async function saveActiveRiftPlayerState(
         throw new Error('RIFT_RUN_ENDED');
       }
       const archive = JSON.parse(raw) as Record<string, unknown>;
-      const run = isPlainRecord(archive.activeRun) ? archive.activeRun : null;
+      const run = isPlainRecord(archive.activeRun) ? archive.activeRun as unknown as RiftChallengeRun : null;
       if (!run || run.status !== 'active' || run.runId !== session.runId) {
         await txn.unwatch();
         transactionClosed = true;
@@ -6180,12 +6181,13 @@ export async function applyRolls(
         xpGainPct: fullRuneBonuses.xpGainPct * runeShare,
       };
       const fullRuneEffects = combatRuneMajorAbilityEffects(parsed?.runes, parsed?.equippedRunes);
-      runeAbilityEffects = Object.fromEntries(
-        Object.entries(fullRuneEffects).map(([key, value]) => {
-          const neutralValue = key.endsWith('BonusRolls') || key.endsWith('BonusShards') ? 1 : 0;
-          return [key, neutralValue + (Number(value) - neutralValue) * runeShare];
-        }),
-      ) as typeof runeAbilityEffects;
+      const scaledRuneEffects: typeof fullRuneEffects = { ...fullRuneEffects };
+      for (const key of Object.keys(scaledRuneEffects) as Array<keyof typeof fullRuneEffects>) {
+        const neutralValue = key.endsWith('BonusRolls') || key.endsWith('BonusShards') ? 1 : 0;
+        const value = fullRuneEffects[key];
+        scaledRuneEffects[key] = neutralValue + (value - neutralValue) * runeShare;
+      }
+      runeAbilityEffects = scaledRuneEffects;
       if (s.riftSession && (s.riftSession.combatIntegrationLevel ?? 0) > 0) {
         const focus = Number(parsed.orbFocusRarity);
         const normalizedFocus = Number.isFinite(focus) ? Math.max(2, focus) : 2;
