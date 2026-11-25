@@ -11,6 +11,7 @@ on:
       - "package-lock.json"
       - "vite.pages.config.ts"
       - "src/**"
+      - "tests/**"
       - "tsconfig*.json"
   workflow_dispatch:
 
