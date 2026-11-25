@@ -154,7 +154,7 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
           </strong>
           <p className="mt-1 leading-relaxed text-slate-400">
             {postKind === 'rift'
-              ? 'Generates a local Rift completion record and opens the actual rift custom-post entry. It does not complete a challenge, grant rewards, or submit a real Reddit post. The preview correctly treats the current test profile as the post owner.'
+              ? 'Generates a local Rift completion record and opens the actual rift custom-post entry. It does not complete a challenge or submit a real Reddit post. The iframe uses a separate local viewer profile, so you can test one-time Kudos and its rewards without allowing the post owner to Kudos themselves.'
               : 'Generates the same Reddit submission payload as the real Frenzy publisher. Preview generation does not consume a roll or change your save; claiming the preview uses the real Frenzy claim engine.'}
           </p>
         </div>
