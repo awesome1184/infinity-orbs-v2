@@ -1,6 +1,8 @@
 import { context, redis } from './devvit-mock.js';
 import { withPlayerMutationLock, withPlayerMutationLockFor } from './player-lock.js';
 import { loadRaw, deleteRiftCodexForRun, save, prepareFrenzyOwnerRewardWrites } from './game.js';
+import { getCombatScrapBalance, spendCombatScrapForRiftForge, refundCombatScrapForRiftForge } from './combat.js';
+import { normalizeRiftRelicLevels, normalizeEquippedRiftRelics, riftRelicCost, RIFT_RELICS, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS, type RiftRelicId } from '../shared/rift-relics.js';
 import {
   createInitialState,
   calculateLevelFromXp,
@@ -171,6 +173,8 @@ function normalizeRun(value: unknown): RiftChallengeRun | null {
     completedMutations: safeInteger(value.completedMutations),
     emergencyProtocolsUsed: safeInteger(value.emergencyProtocolsUsed),
     emergencyProtocolUntilRoll: safeInteger(value.emergencyProtocolUntilRoll),
+    equippedRelics: normalizeEquippedRiftRelics(value.equippedRelics),
+    fractureCascadePending: value.fractureCascadePending === true,
     gameState: isRecord(value.gameState) ? value.gameState as unknown as PlayerState : null,
   };
 }
@@ -217,6 +221,12 @@ function normalizeArchive(value: unknown, now = Date.now()): RiftChallengeArchiv
     kudosSinceLastOpen: safeInteger(value.kudosSinceLastOpen),
     kudosDisplaySinceLastOpen: safeInteger(value.kudosDisplaySinceLastOpen),
     riftPerkLevels,
+    riftRelicLevels: normalizeRiftRelicLevels(value.riftRelicLevels),
+    equippedRiftRelics: normalizeEquippedRiftRelics(
+      value.equippedRiftRelics,
+      value.riftRelicLevels,
+      riftPerkLevels.timelineFork > 0 ? RIFT_RELIC_FORKED_EQUIP_SLOTS : RIFT_RELIC_EQUIP_SLOTS,
+    ),
   };
   archive.riftRatePerHour = riftRatePerHour(archive.completedChallengeIds, archive.riftPerkLevels);
   return archive;
@@ -713,6 +723,8 @@ export async function startRiftChallenge(
       completedMutations: 0,
       emergencyProtocolsUsed: 0,
       emergencyProtocolUntilRoll: 0,
+      equippedRelics: [...archive.equippedRiftRelics],
+      fractureCascadePending: false,
       gameState: state,
     };
     await writeArchive(archive);
@@ -767,6 +779,94 @@ export async function buyRiftChallengeUpgrade(
     syncRunSummaryFromGameState(run);
     await writeArchive(archive);
     return snapshot(archive, run.mainProgressAtStart);
+  });
+}
+
+export async function getRiftRelicForgeStatus(): Promise<RiftChallengeSnapshot & { scrapBalance: number; relicSlots: number }> {
+  const [challenge, scrapBalance] = await Promise.all([
+    getRiftChallengeStatus(),
+    getCombatScrapBalance(),
+  ]);
+  return {
+    ...challenge,
+    scrapBalance,
+    relicSlots: challenge.archive.riftPerkLevels.timelineFork > 0
+      ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+      : RIFT_RELIC_EQUIP_SLOTS,
+  };
+}
+
+export async function buyRiftRelic(relicIdValue: unknown): Promise<RiftChallengeSnapshot> {
+  const relicId = String(relicIdValue ?? '') as RiftRelicId;
+  if (!Object.prototype.hasOwnProperty.call(RIFT_RELICS, relicId)) {
+    throw new Error('Choose a valid Rift relic.');
+  }
+  return withPlayerMutationLock(async () => {
+    const archive = await readArchive();
+    accrueRiftProgress(archive);
+    if (archive.completedChallengeIds.length === 0) {
+      throw new Error('Complete your first Rift Challenge to unlock the Relic Forge.');
+    }
+    if (archive.activeRun?.status === 'active') {
+      throw new Error('Finish or abandon the active Rift run before using the Relic Forge.');
+    }
+    const currentLevel = archive.riftRelicLevels[relicId] ?? 0;
+    const definition = RIFT_RELICS[relicId];
+    if (currentLevel >= definition.maxLevel) throw new Error('This relic is already at maximum rank.');
+    const cost = riftRelicCost(relicId, currentLevel);
+    if (archive.riftPoints < cost.riftPoints) {
+      throw new Error('Need ' + String(cost.riftPoints) + ' Rift Points for this relic.');
+    }
+    const scrapBalance = await getCombatScrapBalance();
+    if (scrapBalance < cost.scrap) {
+      throw new Error('Not enough Combat Scrap. Need ' + String(cost.scrap) + '.');
+    }
+    await spendCombatScrapForRiftForge(cost.scrap);
+    archive.riftPoints -= cost.riftPoints;
+    archive.riftRelicLevels[relicId] = currentLevel + 1;
+    try {
+      await writeArchive(archive);
+    } catch (error) {
+      await refundCombatScrapForRiftForge(cost.scrap).catch(refundError => {
+        console.error('[Rift Relic Forge] Scrap compensation failed after archive write error.', refundError);
+      });
+      throw error;
+    }
+    return snapshot(archive, await readMainProgress());
+  });
+}
+
+export async function setEquippedRiftRelic(relicIdValue: unknown, equippedValue: unknown): Promise<RiftChallengeSnapshot> {
+  const relicId = String(relicIdValue ?? '') as RiftRelicId;
+  if (typeof equippedValue !== 'boolean') throw new Error('Choose whether to equip or unequip the relic.');
+  if (!Object.prototype.hasOwnProperty.call(RIFT_RELICS, relicId)) {
+    throw new Error('Choose a valid Rift relic.');
+  }
+  return withPlayerMutationLock(async () => {
+    const archive = await readArchive();
+    accrueRiftProgress(archive);
+    if (archive.completedChallengeIds.length === 0) {
+      throw new Error('Complete your first Rift Challenge to unlock the Relic Forge.');
+    }
+    if (archive.activeRun?.status === 'active') {
+      throw new Error('Finish or abandon the active Rift run before changing relics.');
+    }
+    if ((archive.riftRelicLevels[relicId] ?? 0) <= 0) throw new Error('Forge this relic before equipping it.');
+    const maxSlots = archive.riftPerkLevels.timelineFork > 0
+      ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+      : RIFT_RELIC_EQUIP_SLOTS;
+    const current = [...archive.equippedRiftRelics];
+    if (equippedValue) {
+      if (current.includes(relicId)) return snapshot(archive, await readMainProgress());
+      if (current.length >= maxSlots) throw new Error('All relic slots are occupied. Unequip a relic first.');
+      current.push(relicId);
+    } else {
+      const index = current.indexOf(relicId);
+      if (index >= 0) current.splice(index, 1);
+    }
+    archive.equippedRiftRelics = normalizeEquippedRiftRelics(current, archive.riftRelicLevels, maxSlots);
+    await writeArchive(archive);
+    return snapshot(archive, await readMainProgress());
   });
 }
 
