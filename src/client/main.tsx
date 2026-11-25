@@ -113,11 +113,14 @@ import { ChangelogModal } from './components/ChangelogModal.js';
 import { GettingStartedModal } from './components/GettingStartedModal.js';
 import { SplashScreen } from './components/SplashScreen.js';
 import { APP_VERSION } from '../shared/version.js';
+import { installFullLogCapture } from './diagnostics/full-log-snapshot.js';
 import './styles.css';
 import './ui-polish.css';
 import './experience-200.css';
 import './mobile-experience.css';
 import './rift-theme.css';
+
+installFullLogCapture();
 
 
 function optimisticShardSpend(
