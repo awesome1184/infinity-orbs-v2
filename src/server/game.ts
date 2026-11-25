@@ -4265,11 +4265,6 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       ? RIFT_RELIC_FORKED_EQUIP_SLOTS
       : RIFT_RELIC_EQUIP_SLOTS;
     const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
-    const dragValue = normalizeRiftTemporalDragMultiplier(run.temporalDragMultiplier);
-    const dragCompression = Math.min(0.8, safeNonNegativeInteger(riftPerks.temporalCompression) * 0.04);
-    const effectiveDrag = 1 + (dragValue - 1) * (1 - dragCompression) *
-      (1 - relicEffects.temporalDragPenaltyReduction) *
-      (1 - relicEffects.noAutomationCooldownReduction);
     if (safeNonNegativeInteger(riftPerks.automationOverride) > 0) {
       gameState.upgrades = { ...gameState.upgrades, auto: Math.max(1, gameState.upgrades?.auto ?? 0) };
       gameState.manualRolls = Math.max(3, gameState.manualRolls ?? 0);
@@ -4297,7 +4292,7 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       runId,
       challengeId: challenge.id,
       targetRarity: challenge.targetRarity,
-      baseCooldownMs: Math.max(500, Math.round(challenge.baseCooldownMs * effectiveDrag)),
+      baseCooldownMs: challenge.baseCooldownMs,
       riftLuckPerkLevel: safeNonNegativeInteger(riftPerks.riftLuck),
       riftSpeedPerkLevel: safeNonNegativeInteger(riftPerks.riftSpeed),
       temporalDragMultiplier: normalizeRiftTemporalDragMultiplier(run.temporalDragMultiplier),
@@ -4352,7 +4347,9 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       riftRelicCompletionRewardMultiplier: relicEffects.completionRewardMultiplier,
       riftTemporalArbitrageEfficiency: relicEffects.temporalArbitrageEfficiency,
       riftTemporalDragPenaltyReduction: relicEffects.temporalDragPenaltyReduction,
-      riftStillnessCooldownReduction: relicEffects.noAutomationCooldownReduction,
+      riftStillnessCooldownReduction: challenge.id === 'first-spark' && safeNonNegativeInteger(riftPerks.automationOverride) <= 0
+        ? relicEffects.noAutomationCooldownReduction
+        : 0,
       riftRelicProgressCoinBonus: relicEffects.progressCoinBonus,
       upgradeLevels: {
         fortune: safeNonNegativeInteger(levels.fortune),
