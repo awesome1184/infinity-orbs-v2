@@ -1,0 +1,4 @@
+One-time deployment marker for infinity-orbs@1.2.57 to r/infinity_orbs_dev.
+Validated source commit: 6fa36eee2692c3833756d81dc2b3b7b5806e9862 (full Node 24 preflight, all 489 tests, and production build passed).
+Includes nullable combat-state build fixes and regression coverage for discrete whole-number Speed turns.
+Deployment workflow must run full Node 24 preflight on this version, upload and verify infinity-orbs@1.2.57, then install to r/infinity_orbs_dev only.

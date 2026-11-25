@@ -56,13 +56,15 @@ if (devvit) {
   requireManifestValue("post.dir", devvit.post?.dir, "dist/client");
   const entrypoints = devvit.post?.entrypoints;
   if (!entrypoints || typeof entrypoints !== "object" || Array.isArray(entrypoints)) {
-    reportFailure("devvit.json post.entrypoints must define default, game, and frenzy entrypoints.");
+    reportFailure("devvit.json post.entrypoints must define default, game, frenzy, and rift entrypoints.");
   } else {
     requireManifestValue("post.entrypoints.default.entry", entrypoints.default?.entry, "splash.html");
     requireManifestValue("post.entrypoints.default.height", entrypoints.default?.height, "tall");
     requireManifestValue("post.entrypoints.game.entry", entrypoints.game?.entry, "game.html");
     requireManifestValue("post.entrypoints.frenzy.entry", entrypoints.frenzy?.entry, "frenzy.html");
     requireManifestValue("post.entrypoints.frenzy.height", entrypoints.frenzy?.height, "tall");
+    requireManifestValue("post.entrypoints.rift.entry", entrypoints.rift?.entry, "rift.html");
+    requireManifestValue("post.entrypoints.rift.height", entrypoints.rift?.height, "tall");
   }
 
   requireManifestValue("server.dir", devvit.server?.dir, "dist/server");
@@ -143,7 +145,7 @@ function readInlineSource(file) {
     return "";
   }
 }
-for (const file of ["src/client/splash.html", "src/client/frenzy.html"]) {
+for (const file of ["src/client/splash.html", "src/client/frenzy.html", "src/client/rift.html"]) {
   const html = readInlineSource(file);
   if (!/class=["']io-inline-post["']/.test(html)) {
     reportFailure(`${file} must mark the page as an inline-safe post surface.`);
@@ -154,12 +156,14 @@ for (const file of ["src/client/splash.html", "src/client/frenzy.html"]) {
 }
 const splashInline = readInlineSource("src/client/splash.tsx");
 const frenzyInline = readInlineSource("src/client/frenzy.tsx");
+const riftInline = readInlineSource("src/client/rift.tsx");
 if (frenzyInline.includes("GlobalChatWindow")) {
   reportFailure("src/client/frenzy.tsx must not mount GlobalChatWindow: its history list captures inline-post scrolling.");
 }
 for (const [file, code] of [
   ["src/client/splash.tsx", splashInline],
   ["src/client/frenzy.tsx", frenzyInline],
+  ["src/client/rift.tsx", riftInline],
 ]) {
   if (/onWheel\s*=|onTouchMove\s*=|onPointerMove\s*=|addEventListener\s*\(\s*['"](?:wheel|touchmove|pointermove)['"]|\.preventDefault\s*\(/.test(code)) {
     reportFailure(`${file} must not intercept native inline scroll or gesture events.`);

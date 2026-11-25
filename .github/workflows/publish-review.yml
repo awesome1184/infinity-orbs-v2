@@ -1,0 +1,108 @@
+name: Submit Devvit version for review
+# v2.2.34: submit the current guild-flair build for unlisted Reddit review, then install the candidate to r/infinity_orbs_dev only.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-review.yml
+
+jobs:
+  submit:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[submit-review:2.2.34]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Require main branch before submission
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "Refusing review submission from non-main ref: $GITHUB_REF"
+            exit 1
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify review version and required documentation
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$VERSION" = "2.2.34" || {
+            echo "Expected package version 2.2.34, got $VERSION."
+            exit 1
+          }
+          node --input-type=module -e "import fs from 'node:fs'; const p=JSON.parse(fs.readFileSync('package-lock.json','utf8')); if(p.version!=='2.2.34'||p.packages?.['']?.version!=='2.2.34') process.exit(1); const v=fs.readFileSync('src/shared/version.ts','utf8'); if(!v.includes(\"APP_VERSION = '2.2.34'\")) process.exit(1); if(!fs.existsSync('README.md')) process.exit(1);"
+          echo "Preparing infinity-orbs@$VERSION for unlisted review."
+
+      - name: Review preflight
+        run: |
+          set -euo pipefail
+          npm run preflight:guard
+          npm run type-check
+          node --import tsx --test tests/mobile-layout.test.ts tests/large-number-economy.test.ts tests/cooldown-time-energy.test.ts tests/guild-combo-progress.test.ts tests/guild-loading-regression.test.ts tests/guild-member-recovery.test.ts
+          node --import tsx --test tests/combat-mobile-skills.test.ts
+          node --import tsx --test tests/roll-batching.test.ts
+          node --import tsx --test tests/post-flair.test.ts
+          # Exercise the storage, Codex precision/sharding, and migration-safe save paths in this release.
+          node --import tsx --test tests/storage-compression.test.ts tests/player-save-chunking.test.ts tests/collection-persistence.test.ts tests/redis-storage-retention.test.ts
+          npm run build
+
+      - name: Verify Devvit CLI authentication
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${DEVVIT_AUTH_TOKEN:-}" || {
+            echo "::error::Repository secret DEVVIT_TOKEN is missing."
+            exit 1
+          }
+          test -n "${DEVVIT_SESSION_ID:-}" || {
+            echo "::error::Repository secret DEVVIT_SESSION_ID is missing."
+            exit 1
+          }
+          case "$DEVVIT_AUTH_TOKEN" in
+            \{*) ;;
+            *)
+              echo "::error::DEVVIT_TOKEN must contain the complete JSON blob from ~/.devvit/token."
+              exit 1
+              ;;
+          esac
+          mkdir -p "$HOME/.devvit"
+          printf '%s' "$DEVVIT_AUTH_TOKEN" > "$HOME/.devvit/token"
+          printf '%s' "$DEVVIT_SESSION_ID" > "$HOME/.devvit/session-id"
+          chmod 600 "$HOME/.devvit/token" "$HOME/.devvit/session-id"
+          node -e "const fs=require('node:fs'); const token=JSON.parse(fs.readFileSync(process.env.HOME+'/.devvit/token','utf8')); if(!token || typeof token!=='object' || Array.isArray(token)) process.exit(1)"
+          npx devvit whoami
+
+      - name: Publish and submit version for unlisted review
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          DEVVIT_ALLOW_SOURCE_UPLOAD: "1"
+          CI: true
+        timeout-minutes: 15
+        run: npx devvit publish --version 2.2.34
+
+      - name: Install the submitted candidate to development subreddit only (r/infinity_orbs_dev)
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          VERSION: 2.2.34
+        run: |
+          set -euo pipefail
+          npx devvit install r/infinity_orbs_dev "infinity-orbs@$VERSION"
+          npx devvit list installs r/infinity_orbs_dev

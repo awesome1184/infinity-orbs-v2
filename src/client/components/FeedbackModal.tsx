@@ -66,14 +66,14 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
         <div>
           <div className="flex items-center gap-2">
             <Bug className="w-5 h-5 text-amber-300" />
-            <h2 id="feedback-modal-title" className="text-lg font-black text-white">Bug Report / Suggestion</h2>
+            <h2 id="feedback-modal-title" className="text-lg font-black text-white">{type === 'bug' ? 'Report a Bug' : 'Suggest an Improvement'}</h2>
           </div>
           <p id="feedback-modal-description" className="mt-1 text-xs text-slate-400">
             This goes straight to the subreddit moderators through Modmail.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div role="group" aria-label="Choose feedback type" className="grid grid-cols-2 gap-2">
           <button
             type="button"
             disabled={busy}
@@ -143,7 +143,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, onSubmit 
               className="rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 px-4 py-2.5 text-xs font-black text-white hover:from-cyan-500 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 flex items-center gap-1.5"
             >
               <Send className="w-3.5 h-3.5" />
-              {busy ? 'Sending…' : 'Send to Modmail'}
+              {busy ? 'Sending…' : type === 'bug' ? 'Send bug report' : 'Send suggestion'}
             </button>
           </div>
         </div>

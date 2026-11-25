@@ -184,9 +184,9 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
 
               {/* Rewards Indicator */}
               <div className="text-right shrink-0 text-xs font-bold space-y-0.5">
-                <div className="text-amber-400">+{fmt(ach.rewardCoins)} 🪙</div>
+                <div className="inline-flex items-center justify-end gap-1 text-amber-400"><Coins className="h-3 w-3" aria-hidden="true" /> +{fmt(ach.rewardCoins)}</div>
                 {ach.rewardShards && (
-                  <div className="text-cyan-400">+{ach.rewardShards} 💎</div>
+                  <div className="inline-flex items-center justify-end gap-1 text-cyan-400"><Gem className="h-3 w-3" aria-hidden="true" /> +{fmt(ach.rewardShards)}</div>
                 )}
               </div>
             </div>
@@ -205,6 +205,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
                     sound.playClick();
                     void handleClaim(ach.id);
                   }}
+                  aria-label={`Claim ${ach.name} reward: ${fmt(ach.rewardCoins)} Coins${ach.rewardShards ? ` and ${fmt(ach.rewardShards)} Shards` : ""}`}
                   disabled={busy || claimingId !== null}
                   aria-busy={busy}
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-md active:scale-95 transition-all"

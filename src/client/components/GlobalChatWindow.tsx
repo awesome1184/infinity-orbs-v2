@@ -46,8 +46,8 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
   username = '',
 }) => {
   const [open, setOpen] = useState(false);
-  // Global Chat stays visible in the main and Frenzy entry points. Frenzy can
-  // read history, but posting is disabled until the player opens the main Game launcher.
+  // Server status permits only the registered main Game or a registered Frenzy context.
+  // Submissions from either context are routed to the canonical main Game post.
   const [chatAvailable, setChatAvailable] = useState<boolean | null>(null);
   const [chatUnavailableReason, setChatUnavailableReason] = useState('');
   const [messages, setMessages] = useState<GlobalChatMessage[]>([]);
@@ -176,7 +176,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
               ? ''
               : typeof payload.reason === 'string' && payload.reason.trim()
                 ? payload.reason
-                : "Global Chat is disabled because you're not in the main Game launcher.");
+                : "Global Chat is waiting for the canonical main Game post to be registered.");
           }
           return;
         } catch {
@@ -184,7 +184,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
           if (attempt === 2) {
             if (!cancelled) {
               setChatAvailable(false);
-              setChatUnavailableReason("Global Chat is disabled because you're not in the main Game launcher.");
+              setChatUnavailableReason("Global Chat is waiting for the canonical main Game post to be registered.");
             }
             return;
           }
@@ -318,13 +318,13 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
           jumpToBottomRef.current = true;
           setOpen(true);
         }}
-        className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-2xl border border-indigo-500/30 bg-slate-900/95 px-4 py-3 text-xs font-black text-white shadow-2xl backdrop-blur-md hover:bg-slate-800 transition-all"
-        title={chatAvailable === true ? 'Open global chat' : 'Global Chat is disabled outside the main Game launcher'}
+        className="io-chat-launcher fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-2xl border border-indigo-500/30 bg-slate-900/95 px-4 py-3 text-xs font-black text-white shadow-2xl backdrop-blur-md hover:bg-slate-800 transition-all"
+        title={chatAvailable === true ? 'Open global chat' : 'Open Global Chat to read messages and see why posting is unavailable here'}
       >
         <MessageCircle className="w-4 h-4 text-indigo-300" />
-        <span>Global Chat</span>
+        <span className="io-chat-launcher-label">Global Chat</span>
         {chatAvailable === false && (
-          <span className="rounded-full border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-400">Disabled</span>
+          <span className="io-chat-read-only rounded-full border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-400">Read only</span>
         )}
         {unreadCount > 0 && (
           <span aria-label={unreadCount + ' unread messages'} className="rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-[9px] text-indigo-200">
@@ -336,13 +336,13 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
   }
 
   return (
-    <section role="dialog" aria-modal={false} aria-label="Global Chat" className="fixed bottom-4 right-4 z-40 w-[min(380px,calc(100vw-2rem))] rounded-3xl border border-slate-700 bg-slate-950/95 shadow-2xl backdrop-blur-xl overflow-hidden">
+    <section role="dialog" aria-modal={false} aria-label="Global Chat" className="io-chat-window fixed bottom-4 right-4 z-40 w-[min(380px,calc(100vw-2rem))] rounded-3xl border border-slate-700 bg-slate-950/95 shadow-2xl backdrop-blur-xl overflow-hidden">
       <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900/95 px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageCircle className="w-4 h-4 text-indigo-300" />
           <div>
             <h3 className="text-sm font-black text-white">Global Chat</h3>
-            <p className="text-[9px] text-slate-500">Messages are public Reddit comments on the main Game post. When you send one, Reddit submits it as you. Comments made directly on that post also appear here.</p>
+            <p className="text-[9px] text-slate-500">Messages are public Reddit comments on the main Game post, submitted as your account. Comments posted there also appear here.</p>
           </div>
         </div>
         <button
@@ -364,8 +364,8 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
 
       {chatAvailable !== true && (
         <div role="status" className="border-b border-amber-500/20 bg-amber-950/30 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200">
-          {chatAvailable === null ? 'Checking Global Chat availability…' : chatUnavailableReason || "Global Chat is disabled because you're not in the main Game launcher."}
-          <div className="mt-1 text-[10px] text-amber-200/60">Messages remain visible; open the main Infinity Orbs Game launcher to post.</div>
+          {chatAvailable === null ? 'Checking Global Chat availability…' : chatUnavailableReason || "Global Chat is available only in the registered main Game or a registered Frenzy post."}
+          <div className="mt-1 text-[10px] text-amber-200/60">Messages remain visible; public comments are always routed to the registered main Game post.</div>
         </div>
       )}
 
@@ -381,18 +381,18 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
           shouldFollowMessagesRef.current =
             element.scrollHeight - element.scrollTop - element.clientHeight < 48;
         }}
-        className="h-72 overflow-y-auto px-3 py-3 space-y-2"
+        className="h-72 max-h-[45vh] min-h-40 overflow-y-auto px-3 py-3 space-y-2"
       >
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-xs text-slate-600">
             <div>
               <MessageCircle className="mx-auto mb-2 h-6 w-6" />
-              No messages yet.
+              No messages yet. Send a message to start the conversation.
             </div>
           </div>
         ) : (
           messages.map(message => (
-            <div key={message.id} className="rounded-xl border border-slate-800/80 bg-slate-900/70 px-3 py-2">
+            <article key={message.id} aria-label={`Message from ${message.username}`} className="rounded-xl border border-slate-800/80 bg-slate-900/70 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1.5 min-w-0">
                   <span className={(message.isAdmin === true)
@@ -406,7 +406,7 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
                     <span className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[8px] font-black tracking-wider text-red-300">ADMIN</span>
                   )}
                 </span>
-                <span className="text-[9px] text-slate-600">
+                <span className="text-[9px] text-slate-600" aria-label={`Sent at ${new Date(message.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}>
                   {new Date(message.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                 </span>
               </div>
@@ -428,22 +428,28 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
                   <span>{reportedIds.has(message.id) ? 'Sent' : reportingId === message.id ? 'Sending…' : 'Report'}</span>
                 </button>
               </div>
-            </div>
+            </article>
           ))
         )}
         <div ref={endRef} />
       </div>
 
-      <form aria-label="Post a public chat comment" onSubmit={sendMessage} className="border-t border-slate-800 bg-slate-900/95 p-3">
+      <form aria-label="Post a public chat comment" autoComplete="off" onSubmit={sendMessage} className="border-t border-slate-800 bg-slate-900/95 p-3">
         <div className="flex items-center gap-2">
           <label htmlFor="io-global-chat-input" className="sr-only">Public chat comment</label>
           <input
             id="io-global-chat-input"
+            name="io-global-chat-message"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             value={input}
             onChange={e => setInput(e.target.value.slice(0, 200))}
             aria-label="Write a public Global Chat message"
+            aria-describedby="io-global-chat-length"
             maxLength={200}
-            placeholder={chatAvailable === true ? 'Write a public Reddit comment...' : 'Open the main Game launcher to chat'}
+            placeholder={chatAvailable === true ? 'Write a public Reddit comment...' : 'Open a registered Game or Frenzy post to chat'}
             disabled={sending || chatAvailable !== true}
             className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
           />
@@ -453,12 +459,12 @@ const GlobalChatWindowComponent: React.FC<GlobalChatWindowProps> = ({
             aria-busy={sending}
             disabled={chatAvailable !== true || sending || !input.trim()}
             className="rounded-xl bg-indigo-600 px-3 py-2.5 text-white transition-all hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600"
-            title="Post public comment"
+            title={sending ? "Sending public comment…" : "Post public comment"}
           >
             {sending ? <X className="w-4 h-4 animate-pulse" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
-        <div role="status" aria-live="polite" className="mt-1 text-right text-[9px] text-slate-600">{input.length} / 200 characters</div>
+        <div id="io-global-chat-length" role="status" aria-live="polite" aria-label={`${input.length} of 200 characters used`} className="mt-1 text-right text-[9px] text-slate-600">{input.length} / 200 characters</div>
       </form>
     </section>
   );

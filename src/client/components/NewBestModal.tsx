@@ -23,11 +23,13 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
 
   useEffect(() => {
     if (isMinorDiscovery) {
-      sound.playChime(587.33, 'sine', 0.25);
       return;
     }
 
     sound.playNewBestFanfare();
+
+    // Respect the operating-system motion preference while retaining the sound cue.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
     // Multi-stage confetti celebration for major discoveries (1/100+)
     const count = 200;
@@ -94,7 +96,8 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
   if (isMinorDiscovery) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="relative z-10 w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-slate-900 border border-slate-700/80 rounded-2xl p-5 shadow-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+        <div role="dialog" aria-modal="true" aria-labelledby="io-new-best-title" className="relative z-10 w-full max-w-sm max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain bg-slate-900 border border-slate-700/80 rounded-2xl p-5 shadow-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+          <h2 id="io-new-best-title" className="sr-only">New personal best: 1 in {formatRarity(orb.rarity, orb.isInfinity)} {orbInfo.name}</h2>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold">
             <Star className="w-3.5 h-3.5 text-amber-400" />
             <span>NEW PERSONAL BEST</span>
@@ -102,6 +105,8 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
 
           <div className="py-2 flex items-center justify-center">
             <div
+              role="img"
+              aria-label={`${orbInfo.name}, ${orbInfo.tier} Orb, odds one in ${formatRarity(orb.rarity, orb.isInfinity)}`}
               className="w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-lg relative border border-white/20"
               style={{ background: orbInfo.bgGradient }}
             >
@@ -128,7 +133,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors cursor-pointer"
+            className="min-h-11 w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors cursor-pointer"
           >
             Continue Rolling
           </button>
@@ -138,9 +143,9 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
-      {/* Background Rotating Sunburst Rays */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
+      {/* Background rotating rays are decorative, never part of the dialog's accessible name. */}
+      <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
         <div
           className="w-[800px] h-[800px] rounded-full opacity-25 animate-ray-spin"
           style={{
@@ -154,7 +159,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
       </div>
 
       {/* Main Record Card */}
-      <div className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-gradient-to-b from-slate-900/95 to-slate-950/95 border-2 border-amber-400/60 rounded-3xl p-6 sm:p-8 shadow-[0_0_80px_rgba(251,191,36,0.35)] text-center space-y-6 animate-in zoom-in-95 duration-400">
+      <div role="dialog" aria-modal="true" aria-labelledby="io-new-best-title" className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain bg-gradient-to-b from-slate-900/95 to-slate-950/95 border-2 border-amber-400/60 rounded-3xl p-5 sm:p-8 shadow-[0_0_80px_rgba(251,191,36,0.35)] text-center space-y-6 animate-in zoom-in-95 duration-400">
         {/* Crown & Title */}
         <div className="space-y-1.5">
           <div className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black tracking-widest uppercase shadow-md animate-bounce">
@@ -162,7 +167,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
             <span>NEW PERSONAL BEST!</span>
             <Crown className="w-4 h-4 text-amber-300" />
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 drop-shadow-sm">
+          <h2 id="io-new-best-title" className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 drop-shadow-sm">
             YOU BEAT YOUR RECORD!
           </h2>
         </div>
@@ -171,17 +176,20 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
         <div className="relative py-4 flex items-center justify-center">
           {/* Pulsing Aura Rings */}
           <div
+            aria-hidden="true"
             className="absolute w-44 h-44 rounded-full animate-ping opacity-30 pointer-events-none"
             style={{ backgroundColor: orbInfo.color }}
           />
           <div
+            role="img"
+            aria-label={`New personal best: ${orbInfo.name}, ${orbInfo.tier}, odds one in ${formatRarity(orb.rarity, orb.isInfinity)}`}
             className="w-36 h-36 sm:w-40 sm:h-40 rounded-full flex flex-col items-center justify-center shadow-2xl relative transition-transform duration-500 hover:scale-105"
             style={{
               background: orbInfo.bgGradient,
               boxShadow: `0 0 50px ${orbInfo.color}66`,
             }}
           >
-            <div className="absolute inset-2 rounded-full border border-white/30" />
+            <div aria-hidden="true" className="absolute inset-2 rounded-full border border-white/30" />
             <span
               className="text-[10px] font-black uppercase tracking-widest drop-shadow block"
               style={{ color: orbInfo.color }}
@@ -224,7 +232,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
               onClose();
               onOpenShareModal(orb.rarity, orb.isInfinity);
             }}
-            className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 via-amber-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-950/50 transition-all active:scale-95 cursor-pointer"
+            className="min-h-11 flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 via-amber-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-950/50 transition-all active:scale-95 cursor-pointer"
           >
             <Share2 className="w-4 h-4" />
             <span>Share This Record</span>
@@ -232,7 +240,7 @@ export const NewBestModal: React.FC<NewBestModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-950/50 transition-all active:scale-95 cursor-pointer"
+            className="min-h-11 flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-950/50 transition-all active:scale-95 cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
             <span>Keep Rolling</span>

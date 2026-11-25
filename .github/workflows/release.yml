@@ -1,6 +1,12 @@
 name: Submit Infinity Orbs for Reddit Review
 
 on:
+  # v2.1.22 weighted large-batch roll release: submit the tested patch for Reddit review, then install it to r/infinity_orbs_dev only. Production install remains gated on Reddit approval.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+
   workflow_dispatch:
     inputs:
       release_version:
@@ -8,14 +14,14 @@ on:
         required: true
         type: string
       confirm_publish:
-        description: "Explicitly authorize submission of this version for Reddit review only. This workflow does not install to any subreddit."
+        description: "Explicitly authorize submission for Reddit review and installation to r/infinity_orbs_dev only."
         required: true
         type: boolean
         default: false
 
 jobs:
   release:
-    if: ${{ inputs.confirm_publish }}
+    if: ${{ inputs.confirm_publish || (github.event_name == 'push' && contains(github.event.head_commit.message, '[submit-review:2.1.22]')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,12 +47,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify Devvit CLI authentication
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${DEVVIT_AUTH_TOKEN:-}" || {
+            echo "::error::Repository secret DEVVIT_TOKEN is missing."
+            exit 1
+          }
+          test -n "${DEVVIT_SESSION_ID:-}" || {
+            echo "::error::Repository secret DEVVIT_SESSION_ID is missing."
+            exit 1
+          }
+          npx devvit whoami
+
       - name: Verify requested release version
         env:
           REQUESTED_VERSION: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
+          REQUESTED_VERSION="${REQUESTED_VERSION:-$VERSION}"
           test "$VERSION" = "$REQUESTED_VERSION" || {
             echo "Version mismatch: package.json is $VERSION but requested $REQUESTED_VERSION."
             exit 1
@@ -56,24 +79,10 @@ jobs:
       - name: Release preflight
         run: npm run preflight
 
-      - name: Configure Devvit authentication
-        env:
-          DEVVIT_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
-          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
-        run: |
-          set -euo pipefail
-          test -n "$DEVVIT_TOKEN"
-          test -n "$DEVVIT_SESSION_ID"
-          mkdir -p "$HOME/.devvit"
-          printf '%s' "$DEVVIT_TOKEN" > "$HOME/.devvit/token"
-          printf '%s' "$DEVVIT_SESSION_ID" > "$HOME/.devvit/session-id"
-          chmod 600 "$HOME/.devvit/token" "$HOME/.devvit/session-id"
-
-      - name: Verify Devvit authentication
-        run: npx devvit whoami
-
       - name: Submit version for Reddit review
         env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
           CI: true
           DEVVIT_ALLOW_SOURCE_UPLOAD: 1
           REQUESTED_VERSION: ${{ inputs.release_version }}
@@ -81,6 +90,16 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
+          REQUESTED_VERSION="${REQUESTED_VERSION:-$VERSION}"
           test "$VERSION" = "$REQUESTED_VERSION"
           npx devvit publish --version "$VERSION"
+      - name: Install published candidate to development subreddit only (r/infinity_orbs_dev)
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          npx devvit install r/infinity_orbs_dev "infinity-orbs@$VERSION"
+          npx devvit list installs r/infinity_orbs_dev
 

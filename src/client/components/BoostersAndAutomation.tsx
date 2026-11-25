@@ -9,6 +9,7 @@ import {
   Star,
   TrendingUp,
   Users,
+  Gem,
   Zap,
 } from 'lucide-react';
 import type {
@@ -21,9 +22,9 @@ import type {
 import type { WorldEvent } from '../../shared/social.js';
 import {
   AUTOMATIONS,
-  FREE_SHARD_DAILY_CAP,
   GLOBAL_BOOSTERS,
   decayGlobalBoosterState,
+  normalizeCelestialAlignmentInstances,
   globalBoosterRemainingMs,
   globalBoosterTimeProgress,
   globalBoosterLuckMultiplier,
@@ -36,6 +37,8 @@ import {
   onlinePlayerLuckMultiplier,
   premiumBoosterRemainingMs,
   formatNumber,
+  formatShardAmount,
+  roundShardAmount,
 } from '../../shared/game.js';
 
 interface BoostersAndAutomationProps {
@@ -147,13 +150,21 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  const alignmentInstances = normalizeCelestialAlignmentInstances(
+    state.alignmentActiveInstances, state.alignmentActiveChoice, state.alignmentActiveUntil, now,
+  );
+  const alignmentName = (choice: 'starseeker' | 'goldenOrbit' | 'clockwork') =>
+    choice === 'starseeker' ? 'Starseeker · Luck exponent' :
+    choice === 'goldenOrbit' ? 'Golden Orbit · Coin multiplier' :
+    'Clockwork · Auto Roll cooldown';
+
   const onlinePlayersRaw = Number(state.onlinePlayers ?? 1);
   const onlinePlayers = Number.isFinite(onlinePlayersRaw) ? Math.max(1, Math.floor(onlinePlayersRaw)) : 1;
   const onlineLuck = onlinePlayerLuckMultiplier(onlinePlayers);
   const freeShardsRaw = Number(state.freeShardsEarnedToday ?? 0);
-  const freeShards = Number.isFinite(freeShardsRaw) ? Math.max(0, Math.min(FREE_SHARD_DAILY_CAP, Math.floor(freeShardsRaw))) : 0;
+  const freeShards = roundShardAmount(freeShardsRaw);
   const walletShardsRaw = Number(state.shards ?? 0);
-  const walletShards = Number.isSafeInteger(walletShardsRaw) && walletShardsRaw >= 0 ? walletShardsRaw : 0;
+  const walletShards = Number.isFinite(walletShardsRaw) && walletShardsRaw >= 0 ? roundShardAmount(walletShardsRaw) : 0;
   const freeCreditsRaw = Number(state.globalBoosterCredits ?? 0);
   const freeCredits = Number.isSafeInteger(freeCreditsRaw) && freeCreditsRaw >= 0 ? freeCreditsRaw : 0;
   const communityGoalRaw = Number(worldEvent?.goal ?? 100_000);
@@ -202,9 +213,9 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="io-page-shell io-page-boosters max-w-5xl mx-auto space-y-6">
       {globalActivationError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{globalActivationError}</div>}
-      <section className="rounded-3xl border border-indigo-500/25 bg-gradient-to-br from-slate-900 via-indigo-950/20 to-slate-900 p-5 shadow-xl">
+      <section className="io-page-hero rounded-3xl border border-indigo-500/25 bg-gradient-to-br from-slate-900 via-indigo-950/20 to-slate-900 p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -228,11 +239,11 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
 
         <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
           <div>
-            <span className="font-black text-cyan-300">Roll-earned Shards today: {freeShards}/{FREE_SHARD_DAILY_CAP}</span>
-            <span className="text-slate-500 ml-2">The daily cap applies to roll drops; daily and quest rewards are separate.</span>
+            <span className="font-black text-cyan-300">Roll-earned Shards today: {formatShardAmount(freeShards)}</span>
+            <span className="text-slate-500 ml-2">Roll-earned Shards count toward the daily cap. Free reward Shards bypass it.</span>
           </div>
           <div className="text-slate-400">
-            {formatNumber(walletShards)} Shards available
+            {formatShardAmount(walletShards)} Shards available
           </div>
         </div>
       </section>
@@ -245,7 +256,7 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
               <Users className="w-4 h-4 text-fuchsia-300" />
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Each booster has its own timer. Activating it adds 2 hours; higher tiers drain faster.
+              Each booster has a flat 250-Shard activation cost at every tier. Activating it adds 2 hours; higher tiers drain timers faster.
               Tier 1 drains at ×1.10 normal speed and Tier 10 at ×2.00.
             </p>
           </div>
@@ -365,6 +376,29 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
         </div>
       </section>
 
+      {alignmentInstances.length > 0 && (
+        <section className="rounded-3xl border border-indigo-400/25 bg-gradient-to-br from-slate-900 via-indigo-950/15 to-slate-900 p-5 shadow-xl" data-testid="stacked-alignment-buffs">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wide text-indigo-200">Celestial Alignment · Active stacks</h3>
+              <p className="mt-1 text-[11px] text-slate-400">Each activation has its own expiry. Matching effects stack multiplicatively.</p>
+            </div>
+            <span className="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3 py-1 text-xs font-black tabular-nums text-indigo-100">{alignmentInstances.length} active</span>
+          </div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+            {alignmentInstances.map((instance, index) => (
+              <article key={instance.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-indigo-400/20 bg-slate-950/70 px-3 py-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-indigo-200">{alignmentName(instance.choice)}</div>
+                  <div className="mt-1 text-[10px] text-slate-500">Instance {index + 1} · {new Date(instance.activatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+                </div>
+                <strong className="shrink-0 font-mono text-sm tabular-nums text-white">{formatDuration(instance.expiresAt - now)}</strong>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="space-y-3">
         <div className="flex items-center gap-2 px-1">
           <Zap className="w-4 h-4 text-amber-300" />
@@ -390,8 +424,8 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
                       <p className="text-[11px] text-slate-400 mt-0.5">{info.desc}</p>
                     </div>
                   </div>
-                  <span className="text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-2 py-1">
-                    {info.costShards} 💎
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-2 py-1">
+                    {info.costShards} <Gem className="h-3 w-3" aria-hidden="true" />
                   </span>
                 </div>
 
@@ -482,10 +516,12 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2 px-1">
-          <Bot className="w-4 h-4 text-cyan-300" />
-          <h3 className="text-sm font-black text-white uppercase tracking-wide">Permanent Automation</h3>
-          <p className="text-xs text-slate-500">One-time Shard purchases. Once unlocked, these run automatically without an expiry timer.</p>
+        <div className="flex items-start gap-2 px-1">
+          <Bot className="w-4 h-4 text-cyan-300 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-black text-white uppercase tracking-wide">Permanent Automation</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">One-time Shard purchases. Once unlocked, these run automatically without an expiry timer.</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -515,8 +551,8 @@ export const BoostersAndAutomation: React.FC<BoostersAndAutomationProps> = ({
                       UNLOCKED
                     </span>
                   ) : (
-                    <span className="text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-2 py-1">
-                      {info.costShards} 💎
+                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-2 py-1">
+                      {info.costShards} <Gem className="h-3 w-3" aria-hidden="true" />
                     </span>
                   )}
                 </div>

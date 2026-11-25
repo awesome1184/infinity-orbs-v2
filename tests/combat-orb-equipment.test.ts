@@ -31,24 +31,21 @@ test('gear affixes from multiple equipment slots contribute to the combat build'
   const after = combatStatsFor(state);
 
   assert.ok(after.damage > before.damage);
-  assert.equal(after.speed, before.speed, 'ordinary speed affixes must not increase turn speed');
+  assert.equal(after.speed, before.speed + ring.speedBonus, 'ordinary gear Speed affixes must increase turn speed');
   assert.equal(after.armor, before.armor + helmet.armorBonus);
   assert.ok(after.critChance > before.critChance);
   state.equipment.ring = null;
   assert.ok(combatStatsFor(state).critChance < after.critChance);
 });
 
-test('legacy weapon and armor starter equipment remains valid alongside the new slots', () => {
+test('new Delvers start with empty inventory and all gear slots unequipped', () => {
   const state = createCombatState();
-  const weapon = state.inventory.find(item => item.id === state.equipment.weapon);
-  const armor = state.inventory.find(item => item.id === state.equipment.armor);
-  assert.equal(weapon?.slot, 'weapon');
-  assert.equal(armor?.slot, 'armor');
-  assert.equal(state.equipment.helmet, null);
-  assert.equal(state.equipment.gloves, null);
-  assert.equal(state.equipment.boots, null);
-  assert.equal(state.equipment.ring, null);
-  assert.equal(state.equipment.amulet, null);
+  assert.deepEqual(state.inventory, []);
+  assert.deepEqual(state.equipment, { weapon:null, armor:null, helmet:null, gloves:null, boots:null, ring:null, amulet:null });
+  const stats = combatStatsFor(state);
+  assert.equal(stats.damage, 30);
+  assert.equal(stats.maxHealth, 500);
+  assert.equal(stats.speed, 150);
 });
 
 test('major ability odds increase with item rarity but are never guaranteed', () => {
@@ -67,8 +64,8 @@ test('Luck makes average orb rarity improve continuously with diminishing return
   assert.equal(luckRarityFactor(1), 1);
   assert.ok(luckRarityFactor(10) > luckRarityFactor(1));
   assert.ok(luckRarityFactor(1_000_000) > luckRarityFactor(10));
-  assert.ok(luckRarityFactor(1e100) <= 25);
-  assert.equal(luckRarityFactor(1e100), 25);
+  assert.ok(luckRarityFactor(1e100) > 25);
+  assert.equal(luckRarityFactor(1e100), 1e50);
 });
 
 test('combat cadence is 30 seconds and Forge quality has an exponential cost', () => {
@@ -82,7 +79,7 @@ test('combat cadence is 30 seconds and Forge quality has an exponential cost', (
   assert.equal(combatForgeQualityCost(0, 120), 5_000_000);
 });
 
-test('Gacha ranks increase non-Common odds and Rank 30 splits the non-Mythic odds evenly', () => {
+test('Rank 30 keeps Common dominant and preserves the intended rarity mix', () => {
   const rank1 = combatSkillRarityOdds(1);
   const rank10 = combatSkillRarityOdds(10);
   const rank30 = combatSkillRarityOdds(30);
@@ -90,14 +87,15 @@ test('Gacha ranks increase non-Common odds and Rank 30 splits the non-Mythic odd
   assert.equal(rank1.Mythic, 0);
   assert.ok(rank10.Mythic > rank1.Mythic);
   assert.equal(rank30.Mythic, 0.005);
-  for (const rarity of ['Common', 'Uncommon', 'Rare', 'Epic'] as const) {
-    assert.ok(Math.abs(rank30[rarity] - 0.24875) < 1e-12, rarity + ' should have 24.875% base odds');
-  }
+  assert.equal(rank30.Common, 0.50);
+  assert.equal(rank30.Uncommon, 0.30);
+  assert.equal(rank30.Rare, 0.145);
+  assert.equal(rank30.Epic, 0.05);
   assert.ok(Math.abs(Object.values(rank30).reduce((sum, chance) => sum + chance, 0) - 1) < 1e-12);
   assert.equal(resolveCombatSkillRarity(0.1, 30, 0, 0), 'Common');
-  assert.equal(resolveCombatSkillRarity(0.3, 30, 0, 0), 'Uncommon');
-  assert.equal(resolveCombatSkillRarity(0.5, 30, 0, 0), 'Rare');
-  assert.equal(resolveCombatSkillRarity(0.75, 30, 0, 0), 'Epic');
+  assert.equal(resolveCombatSkillRarity(0.6, 30, 0, 0), 'Uncommon');
+  assert.equal(resolveCombatSkillRarity(0.85, 30, 0, 0), 'Rare');
+  assert.equal(resolveCombatSkillRarity(0.96, 30, 0, 0), 'Epic');
   assert.equal(resolveCombatSkillRarity(0.999, 30, 0, 0), 'Mythic');
 });
 

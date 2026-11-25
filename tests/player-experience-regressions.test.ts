@@ -81,23 +81,21 @@ test('streak preview follows the server reward schedule and resets after a misse
   assert.match(quests, /\{ day: 7, coins: 700, shards: 5 \}/);
   assert.match(quests, /const reward = streakReward/);
   assert.match(quests, /lastClaimDate === yesterday/);
-  assert.match(quests, /preview now shows tomorrow's reward/);
+  assert.match(quests, /The preview below shows the next reward/);
   assert.match(game, /const rewardCoins = day \* 100/);
   assert.match(game, /s\.streak\.lastClaimDate === yesterday \? previousCount \+ 1 : 1/);
 });
 
-test('navigation is grouped by purpose and selected tabs are exposed', () => {
+test('navigation omits category labels while selected tabs remain exposed', () => {
   const main = source('src/client/main.tsx');
   const start = main.indexOf('{/* Main Navigation Bar */}');
   const end = main.indexOf('{combatTutorialStatusLoaded', start);
   assert.ok(start >= 0 && end > start);
   const nav = main.slice(start, end);
-  for (const label of ['PLAY', 'GROW', 'DISCOVER', 'COMMUNITY', 'LONG-TERM']) {
-    assert.ok(nav.includes('>' + label + '</span>'), 'missing navigation group ' + label);
-  }
+  assert.doesNotMatch(nav, /io-nav-group-label[^>]*>(?:PLAY|GROW|DISCOVER|COMMUNITY|LONG-TERM)</i);
   assert.match(nav, /aria-current=\{tab === 'roll' \? 'page' : undefined\}/);
   assert.match(nav, /aria-current=\{tab === 'runes' \? 'page' : undefined\}/);
-  assert.match(nav, /io-combat-soon">PVP/);
+  assert.match(nav, /<span>Arena<\/span><span className="io-combat-soon">NEXT<\/span>/);
   assert.doesNotMatch(nav, /sound\.playClick\(\);\s*changeTab\('/);
 });
 
@@ -107,7 +105,7 @@ test('upgrade page groups choices and accurately reports Shard, Crit and Turbo v
   for (const group of ['Roll controls', 'Rarity and criticals', 'Rewards and value', 'Offline progress']) {
     assert.ok(upgrades.includes(group), 'missing group ' + group);
   }
-  assert.match(upgrades, /shardChance \?\? 0\) \* 0\.15/);
+  assert.match(upgrades, /shardChance \?\? 0\) \* 0\.075/);
   assert.match(upgrades, /Critical Rarity Multiplier/);
   assert.match(upgrades, /Auto Roll Unlocked Automatically/);
   assert.match(upgrades, /Buy All Affordable/);
@@ -161,7 +159,8 @@ test('Prestige explains what resets and groups permanent-upgrade filters', () =>
   const profile = source('src/client/components/ProfileAndPrestige.tsx');
   assert.match(profile, /Before you prestige/);
   assert.match(profile, /Coins retained depend on Cosmic Inheritance \(minimum 50\)/);
-  assert.match(profile, /All Shards, Codex discoveries, permanent upgrades, and cosmetics are kept/);
+  assert.match(profile, /Before you prestige/);
+  assert.doesNotMatch(profile, /cosmetics are kept/i);
   assert.match(profile, /role="group" aria-label="Filter permanent Prestige upgrades"/);
   assert.equal((profile.match(/aria-pressed=\{filterCategory ===/g) || []).length, 4);
 });
@@ -225,4 +224,63 @@ test('Community tier labels are safe when a saved event tier is malformed', () =
   const quests = source('src/client/components/QuestsAndStreaks.tsx');
   assert.match(quests, /safeCommunityTier/);
   assert.match(quests, /Tier \{fmt\(safeCommunityTier\)\}/);
+});
+
+
+test('legacy username-only leaderboard records stay visible without fabricating account IDs', () => {
+  const social = source('src/server/social.ts');
+  const game = source('src/server/game.ts');
+  const debug = source('src/server/debug.ts');
+  const adminUi = source('src/client/components/DevDebugModal.tsx');
+  const socialUi = source('src/client/components/GuildsAndSocial.tsx');
+
+  assert.match(social, /legacyOnlyEntries/);
+  assert.match(social, /authoritativeNames\.has\(normalizeBoardUsername\(entry\.username\)\)/);
+  assert.match(social, /sharedAt: Number\(entry\.sharedAt\) > 0 \? Number\(entry\.sharedAt\) : 1/);
+  assert.match(game, /legacyWithoutId/);
+  assert.match(game, /userId: ''/);
+  assert.match(game, /legacyOnly: true/);
+  assert.match(debug, /filter\(player => !player\.legacyOnly && Boolean\(player\.userId\)\)/);
+  assert.match(adminUi, /Legacy · ID unavailable/);
+  assert.match(adminUi, /player\.userId \|\| 'legacy:'/);
+  assert.match(socialUi, /entry\.legacyOnly &&/);
+});
+
+test('leaderboard and admin player-list reads explicitly bypass HTTP/browser caches', () => {
+  const main = source('src/client/main.tsx');
+  const app = source('src/server/app.ts');
+  const debug = source('src/server/debug.ts');
+
+  assert.match(main, /getJson<LeaderboardEntry\[]>\('\/api\/leaderboard', \{ cache: 'no-store' \}\)/);
+  assert.match(main, /getJson<LeaderboardBoards>\('\/api\/leaderboards', \{ cache: 'no-store' \}\)/);
+  assert.match(app, /app\.get\('\/api\/leaderboard',[\s\S]{0,120}Cache-Control', 'no-store, max-age=0'/);
+  assert.match(app, /app\.get\('\/api\/leaderboards',[\s\S]{0,120}Cache-Control', 'no-store, max-age=0'/);
+  assert.match(debug, /debugRouter\.get\('\/players',[\s\S]{0,100}Cache-Control', 'no-store, max-age=0'/);
+});
+
+
+test('admin leaderboard diagnostics report live storage shape and computed endpoint outcomes', () => {
+  const debug = source('src/server/debug.ts');
+  const social = source('src/server/social.ts');
+  const game = source('src/server/game.ts');
+  const ui = source('src/client/components/DevDebugModal.tsx');
+
+  assert.match(debug, /debugRouter\.get\('\/leaderboard-diagnostics'/);
+  assert.match(debug, /APP_VERSION/);
+  assert.match(debug, /context\.subredditName/);
+  assert.match(debug, /'io:player-registry'/);
+  assert.match(debug, /'io:leaderboard'/);
+  assert.match(debug, /entriesWithoutUserId/);
+  assert.match(debug, /malformedEntries/);
+  assert.match(debug, /matchingPlayerSaves/);
+  assert.match(debug, /listPlayers\(\)\.then/);
+  assert.match(debug, /leaderboards\(\)\.then/);
+  assert.match(debug, /idSuffix: redactId/);
+  assert.match(debug, /Cache-Control', 'no-store, max-age=0'/);
+  assert.match(social, /export async function leaderboards/);
+  assert.match(game, /export async function listPlayers/);
+  assert.match(ui, /Leaderboard & Player List Diagnostics/);
+  assert.match(ui, /\/api\/dev\/leaderboard-diagnostics/);
+  assert.match(ui, /Run Diagnostics/);
+  assert.match(ui, /Copy JSON/);
 });

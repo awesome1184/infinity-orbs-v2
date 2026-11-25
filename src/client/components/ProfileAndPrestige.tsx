@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sparkles,
-  Palette,
   RotateCcw,
   Check,
   Clover,
@@ -27,18 +26,17 @@ import type {
   PlayerState,
   PrestigeUpgradeId,
   PrestigeUpgradeInfo,
-  CosmeticItem,
 } from '../../shared/game.js';
 import {
   calculateCosmicDust,
   getLevelProgress,
   LEVEL_MILESTONES,
-  COSMETICS,
   PRESTIGE_UPGRADES,
   prestigeUpgradeCost,
   SHARD_SYNTHESIS_COST,
-  MAX_COSMIC_DUST,
   getLevelBenefits,
+  FEATURE_UNLOCK_LEVELS,
+  MAX_PLAYER_LEVEL,
   formatNumber,
   unbrokenMomentumSpeedBonus,
 } from '../../shared/game.js';
@@ -49,7 +47,6 @@ interface ProfileAndPrestigeProps {
   onPrestige: () => Promise<void>;
   onBuyPrestigeUpgrade: (id: PrestigeUpgradeId) => Promise<void>;
   onSynthesizeDust: () => Promise<void>;
-  onBuyCosmetic: (id: string) => Promise<void>;
   busy: boolean;
 }
 
@@ -58,7 +55,6 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
   onPrestige,
   onBuyPrestigeUpgrade,
   onSynthesizeDust,
-  onBuyCosmetic,
   busy,
 }) => {
   const [confirmingPrestige, setConfirmingPrestige] = useState(false);
@@ -109,20 +105,10 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
 
   const currentRunVal = state.collectionValue ?? 0;
   const pendingDust = calculateCosmicDust(state);
-  const canPrestige = pendingDust > 0 && currentRunVal >= 1_000_000;
-
-  const luckRatio = state.highestRarity > 0 ? state.totalRolls / state.highestRarity : 1;
-  const luckRating =
-    state.highestRarity >= 100000 && state.totalRolls < 5000
-      ? 'Very Lucky'
-      : luckRatio < 0.5
-      ? 'Above Average'
-      : luckRatio > 2.5
-      ? 'Below Average'
-      : 'Average';
+  const canPrestige = (state.level ?? 1) >= FEATURE_UNLOCK_LEVELS.prestige && pendingDust > 0 && currentRunVal >= 1_000_000;
 
   const hasForgeUpgrade = (state.prestigeUpgrades?.shardSynthesis ?? 0) > 0;
-  const canSynthesize = (state.shards ?? 0) >= SHARD_SYNTHESIS_COST && state.cosmicDust < MAX_COSMIC_DUST;
+  const canSynthesize = (state.shards ?? 0) >= SHARD_SYNTHESIS_COST && state.cosmicDust < Number.MAX_SAFE_INTEGER;
 
   const upgradeKeys = Object.keys(PRESTIGE_UPGRADES) as PrestigeUpgradeId[];
   const filteredUpgrades = upgradeKeys.filter(id => {
@@ -191,10 +177,13 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
     }
   };
 
-  const safeStoredLevel=Number.isFinite(Number(state.level))?Math.max(1,Math.min(1000,Math.floor(Number(state.level)))):1;
+  const safeStoredLevel=Number.isFinite(Number(state.level))?Math.max(1,Math.min(MAX_PLAYER_LEVEL,Math.floor(Number(state.level)))):1;
   const displayedLevel=safeStoredLevel;
   const safeTotalXp=Number.isFinite(Number(state.xp))?Math.max(0,Number(state.xp)):0;
-  const isMaxLevel=safeStoredLevel>=1000;
+  const isMaxLevel=safeStoredLevel>=MAX_PLAYER_LEVEL;
+  const recentUnlockedMilestones=LEVEL_MILESTONES.filter(milestone=>milestone.level<=displayedLevel).slice(-4);
+  const nextLevelMilestones=LEVEL_MILESTONES.filter(milestone=>milestone.level>displayedLevel).slice(0,4);
+  const displayedMilestones=[...recentUnlockedMilestones,...nextLevelMilestones];
   const levelProgress=getLevelProgress(safeStoredLevel,safeTotalXp,state.levelXpFloor);
   const levelInfo={
     ...levelProgress,
@@ -204,9 +193,9 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
   const levelBenefits = getLevelBenefits(displayedLevel);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="io-page-shell io-page-profile max-w-4xl mx-auto space-y-8">
       {/* 1. Level Perks & Milestones Section */}
-      <div className="bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 border border-purple-800/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 relative overflow-hidden">
+      <div className="io-page-hero bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 border border-purple-800/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-purple-800/30 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/30">
@@ -214,24 +203,24 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-black text-white">Orbmaster Level {levelInfo.level}</h2>
+                <h2 className="text-xl font-black text-white">Level {levelInfo.level}</h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  {fmt(state.xp || 0)} Total EXP
+                  {fmt(state.xp || 0)} Total XP
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Each level grants permanent passive multipliers, milestone perks, and Mastery Points.
+                Every level grants 1 Mastery Point and increases your base rarity. Milestones add permanent bonuses and unlock new systems.
               </p>
             </div>
           </div>
 
           <div className="bg-slate-950/80 border border-purple-500/30 px-4 py-2 rounded-2xl text-right">
-            <div className="text-[10px] font-bold uppercase text-purple-300">Level Passives</div>
+            <div className="text-[10px] font-bold uppercase text-purple-300">Current bonuses</div>
             <div className="text-xs font-mono text-emerald-400 font-bold">
-              {levelBenefits.luckMultiplier.toFixed(2)}× Multiplicative Luck
+              {levelBenefits.luckMultiplier.toFixed(2)}× Luck
             </div>
             <div className="text-[10px] font-mono text-amber-300 font-bold">
-              {levelBenefits.coinsMultiplier.toFixed(2)}× Multiplicative Coins
+              {levelBenefits.coinsMultiplier.toFixed(2)}× Coin earnings
             </div>
           </div>
         </div>
@@ -239,7 +228,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
         {/* EXP Progress Bar */}
         <div className="space-y-2 bg-slate-950/60 border border-purple-900/40 p-4 rounded-2xl">
           <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-300 font-bold">{isMaxLevel ? 'Maximum Level Reached' : 'Progress to Level ' + (levelInfo.level + 1)}</span>
+            <span className="text-slate-300 font-bold">{isMaxLevel ? 'Paragon cap reached · Level ' + MAX_PLAYER_LEVEL : 'Progress to Level ' + (levelInfo.level + 1)}</span>
             <span className="text-purple-300">
               {fmt(levelInfo.currentLevelXp)} / {fmt(levelInfo.nextLevelXp)} XP ({levelInfo.progressPercent}%)
             </span>
@@ -258,10 +247,10 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
         <div className="space-y-2.5">
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Award className="w-3.5 h-3.5 text-amber-400" />
-            <span>Level Milestone Perks</span>
+            <span>Level rewards</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-            {LEVEL_MILESTONES.map(m => {
+            {displayedMilestones.map(m => {
               const isUnlocked = levelInfo.level >= m.level;
               return (
                 <div
@@ -304,17 +293,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
           <h2 className="text-lg font-black text-white">Player Statistics</h2>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">
-              Luck Rating
-            </span>
-            <span className="text-sm font-black text-cyan-300 block truncate">
-              {luckRating}
-            </span>
-            <span className="text-[10px] text-slate-500">Odds vs Rolls</span>
-          </div>
-
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5">
             <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">
               Rolls Since Best
@@ -398,12 +377,15 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg sm:text-xl font-black text-white">Prestige</h2>
+                {state.level < FEATURE_UNLOCK_LEVELS.prestige && (
+                  <span className="text-xs font-semibold text-slate-400">Opens at Level {FEATURE_UNLOCK_LEVELS.prestige}</span>
+                )}
                 <span className="text-xs font-bold bg-fuchsia-500/20 text-fuchsia-300 px-2.5 py-0.5 rounded-full border border-fuchsia-500/30">
                   {fmt(state.cosmicDust)} Cosmic Dust
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Resets current-run Collection Value and base upgrades, plus offline rolls and run counters. Cosmic Inheritance determines Coins retained (minimum 50). All Shards, Codex discoveries, permanent upgrades, and cosmetics are kept.
+                Trade this run’s progress for Cosmic Dust and permanent upgrades. Your Collection and Shards stay; your run value and base upgrades reset. The confirmation explains exactly what carries over.
               </p>
             </div>
           </div>
@@ -413,7 +395,8 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
               <div role="status" className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-950/25 p-3 text-xs leading-relaxed text-slate-300">
                 <strong className="block text-fuchsia-200 mb-1">Before you prestige</strong>
                 <p>Reset: current-run Collection Value, base upgrades, offline rolls, and rolls-since-best counters.</p>
-                <p className="mt-1">Keep: all Shards, Codex discoveries, permanent upgrades, and cosmetics. Coins retained depend on Cosmic Inheritance (minimum 50).</p>
+                <p className="mt-1">Coins retained depend on Cosmic Inheritance (minimum 50).</p>
+                 <p className="mt-1">Keep: Shards, Cosmic Dust, permanent Prestige upgrades, and your Codex discoveries.</p>
                 <p className="mt-1">Gain: +{pendingDust} Cosmic Dust and +3 Mastery Points.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -481,7 +464,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Convert 10 Shards into 1 Cosmic Dust. Cosmic Dust is capped at {MAX_COSMIC_DUST}.
+                  Convert 100 Shards into 1 Cosmic Dust. There is no gameplay cap on your Dust balance.
                 </p>
               </div>
             </div>
@@ -501,7 +484,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>{state.cosmicDust >= MAX_COSMIC_DUST ? 'Cosmic Dust Cap Reached' : `Forge 1 Dust (${SHARD_SYNTHESIS_COST} Shards)`}</span>
+              <span>{`Forge 1 Dust (${SHARD_SYNTHESIS_COST} Shards)`}</span>
             </button>
           </div>
         )}
@@ -681,90 +664,7 @@ export const ProfileAndPrestige: React.FC<ProfileAndPrestigeProps> = ({
         </div>
       </div>
 
-      {/* 3. Cosmetics & Customization */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Palette className="w-5 h-5 text-cyan-400" />
-            <h3 className="text-base font-black text-white">Orb Skins & Auras</h3>
-          </div>
-          <span className="text-xs text-slate-400">
-            {state.unlockedCosmetics.length}/{COSMETICS.length} Unlocked
-          </span>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {COSMETICS.map((cosmetic: CosmeticItem) => {
-            const isOwned = state.unlockedCosmetics.includes(cosmetic.id);
-            const isActive = state.activeCosmetic === cosmetic.id;
-            const canAfford =
-              state.coins >= cosmetic.costCoins &&
-              (state.shards ?? 0) >= cosmetic.costShards;
-
-            return (
-              <div
-                key={cosmetic.id}
-                className={`bg-slate-950/60 border rounded-2xl p-4 flex flex-col justify-between space-y-3 transition-all ${
-                  isActive
-                    ? 'border-cyan-500 ring-2 ring-cyan-500/20'
-                    : isOwned
-                    ? 'border-slate-700'
-                    : 'border-slate-800/80'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-white">{cosmetic.name}</span>
-                    {isActive && (
-                      <span className="text-[10px] font-bold bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">
-                        EQUIPPED
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400">{cosmetic.desc}</p>
-                </div>
-
-                {isOwned ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playClick();
-                      void onBuyCosmetic(cosmetic.id);
-                    }}
-                    disabled={isActive || busy}
-                    className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-slate-900 text-slate-500 cursor-default'
-                        : 'bg-slate-800 hover:bg-slate-700 text-white'
-                    }`}
-                  >
-                    {isActive ? 'Equipped' : 'Equip Skin'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playClick();
-                      void onBuyCosmetic(cosmetic.id);
-                    }}
-                    disabled={!canAfford || busy}
-                    className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                      canAfford
-                        ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-md active:scale-95 cursor-pointer'
-                        : 'bg-slate-900 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Gem className="w-3.5 h-3.5" />
-                    <span>
-                      Unlock ({cosmetic.costShards > 0 ? `${cosmetic.costShards} Shards` : `${fmt(cosmetic.costCoins)} Coins`})
-                    </span>
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 };

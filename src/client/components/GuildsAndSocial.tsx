@@ -4,7 +4,6 @@ import {
   Users,
   Trophy,
   Globe,
-  MessageSquare,
   Plus,
   LogOut,
   Sparkles,
@@ -15,19 +14,17 @@ import {
   Gem,
   Check,
   Coins,
-  Sword,
   Zap,
   UserCheck,
   UserPlus,
   UserMinus,
-  Flag,
+  RefreshCw,
 } from 'lucide-react';
 import type {
   Guild,
   LeaderboardEntry,
   WorldEvent,
   GuildPerkId,
-  GuildMessage,
   LeaderboardBoards,
   LeaderboardId,
 } from '../../shared/social.js';
@@ -56,10 +53,16 @@ interface GuildsAndSocialProps {
   onBuyGuildPerk?: (perk: GuildPerkId) => Promise<void>;
   onToggleGuildTrust?: (username: string, trusted: boolean) => Promise<void>;
   onKickGuildMember?: (username: string) => Promise<void>;
-  onSetGuildTax?: (rate: number) => Promise<void>;
   playerUsername?: string;
   playerHasShared?: boolean;
-  onRefreshLeaderboards?: () => Promise<void>;
+  onRefreshLeaderboards?: (force?: boolean) => Promise<void>;
+  leaderboardLoading?: boolean;
+  leaderboardLoaded?: boolean;
+  leaderboardLoadError?: string | null;
+  guildLoadError?: string | null;
+  guildLoading?: boolean;
+  guildDataLoaded?: boolean;
+  onRefreshGuildData?: () => Promise<void>;
   busy: boolean;
 }
 
@@ -101,10 +104,16 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
   onBuyGuildPerk,
   onToggleGuildTrust,
   onKickGuildMember,
-  onSetGuildTax,
   playerUsername = '',
   playerHasShared = false,
   onRefreshLeaderboards,
+  leaderboardLoading = false,
+  leaderboardLoaded = false,
+  leaderboardLoadError = null,
+  guildLoadError = null,
+  guildLoading = false,
+  guildDataLoaded = false,
+  onRefreshGuildData,
   busy,
 }) => {
   const [activeTab, setActiveTab] = useState<'guild' | 'leaderboard' | 'event'>('guild');
@@ -116,10 +125,6 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
   const createGuildInFlightRef = useRef(false);
   const [socialError, setSocialError] = useState('');
   const [socialNotice, setSocialNotice] = useState('');
-  const [chatMessages, setChatMessages] = useState<GuildMessage[]>([]);
-  const [reportingId, setReportingId] = useState<string | null>(null);
-  const [reportedIds, setReportedIds] = useState<Set<string>>(() => new Set());
-  const [chatReportError, setChatReportError] = useState('');
   const [activeLeaderboard, setActiveLeaderboard] = useState<LeaderboardId>('collectionValue');
   const leaderboardBoards: LeaderboardBoards = leaderboards ?? {
     collectionValue: leaderboard,
@@ -129,6 +134,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
     bestOrb: [],
     mostPlaytime: [],
     chainLength: [],
+    highestDepthReached: [],
   };
   const leaderboardMeta: Array<{ id: LeaderboardId; label: string }> = [
     { id: 'collectionValue', label: 'Collection Value' },
@@ -138,6 +144,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
     { id: 'bestOrb', label: 'Best Orb' },
     { id: 'mostPlaytime', label: 'Most Playtime' },
     { id: 'chainLength', label: 'Chain Length' },
+    { id: 'highestDepthReached', label: 'Highest Depth Reached' },
   ];
   const displayedLeaderboard = Array.isArray(leaderboardBoards[activeLeaderboard]) ? leaderboardBoards[activeLeaderboard] : [];
   const leaderboardMetric = (entry: LeaderboardEntry): string => {
@@ -157,6 +164,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
         return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
       }
       case 'chainLength': return `${fmt(entry.chainLength ?? 0)} Rarities`;
+      case 'highestDepthReached': return `Depth ${fmt(entry.bestDepth ?? 0)}`;
     }
   };
 
@@ -168,16 +176,17 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
   useEffect(() => {
     if (activeTab !== 'leaderboard' || !onRefreshLeaderboards) return;
     void onRefreshLeaderboards().catch(() => null);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void onRefreshLeaderboards().catch(() => null);
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30_000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [activeTab, onRefreshLeaderboards]);
 
-  useEffect(() => {
-    setChatMessages(prev => {
-      const merged = new Map<string, GuildMessage>();
-      for (const msg of prev) merged.set(msg.id, msg);
-      for (const msg of myGuild?.chat ?? []) merged.set(msg.id, msg);
-      return Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp).slice(-100);
-    });
-  }, [myGuild?.id, myGuild?.chat]);
 
   const fmt = (n: number) => formatNumber(Number.isFinite(n) ? Math.max(0, n) : 0);
   const normalizeUsername = (value: string) => value.trim().toLowerCase();
@@ -192,45 +201,12 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
     return canManageGuild && member.role !== 'officer' && member.trusted !== true;
   };
 
-  const handleReportChat = async (message: GuildMessage) => {
-    if (message.isSystem || reportingId || reportedIds.has(message.id)) return;
-    setReportingId(message.id);
-    setChatReportError('');
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 12_000);
-    try {
-      const response = await fetch('/api/guilds/chat/report', {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ messageId: message.id }),
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: unknown };
-      if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Could not report message.');
-      setReportedIds(prev => {
-        const next = new Set(prev);
-        next.add(message.id);
-        return new Set(Array.from(next).slice(-200));
-      });
-      setSocialNotice('Report sent to subreddit moderators.');
-    } catch (error) {
-      setChatReportError(error instanceof Error && error.name === 'AbortError'
-        ? 'Reporting timed out. Check your connection and try again.'
-        : error instanceof Error ? error.message : 'Could not report message.');
-    } finally {
-      window.clearTimeout(timeout);
-      setReportingId(null);
-    }
-  };
-
   const handleCreateGuild = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = createName.trim();
-    const tag = createTag.trim().toUpperCase();
-    if (!name || busy || creatingGuild || createGuildInFlightRef.current) return;
-    if (!/^[A-Z]{2,5}$/.test(tag)) {
-      setSocialError('Guild tags must contain 2–5 letters (A–Z).');
+    const tag = createTag.trim().replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase();
+    if (name.length < 3 || tag.length < 2 || busy || creatingGuild || createGuildInFlightRef.current) {
+      setSocialError('Guild name must be at least 3 characters and tag must be 2–5 letters or numbers.');
       setSocialNotice('');
       return;
     }
@@ -258,7 +234,21 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="io-page-shell io-page-social max-w-4xl mx-auto space-y-6">
+      {guildLoadError && (
+        <div role="alert" aria-live="assertive" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-200">
+          <div>
+            <strong>Guild data could not be loaded.</strong>
+            <p className="mt-1">{guildLoadError} {guildDataLoaded ? 'Your last loaded guild data is still shown.' : 'The directory will appear when the connection returns.'} Retry below.</p>
+          </div>
+          {onRefreshGuildData && (
+            <button type="button" disabled={busy || guildLoading} onClick={() => void onRefreshGuildData().catch(() => undefined)} className="shrink-0 rounded-lg border border-rose-400/40 px-3 py-2 font-bold hover:bg-rose-500/10 disabled:opacity-50">
+              {guildLoading ? 'Retrying…' : 'Retry loading'}
+            </button>
+          )}
+        </div>
+      )}
+      {guildLoading && guildDataLoaded && <p role="status" aria-live="polite" className="text-[10px] text-slate-500">Refreshing guild activity…</p>}
       {(socialError || socialNotice) && <div role={socialError ? 'alert' : 'status'} aria-live={socialError ? 'assertive' : 'polite'} className={socialError ? 'rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-200' : 'rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-3 text-xs text-emerald-200'}>{socialError || socialNotice}</div>}
       {/* Sub-navigation */}
       <div role="group" aria-label="Guilds and social sections" className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
@@ -317,7 +307,20 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
       {/* 1. GUILD TAB */}
       {activeTab === 'guild' && (
         <div className="space-y-6">
-          {myGuild ? (
+          {guildLoading && !guildDataLoaded ? (
+            <div role="status" aria-busy="true" className="space-y-3 rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
+              <div className="h-5 w-40 animate-pulse rounded bg-slate-800" />
+              <div className="h-3 w-64 max-w-full animate-pulse rounded bg-slate-800/80" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                {[0, 1, 2, 3].map(item => <div key={item} className="h-20 animate-pulse rounded-2xl border border-slate-800 bg-slate-950/60" />)}
+              </div>
+              <span className="sr-only">Loading guilds and your guild details…</span>
+            </div>
+          ) : guildLoadError && !guildDataLoaded ? (
+            <div role="status" className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 text-center text-xs text-slate-400">
+              Your guild directory is waiting for a connection. Use Retry loading above when you’re ready.
+            </div>
+          ) : myGuild ? (
             /* Player Is In A Guild */
             <div className="space-y-6">
               {/* Guild Header Hero */}
@@ -330,17 +333,15 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                     <div>
                       <div className="flex items-center gap-2">
                         <h2 className="text-xl font-black text-white">{myGuild.name}</h2>
-                        <span className="text-xs font-bold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">
-                          Lv {myGuild.level}
-                        </span>
-                      </div>
+                        </div>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {myGuild.members.length} / {10 + Math.min(40, myGuild.perks?.memberCapacityRank ?? 0)} Members • {fmt(myGuild.tokens ?? 0)} Guild Tokens • {fmt(myGuild.xp ?? 0)} Guild XP
+                        {myGuild.members.length} / {10 + Math.min(40, myGuild.perks?.memberCapacityRank ?? 0)} Members • {fmt(myGuild.tokens ?? 0)} Guild Tokens
                       </p>
                     </div>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => {
                       sound.playClick();
                       void onLeaveGuild();
@@ -386,7 +387,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                             </span>
                           </div>
                           <p className="text-xs font-bold text-white mt-2">{task.label}</p>
-                          <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800 mt-2" role="progressbar" aria-label={task.label+' progress'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}>
+                          <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800 mt-2" role="progressbar" aria-label={task.label+' progress'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)} aria-valuetext={fmt(progress)+' of '+fmt(target)+' complete'}>
                             <div
                               className="h-full bg-gradient-to-r from-purple-500 to-amber-400 transition-all"
                               style={{ width: `${percent}%` }}
@@ -396,7 +397,6 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                             <span>{fmt(progress)} / {fmt(target)}</span>
                             <span className="text-amber-300">+{fmt(task.reward)} Tokens</span>
                           </div>
-                          <div className="text-[10px] text-fuchsia-300 mt-1">+{fmt(task.guildXpReward)} Guild XP</div>
                         </div>
                       );
                     })}
@@ -474,10 +474,18 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
 
                         <div className="mt-3">
                           <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                            <span>Combo time</span>
-                            <span>{active ? `${durationProgress.toFixed(1)}% remaining` : 'Expired'}</span>
+                            <span>Time left / earned</span>
+                            <span>{active ? `${durationProgress.toFixed(1)}% of gained time left` : 'Expired'}</span>
                           </div>
-                          <div className="h-2.5 w-full overflow-hidden rounded-full border border-slate-800 bg-slate-950">
+                          <div
+                            className="h-2.5 w-full overflow-hidden rounded-full border border-slate-800 bg-slate-950"
+                            role="progressbar"
+                            aria-label="Guild combo time remaining relative to total time earned"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={active ? durationProgress : 0}
+                            aria-valuetext={active ? `${durationProgress.toFixed(1)}% of time earned remains` : 'Combo expired'}
+                          >
                             <div
                               className="h-full rounded-full bg-fuchsia-400 transition-all duration-1000"
                               style={{ width: `${active ? durationProgress : 0}%` }}
@@ -495,77 +503,13 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                 </div>
               </div>
 
-              {/* Weekly Guild Raid Boss */}
-              {myGuild.boss && (
-                <div className="bg-gradient-to-r from-red-950/40 via-slate-900 to-purple-950/40 border border-red-500/30 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center text-white shadow-lg shadow-red-950/50">
-                        <Sword className="w-6 h-6 animate-pulse" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold uppercase tracking-wider text-red-400">
-                            Weekly Guild Titan
-                          </span>
-                          <span className="text-[10px] bg-red-500/20 text-red-300 font-bold px-2 py-0.5 rounded-full border border-red-500/30">
-                            Tier {myGuild.boss.tier}
-                          </span>
-                          {myGuild.boss.defeated && (
-                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                              🏆 SLAIN!
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="text-base sm:text-lg font-black text-white">
-                          {myGuild.boss.name}
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="text-right text-xs font-mono text-slate-400 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-xl">
-                      <span>Bounty: </span>
-                      <span className="text-fuchsia-300 font-bold">+{myGuild.boss.rewardGuildXp ?? 0} Guild XP</span>
-                      <span> & </span>
-                      <span className="text-cyan-300 font-bold">+{myGuild.boss.rewardShards ?? 0} Shards</span>
-                    </div>
-                  </div>
-
-                  {/* Boss HP Bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-slate-400">Titan Vitality</span>
-                      <span className={`font-bold ${myGuild.boss.defeated ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {myGuild.boss.defeated ? '0' : fmt(myGuild.boss.currentHp)} / {fmt(myGuild.boss.maxHp)} HP
-                        {' '}({Math.max(0, Math.round((myGuild.boss.currentHp / myGuild.boss.maxHp) * 100))}%)
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          myGuild.boss.defeated
-                            ? 'bg-emerald-500'
-                            : 'bg-gradient-to-r from-red-600 via-rose-500 to-amber-500'
-                        }`}
-                        style={{
-                          width: `${Math.max(0, Math.min(100, (myGuild.boss.currentHp / myGuild.boss.maxHp) * 100))}%`,
-                        }}
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      ⚔️ All rolls made by guild members automatically deal damage to the Titan! Resets weekly with a new boss and bounty.
-                    </p>
-                  </div>
-                </div>
-              )}
-
               {/* Guild Perks Chamber */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-amber-400" />
-                      <h3 className="text-base font-black text-white">Guild Upgrades (8 Passive Bonuses)</h3>
+                      <h3 className="text-base font-black text-white">Guild Upgrades (7 Passive Bonuses)</h3>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Passive bonuses applied to all guild members. Upgrade using shared Guild Tokens.
@@ -642,15 +586,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                       max: 40,
                       effect: `+${Math.min(40, myGuild.perks?.memberCapacityRank ?? 0)} Max Members (10 base)`,
                     },
-                    {
-                      id: 'guildXpRank' as const,
-                      name: 'Guild Growth',
-                      desc: '+10% Guild XP generated per rank.',
-                      icon: <Trophy className="w-4 h-4 text-fuchsia-400" />,
-                      rank: myGuild.perks?.guildXpRank ?? 0,
-                      max: 20,
-                      effect: `+${((myGuild.perks?.guildXpRank ?? 0) * 10)}% Guild XP`,
-                    },
+
                   ].map(perk => {
                     const isMax = perk.rank >= perk.max;
                     const costBase = perk.id === 'memberCapacityRank' ? 250 : 100;
@@ -780,48 +716,6 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <Coins className="w-4 h-4 text-amber-300" />
-                          Guild Tax
-                        </h4>
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          Converts a percentage of members' earned Coins into Guild XP at 100 Coins per XP.
-                        </p>
-                      </div>
-                      <span className="text-lg font-black text-amber-300">{myGuild.taxRate ?? 0}%</span>
-                    </div>
-                    <div className="grid grid-cols-5 gap-1.5 mt-3">
-                      {[0, 1, 2, 5, 10].map(rate => (
-                        <button
-                          key={rate}
-                          type="button"
-                          disabled={busy || !canManageGuild}
-                          onClick={() => {
-                            if (!onSetGuildTax || !canManageGuild) return;
-                            sound.playClick();
-                            void onSetGuildTax(rate);
-                          }}
-                          className={`py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
-                            (myGuild.taxRate ?? 0) === rate
-                              ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                              : canManageGuild
-                              ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                              : 'bg-slate-900 border-slate-800 text-slate-600'
-                          }`}
-                        >
-                          {rate}%
-                        </button>
-                      ))}
-                    </div>
-                    {!canManageGuild && (
-                      <p className="text-[10px] text-slate-600 mt-2">Owner, officers, and trusted members can manage guild upgrades and tax.</p>
-                    )}
-                  </div>
-                </div>
               </div>
 
               {/* Members List & Chat Columns */}
@@ -909,76 +803,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                   </div>
                 </div>
 
-                {/* Guild Log / Activity Feed */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 h-80">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        <MessageSquare className="w-4 h-4 text-cyan-400" />
-                        <span>Guild Log</span>
-                      </h3>
-                      <p className="mt-0.5 text-[9px] text-slate-600">Automated guild activity only. Player chat is disabled.</p>
-                    </div>
-                  </div>
-                  {chatReportError && <p role="alert" className="text-[10px] leading-relaxed text-rose-300">{chatReportError}</p>}
 
-                  {/* Message History */}
-                  <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
-                    {chatMessages.length > 0 ? (
-                      chatMessages.filter(msg => msg.isSystem).map(msg => (
-                        <div
-                          key={msg.id}
-                          className={`text-xs p-2 rounded-xl ${
-                            msg.isSystem
-                              ? 'bg-purple-950/30 text-purple-300 border border-purple-800/30 text-[11px]'
-                              : 'bg-slate-950/60 text-slate-300 border border-slate-800/60'
-                          }`}
-                        >
-                          {!msg.isSystem && (
-                            <>
-                              <span className="inline-flex items-center gap-1.5 font-bold block text-[10px] mb-0.5">
-                                <span className={msg.username.trim().replace(/^u\//i, '').toLowerCase() === 'shadow_fen'
-                                  ? 'font-black text-red-400'
-                                  : 'text-cyan-400'}>
-                                  {msg.username}
-                                </span>
-                                {msg.username.trim().replace(/^u\//i, '').toLowerCase() === 'shadow_fen' && (
-                                  <span className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[8px] font-black tracking-wider text-red-300">ADMIN</span>
-                                )}
-                              </span>
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="min-w-0 break-words">{msg.text}</span>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    void handleReportChat(msg);
-                                  }}
-                                  disabled={reportingId === msg.id || reportedIds.has(msg.id)}
-                                  aria-busy={reportingId === msg.id}
-                                  className="relative z-20 shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2 text-[10px] font-black text-rose-300 hover:border-rose-400/60 hover:bg-rose-950/40 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer touch-manipulation"
-                                  title={reportedIds.has(msg.id) ? 'Report sent to subreddit moderators' : 'Report this message'}
-                                  aria-label={reportedIds.has(msg.id) ? 'Message reported' : 'Report message'}
-                                >
-                                  <Flag className="h-3.5 w-3.5" />
-                                  <span>{reportedIds.has(msg.id) ? 'Sent' : reportingId === msg.id ? 'Sending…' : 'Report'}</span>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                          {msg.isSystem && <span>{msg.text}</span>}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center text-slate-500 text-xs py-8">
-                        Guild actions and milestones will appear here. Player chat is disabled.
-                      </div>
-                    )}
-                  </div>
-
-
-                </div>
               </div>
             </div>
           ) : (
@@ -1003,6 +828,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-white">Active Guild Directory</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {guilds.length === 0 && <p className="col-span-full rounded-2xl border border-slate-800 bg-slate-950/50 p-5 text-center text-xs text-slate-400">No guilds are listed yet. You can create one and invite other players.</p>}
                   {guilds.map(g => (
                     <div
                       key={g.id}
@@ -1015,20 +841,22 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                         <div>
                           <h4 className="text-sm font-bold text-white">{g.name}</h4>
                           <span className="text-xs text-slate-400">
-                            Lv {g.level} • {g.members.length}/50 Members
+                            {g.members.length}/{10 + Math.min(40, g.perks?.memberCapacityRank ?? 0)} Members
                           </span>
                         </div>
                       </div>
 
                       <button
+                        type="button"
+                        aria-label={g.members.length >= 10 + Math.min(40, g.perks?.memberCapacityRank ?? 0) ? `${g.name} is full` : `Join guild ${g.name}`}
                         onClick={() => {
                           sound.playClick();
                           void onJoinGuild(g.id);
                         }}
-                        disabled={busy || g.members.length >= 50}
+                        disabled={busy || g.members.length >= 10 + Math.min(40, g.perks?.memberCapacityRank ?? 0)}
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer disabled:cursor-not-allowed"
                       >
-                        {g.members.length >= 50 ? 'Full' : 'Join'}
+                        {g.members.length >= 10 + Math.min(40, g.perks?.memberCapacityRank ?? 0) ? 'Full' : 'Join'}
                       </button>
                     </div>
                   ))}
@@ -1043,35 +871,37 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
               <div role="dialog" aria-modal="true" aria-labelledby="io-create-guild-title" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
                 <h3 id="io-create-guild-title" className="text-lg font-black text-white">Found a New Guild</h3>
                 <p className="text-xs text-slate-400">
-                  Choose a guild name and a 2-5 letter tag.
+                  Choose a custom guild name and a 2–5 character tag.
                 </p>
                 <form onSubmit={handleCreateGuild} className="space-y-3">
                   <div>
-                    <label htmlFor="io-create-guild-name" className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
+                    <label htmlFor="io-create-guild-name" className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
                       Guild Name
                     </label>
                     <input
                       id="io-create-guild-name"
                       type="text"
                       value={createName}
-                      onChange={e => setCreateName(e.target.value)}
-                      placeholder="Guild Name"
+                      onChange={e => setCreateName(e.target.value.slice(0, 32))}
+                      placeholder="Enter a guild name"
                       maxLength={32}
+                      minLength={3}
                       required
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="io-create-guild-tag" className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
-                      Guild Tag (2-5 Letters)
+                    <label htmlFor="io-create-guild-tag" className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                      Guild Tag (2–5 Characters)
                     </label>
                     <input
                       id="io-create-guild-tag"
                       type="text"
                       value={createTag}
-                      onChange={e => setCreateTag(e.target.value.toUpperCase())}
+                      onChange={e => setCreateTag(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5))}
                       placeholder="TAG"
                       maxLength={5}
+                      minLength={2}
                       required
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white uppercase focus:outline-none focus:border-purple-500"
                     />
@@ -1086,7 +916,7 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
                     </button>
                     <button
                       type="submit"
-                      disabled={busy || creatingGuild}
+                      disabled={busy || creatingGuild || createName.trim().length < 3 || createTag.trim().length < 2}
                       aria-busy={creatingGuild}
                       className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer disabled:cursor-wait disabled:opacity-60"
                     >
@@ -1102,16 +932,30 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
 
       {/* 2. LEADERBOARD TAB */}
       {activeTab === 'leaderboard' && (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy={leaderboardLoading}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-black text-white flex items-center gap-2"><Trophy className="w-5 h-5 text-amber-400" /><span>{leaderboardMeta.find(item => item.id === activeLeaderboard)?.label ?? 'Leaderboard'}</span></h3>
               <span className="text-xs text-slate-400">Public rankings require at least one shared Orb post.</span>
             </div>
-            <div className={playerHasShared ? 'text-right text-[10px] font-bold text-emerald-300' : 'text-right text-[10px] font-bold text-amber-300'}>
-              {playerHasShared ? 'Leaderboard eligible' : 'Share an Orb post to appear'}
+            <div className="flex items-center gap-2">
+              <div className={playerHasShared ? 'text-right text-[10px] font-bold text-emerald-300' : 'text-right text-[10px] font-bold text-amber-300'}>
+                {playerHasShared ? 'Leaderboard eligible' : 'Share an Orb post to appear'}
+              </div>
+              {onRefreshLeaderboards && (
+                <button type="button" disabled={leaderboardLoading} onClick={() => void onRefreshLeaderboards(true).catch(() => null)} aria-label="Refresh leaderboards" className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+                  <RefreshCw className={`h-3 w-3 ${leaderboardLoading ? 'animate-spin' : ''}`} />
+                  {leaderboardLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              )}
             </div>
           </div>
+          {leaderboardLoadError && (
+            <div role="alert" aria-live="assertive" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-200">
+              <span>{leaderboardLoaded ? 'Showing the last loaded rankings.' : 'Rankings could not be loaded.'} {leaderboardLoadError}</span>
+              {onRefreshLeaderboards && <button type="button" disabled={leaderboardLoading} onClick={() => void onRefreshLeaderboards(true).catch(() => null)} className="shrink-0 rounded-lg border border-rose-400/40 px-3 py-2 font-bold hover:bg-rose-500/10 disabled:opacity-50">{leaderboardLoading ? 'Retrying…' : 'Try again'}</button>}
+            </div>
+          )}
           <div role="group" aria-label="Choose leaderboard metric" className="flex gap-1.5 overflow-x-auto pb-1">
             {leaderboardMeta.map(board => (
               <button key={board.id} type="button" aria-pressed={activeLeaderboard === board.id} onClick={() => { sound.playClick(); setActiveLeaderboard(board.id); }}
@@ -1120,14 +964,15 @@ export const GuildsAndSocial: React.FC<GuildsAndSocialProps> = ({
               </button>
             ))}
           </div>
-          {displayedLeaderboard.length === 0 && <div role="status" className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 text-center text-xs text-slate-500">No entries for {leaderboardMeta.find(item => item.id === activeLeaderboard)?.label ?? 'this leaderboard'} yet. Eligible players appear after sharing an Orb post.</div>}
+          {leaderboardLoading && !leaderboardLoaded && <div role="status" className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/80 p-4" aria-busy="true"><span className="sr-only">Loading player rankings…</span>{[0, 1, 2, 3, 4].map(item => <div key={item} className="h-12 animate-pulse rounded-xl bg-slate-800/70" />)}</div>}
+          {!leaderboardLoading && leaderboardLoaded && !leaderboardLoadError && displayedLeaderboard.length === 0 && <div role="status" className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 text-center text-xs text-slate-500">No entries for {leaderboardMeta.find(item => item.id === activeLeaderboard)?.label ?? 'this leaderboard'} yet. Eligible players appear after sharing an Orb post.</div>}
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800/60">
             {displayedLeaderboard.map((entry, idx) => (
-              <div key={entry.username} className="flex items-center justify-between p-3 sm:px-4 text-xs hover:bg-slate-800/40 transition-colors">
+              <div key={entry.username} aria-label={`Rank ${idx+1}: ${entry.username}, ${leaderboardMetric(entry)}`} className="flex items-center justify-between p-3 sm:px-4 text-xs hover:bg-slate-800/40 transition-colors">
                 <div className="flex items-center gap-3">
                   <span className={`w-6 text-center font-black text-sm ${idx===0?'text-amber-400':idx===1?'text-slate-300':idx===2?'text-amber-600':'text-slate-500'}`}>#{idx+1}</span>
                   <div>
-                    <div className="flex items-center gap-1.5"><span className="font-bold text-white text-sm">{entry.username}</span>{entry.title && <span className="text-[10px] text-slate-400 font-medium">• {entry.title}</span>}</div>
+                    <div className="flex items-center gap-1.5"><span className="font-bold text-white text-sm">{entry.username}</span>{entry.legacyOnly && <span className="text-[8px] uppercase tracking-wide text-slate-400 border border-slate-700 rounded px-1">Legacy</span>}{entry.title && <span className="text-[10px] text-slate-400 font-medium">• {entry.title}</span>}</div>
                     <span className="text-slate-400 text-[11px]">{formatNumber(entry.totalRolls)} rolls • Best: 1/{formatRarity(entry.highestRarity)}</span>
                   </div>
                 </div>

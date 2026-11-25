@@ -1,10 +1,7 @@
 name: Combat and release preflight
 
+# Manual diagnostic only. Deployment workflows invoke the same preflight directly.
 on:
-  pull_request:
-  push:
-    branches:
-      - feature/combat-wave3-equipped-abilities-20261015
   workflow_dispatch:
 
 permissions:

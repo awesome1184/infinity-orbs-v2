@@ -49,10 +49,13 @@ test('Rune UI serializes mutations and exposes search, filters, progress, and de
   assert.match(runes, /no Runes are equipped/);
 });
 
-test('combat UI avoids per-pixel tooltip rerenders and waits for active beats before settings writes', () => {
+test('combat tooltips avoid pointer-move rerenders and wait for active beats before settings writes', () => {
   const combat = source('src/client/components/CombatSection.tsx');
-  assert.doesNotMatch(combat, /onPointerMove=\{event=>/);
+  assert.doesNotMatch(combat, /onPointerMove=\{event=>/, 'tooltip position must not update on every pointer move');
+  assert.match(combat, /setTooltipPoint\(current=>current&&Math\.abs\(current\.x-x\)<1&&Math\.abs\(current\.y-y\)<1/);
   assert.match(combat, /onPointerEnter=\{event=>/);
+  assert.match(combat, /onPointerLeave=\{event=>/);
+  assert.match(combat, /tooltipCloseTimerRef\.current=window\.setTimeout/);
   assert.match(combat, /const activeBeat=runtime\.current\.beatPromise;/);
   assert.match(combat, /role="alert"/);
 });
@@ -61,7 +64,7 @@ test('single upgrades, bulk upgrades, and Turbo cannot overlap', () => {
   const upgrades = source('src/client/components/UpgradesSection.tsx');
   assert.match(upgrades, /upgradeActionLockRef/);
   assert.match(upgrades, /upgradingId !== null/);
-  assert.match(upgrades, /if \(busy \|\| upgradeActionLockRef\.current\) return/);
+  assert.match(upgrades, /if \(busy \|\| upgradeActionLockRef\.current \|\| autoBuyInFlightRef\.current\) return/);
 });
 
 test('daily streak preview resets after a missed day and quest bars are guarded and accessible', () => {
@@ -110,10 +113,10 @@ test('run resets clear stale Last Attack state before a new descent', () => {
 
 test('mobile Gear cards reveal details on touch before equipping and expose the popover state', () => {
   const combat = source('src/client/components/CombatSection.tsx');
-  assert.match(combat, /lastPointerTypeRef\.current==='touch'\)setShowTooltip/);
+  assert.match(combat, /onClick=\{\(\)=>\{if\(lastPointerTypeRef\.current==='touch'\)toggleTooltip\(\);else openTooltip\(\);\}\}/);
   assert.match(combat, /aria-expanded=\{showTooltip\}/);
   assert.match(combat, /aria-controls=\{tooltipId\}/);
-  assert.match(combat, /role="group" aria-label=\{item\.name\+' details'\}/);
+  assert.match(combat, /role="dialog" aria-label=\{item\.name\+' details'\} aria-modal="false"/);
 });
 
 test('Reddit Share dialog has a programmatic name and explicit dialog semantics', () => {

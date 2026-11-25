@@ -20,6 +20,7 @@ import {
   chainPatcherShardCost,
 } from '../../shared/game.js';
 import { sound } from '../sound.js';
+import { RarityOrbIcon } from './RarityOrbIcon.js';
 
 interface CollectionSectionProps {
   state: PlayerState;
@@ -171,8 +172,8 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
+    <div className="io-page-shell io-page-codex max-w-4xl mx-auto space-y-6">
+      <div className="io-page-hero bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-purple-400 block mb-1">
@@ -221,15 +222,16 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
                   {codexChain > 0 ? `Best chain: ${codexChain}` : 'No chain yet'}
                 </div>
                 <div className="text-[10px] font-bold text-emerald-300 mt-0.5">
-                  {codexChain} {codexChain === 1 ? 'rarity' : 'rarities'} in chain
+                  {codexChain > 0 ? 'Find the next adjacent rarity to extend it.' : 'Discover your first rare Orb to start a chain.'}
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
       {/* Chain Patcher: shard-priced exact-rarity next-roll guarantee */}
-      <section className="rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-cyan-950/35 via-slate-900/90 to-slate-950 p-5 sm:p-6 shadow-xl shadow-cyan-950/20 space-y-4">
+      <section className="io-codex-patcher rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-cyan-950/35 via-slate-900/90 to-slate-950 p-5 sm:p-6 shadow-xl shadow-cyan-950/20 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/10 p-3 text-cyan-200">
@@ -253,7 +255,7 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
           <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
             <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Target Rarity</div>
             <div className="mt-1 text-lg font-black text-white">
-              {patcherTarget == null ? 'Chain complete' : `1/${formatRarity(patcherTarget)}`}
+              {patcherTarget == null ? 'Chain complete' : `1 / ${formatRarity(patcherTarget)}`}
             </div>
             <div className="mt-1 text-[10px] text-slate-500">
               {patcherCharged ? 'Guarantee already purchased' : 'Lowest-cost adjacent extension'}
@@ -265,7 +267,7 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
               <Gem className="h-4 w-4" />
               {patcherCharged ? 'Paid' : patcherTarget == null ? '—' : fmt(patcherCost)}
             </div>
-            <div className="mt-1 text-[10px] text-slate-500">⌊rarity / 100⌋ + 1 · 1/900 costs 10</div>
+            <div className="mt-1 text-[10px] text-slate-500">Cost scales with target rarity; 1/900 costs 100 Shards</div>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
             <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Purchase Cooldown</div>
@@ -311,37 +313,38 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
         </button>
       </section>
 
-        <div className="mt-5 pt-4 border-t border-slate-800">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-            Continuum Tier Milestones
-          </span>
-          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1.5 text-center">
-            {visibleTiers.map(milestone => {
-              const reached = (state.highestRarity || 0) >= milestone.minRarity;
-              return (
-                <div
-                  key={milestone.tier}
-                  className={`p-2 rounded-xl border text-xs flex flex-col items-center justify-center transition-all ${
-                    reached
-                      ? 'bg-slate-900 border-slate-700 shadow-sm'
-                      : 'bg-slate-950/40 border-slate-900 opacity-40'
-                  }`}
+      <section className="io-codex-milestones mt-5 pt-4 border-t border-slate-800">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+          Continuum Tier Milestones
+        </span>
+        <div className="io-codex-milestone-grid grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2 text-center">
+          {visibleTiers.map(milestone => {
+            const reached = (state.highestRarity || 0) >= milestone.minRarity;
+            return (
+              <div
+                key={milestone.tier}
+                className={`io-codex-milestone-card flex flex-col items-center justify-center transition-all ${reached ? 'is-unlocked' : 'is-locked'}`}
+                style={{
+                  '--io-tier-color': milestone.color,
+                  borderColor: reached ? `${milestone.color}70` : undefined,
+                  boxShadow: reached ? `0 0 20px ${milestone.color}18` : undefined,
+                } as React.CSSProperties}
+              >
+                <RarityOrbIcon rarity={milestone.minRarity} unlocked={reached} />
+                <span
+                  className="io-codex-milestone-name font-extrabold"
+                  style={{ color: reached ? milestone.color : '#64748b' }}
                 >
-                  <span
-                    className="font-extrabold text-[11px]"
-                    style={{ color: reached ? milestone.color : '#64748b' }}
-                  >
-                    {milestone.tier}
-                  </span>
-                  <span className="text-[9px] font-mono text-slate-400 mt-0.5">
-                    1/{formatRarity(milestone.minRarity)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                  {milestone.tier}
+                </span>
+                <span className="io-codex-milestone-odds font-mono text-slate-400">
+                  1/{formatRarity(milestone.minRarity)}
+                </span>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800/80 p-3 rounded-2xl">
         <div role="group" aria-label="Filter Codex by tier" className="flex items-center gap-1 overflow-x-auto max-w-full pb-1 sm:pb-0 scrollbar-thin">
@@ -404,13 +407,13 @@ export const CollectionSection: React.FC<CollectionSectionProps> = ({
         <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-10 text-center space-y-2">
           <BookOpen className="w-8 h-8 text-slate-600 mx-auto" />
           <p className="text-sm font-bold text-slate-400">{selectedTier === 'all' ? 'No Orbs discovered yet' : 'No discoveries in this tier yet'}</p>
-          <p className="text-xs text-slate-500">{selectedTier === 'all' ? 'Your first roll will start your Codex.' : 'Try All tiers to see your other discoveries, or keep rolling to find this tier.'}</p>
+          <p className="text-xs text-slate-500">{selectedTier === 'all' ? 'Roll once to discover your first Orb; it will be recorded here.' : 'Try All tiers to see your other discoveries, or keep rolling to find this tier.'}</p>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between text-xs text-slate-500 px-1" aria-live="polite">
             <span>Showing {fmt(pageStart)}–{fmt(pageEnd)} of {fmt(total)}</span>
-            <span>Page {safePage + 1} / {totalPages}</span>
+            <span>Page {safePage + 1} of {totalPages}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">

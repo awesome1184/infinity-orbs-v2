@@ -1,5 +1,17 @@
 import { context, redis, reddit } from './devvit-mock.js';
+import { compressStorageString, decompressStorageString } from './storage-compression.js';
+import { readInBatches } from './redis-batches.js';
+import { combatHighestDepthReached } from '../shared/combat.js';
 import { withPlayerMutationLockFor } from './player-lock.js';
+import {
+  readPlayerSaveForUser,
+  createPlayerSaveWritePlanForUser,
+  discardPlayerSaveWritePlan,
+  cleanupPreviousPlayerSave,
+  syncCurrentPlayerRarityFlair,
+  syncPlayerRarityFlair,
+} from './game.js';
+import { createRedisLargeValueWritePlan, readRedisLargeValue, retireRedisLargeValue, discardRedisLargeValueWritePlan } from './redis-large-values.js';
 import type {
   Guild,
   LeaderboardEntry,
@@ -9,6 +21,7 @@ import type {
   GuildTask,
   WorldEvent,
   GlobalChatMessage,
+  LeaderboardBoards,
 } from '../shared/social.js';
 import {
   ACHIEVEMENTS,
@@ -17,7 +30,13 @@ import {
   CHALLENGE_POOL,
   challengeForWeek,
   COMMUNITY_WORLD_EVENT,
-  createInitialGuildBoss,
+  MAX_GUILD_TASK_TIER,
+  normalizeGuildValueProgress,
+  addGuildValueProgress,
+  isGuildValueProgress,
+  normalizeGuildName,
+  guildMemberMatchesIdentity,
+  promoteGuildOwnerIfNeeded,
 } from '../shared/social.js';
 import type { DailyStreakCommunityEvent, PlayerState } from '../shared/game.js';
 import {
@@ -25,6 +44,8 @@ import {
   createInitialState,
   createInitialDailyStreakCommunity,
   grantFreeShards,
+  addCoinAmount,
+  normalizeCoinAmount,
   weekEndMs,
   weekKey,
   createInitialGuildCombo,
@@ -42,10 +63,19 @@ function isAdminUsername(value: unknown): boolean {
 }
 const key = (name: string) => `io:${name}`;
 const GUILDS_KEY = key('guilds');
+// Kept temporarily so names submitted before this rollback can be recovered.
+const GUILD_NAME_REQUESTS_KEY = key('guild-name-requests:v1');
+const GUILD_NAME_RESTORE_MIGRATION_KEY = key('guild-custom-name-restore:v1');
+const GUILD_FLAIR_NAMES_KEY = key('guild-flair-names:v1');
 const PLAYER_REGISTRY_KEY = key('player-registry');
 const GUILD_CHAT_MUTES_KEY = key('guild-chat-mutes:v1');
 const GUILD_TOKEN_RESET_KEY = key('guild-token-reset:v1');
 const GUILD_UPGRADE_RESET_KEY = key('guild-upgrade-reset:v1');
+const LEADERBOARDS_CACHE_KEY = key('leaderboards:cache:v1');
+const LEADERBOARDS_CACHE_TTL_MS = 10_000;
+// Leaderboards are display projections; one durable refresh per player per minute is sufficient.
+const LEADERBOARD_PROJECTION_INTERVAL_MS = 60_000;
+let leaderboardSnapshotInFlight: Promise<LeaderboardBoards> | null = null;
 /** Create collision-resistant IDs for guild, chat, and moderation receipts. */
 function createSecureId(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -76,7 +106,7 @@ function parseStoredJson<T>(raw: unknown): T | null {
 
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw) as T;
+      return JSON.parse(decompressStorageString(raw)) as T;
     } catch {
       return null;
     }
@@ -117,6 +147,12 @@ function capSafeGuildCounter(value: unknown): number {
   return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(value)));
 }
 
+// Collection Value is an approximate Number-based magnitude. Preserve finite
+// values above MAX_SAFE_INTEGER; only discrete roll/token counters use the safe cap.
+function capGuildValue(value: unknown): number {
+  return normalizeGuildValueProgress(value);
+}
+
 function normalizeRecoverableGuildMemberFields(guild: Record<string, unknown>): void {
   if (!Array.isArray(guild.members)) return;
 
@@ -131,15 +167,11 @@ function normalizeRecoverableGuildMemberFields(guild: Record<string, unknown>): 
       member.username = trimmed || `recovered-member-${index + 1}`;
     }
 
-    // Contribution is non-authoritative progress metadata. Clamp fractional or
-    // unsafe numbers, and reset non-numeric/negative corruption to zero rather than
-    // blocking every Guild read. Identity and authorization fields remain strict.
-    if (
-      typeof member.contribution !== 'number' ||
-      !Number.isSafeInteger(member.contribution) ||
-      member.contribution < 0
-    ) {
-      member.contribution = capSafeGuildCounter(member.contribution);
+    // Contribution is Collection Value metadata, not a discrete counter.
+    // Preserve finite integer magnitudes above MAX_SAFE_INTEGER; sanitize fractional,
+    // non-finite, or negative corruption without weakening identity/role validation.
+    if (!isGuildValueProgress(member.contribution)) {
+      member.contribution = normalizeGuildValueProgress(member.contribution);
     }
 
     // Malformed trust metadata must never grant privileges. Role authorization
@@ -160,25 +192,157 @@ function normalizeRecoverableGuildMemberFields(guild: Record<string, unknown>): 
   });
 }
 
+
+/**
+ * Conservatively recover non-authoritative Guild progress and presentation fields.
+ * Stable Guild IDs, member IDs, and member roles are deliberately untouched and
+ * remain subject to strict validation below. Recovery only reduces malformed
+ * values or regenerates temporary/projection data so one bad nested field cannot
+ * make every Guild unavailable.
+ */
+function normalizeRecoverableGuildNestedFields(guild: Record<string, any>, index: number): void {
+  const clampInteger = (value: unknown, minimum: number, maximum: number, fallback: number): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+    return Math.min(maximum, Math.max(minimum, Math.floor(value)));
+  };
+  const nonEmptyText = (value: unknown, fallback: string): string =>
+    typeof value === 'string' && value.trim() ? value.trim() : fallback;
+
+  // These are progression counters, not identity or authorization fields.
+  // Invalid values fall back downward; finite values are floored and capped.
+  guild.name = nonEmptyText(guild.name, 'Recovered Guild ' + (index + 1));
+  guild.tag = nonEmptyText(guild.tag, 'REC' + (index + 1));
+  delete guild.level;
+  delete guild.xp;
+  delete guild.taxRate;
+  delete guild.boss;
+  delete guild.bossWeek;
+  guild.tokens = clampInteger(guild.tokens, 0, Number.MAX_SAFE_INTEGER, 0);
+  if (!Number.isSafeInteger(guild.createdAt) || Number(guild.createdAt) < 0) {
+    guild.createdAt = Date.now();
+  }
+  if (guild.taskCompletions != null) {
+    guild.taskCompletions = clampInteger(guild.taskCompletions, 0, Number.MAX_SAFE_INTEGER, 0);
+  }
+
+  // A malformed challenge is only a projection of the first task and is rebuilt
+  // from the normalized task list later in normalizeGuilds().
+  if (guild.challenge != null) {
+    const challenge = guild.challenge;
+    if (!isRecordValue(challenge) || !['rolls', 'value', 'rare'].includes(String(challenge.type))) {
+      delete guild.challenge;
+    } else {
+      const target = challenge.type === 'value'
+        ? Math.max(1, normalizeGuildValueProgress(challenge.target) || 1)
+        : clampInteger(challenge.target, 1, Number.MAX_SAFE_INTEGER, 1);
+      guild.challenge = {
+        type: challenge.type,
+        target,
+        progress: challenge.type === 'value'
+          ? Math.min(target, normalizeGuildValueProgress(challenge.progress))
+          : clampInteger(challenge.progress, 0, target, 0),
+        reward: clampInteger(challenge.reward, 1, Number.MAX_SAFE_INTEGER, 1),
+        label: nonEmptyText(challenge.label, 'Recovered Guild challenge'),
+      };
+    }
+  }
+
+  // Perks are bounded ranks. Bad rank metadata is reset to zero, never increased.
+  const perkCaps: Record<string, number> = {
+    luckRank: 10,
+    speedRank: 10,
+    vaultRank: 10,
+    shardRank: 10,
+    critRank: 10,
+    coinRank: 10,
+    memberCapacityRank: 40,
+    tokenYieldRank: 20,
+    taskBountyRank: 20,
+    comboRank: 10,
+  };
+  if (guild.perks != null) {
+    if (!isRecordValue(guild.perks)) {
+      delete guild.perks;
+    } else {
+      for (const [rank, cap] of Object.entries(perkCaps)) {
+        if (guild.perks[rank] != null) {
+          guild.perks[rank] = clampInteger(guild.perks[rank], 0, cap, 0);
+        }
+      }
+    }
+  }
+
+  // Combo values are temporary bonuses/timers. Invalid fields safely decay to zero.
+  if (guild.combo != null) {
+    if (!isRecordValue(guild.combo)) {
+      delete guild.combo;
+    } else {
+      guild.combo.tier = clampInteger(guild.combo.tier, 0, GUILD_COMBO_MAX_TIER, 0);
+      guild.combo.activationProgress = clampInteger(guild.combo.activationProgress, 0, 3, 0);
+      const comboEndsAt = clampInteger(guild.combo.endsAt, 0, Number.MAX_SAFE_INTEGER, 0);
+      const comboLastTickAt = clampInteger(guild.combo.lastTickAt, 0, Number.MAX_SAFE_INTEGER, 0);
+      guild.combo.endsAt = comboEndsAt;
+      guild.combo.lastTickAt = comboLastTickAt;
+      const legacyDuration = Math.max(
+        0,
+        comboEndsAt - (comboLastTickAt > 0 ? comboLastTickAt : Date.now()),
+      );
+      guild.combo.totalDurationMs = clampInteger(
+        guild.combo.totalDurationMs,
+        0,
+        Number.MAX_SAFE_INTEGER,
+        legacyDuration,
+      );
+    }
+  }
+
+  // Tasks are regenerated only where their non-authoritative fields are malformed.
+  // Cap the tier before createGuildTask() so exponential target math stays finite.
+  if (guild.tasks != null) {
+    if (!Array.isArray(guild.tasks)) {
+      delete guild.tasks;
+    } else if (guild.tasks.length >= 3) {
+      guild.tasks = guild.tasks.slice(0, 3).map((value: unknown, taskIndex: number) => {
+        const task = isRecordValue(value) ? value : {};
+        delete task.guildXpReward;
+        const type: GuildTask['type'] = ['rolls', 'value', 'rare'].includes(String(task.type))
+          ? String(task.type) as GuildTask['type']
+          : generatedFallbackTaskType(taskIndex);
+        const tier = clampInteger(task.tier, 1, MAX_GUILD_TASK_TIER, 1);
+        const generated = createGuildTask(type, tier);
+        const existingValueTarget = type === 'value' ? normalizeGuildValueProgress(task.target) : 0;
+        const target = type === 'value'
+          ? Math.max(generated.target, existingValueTarget)
+          : clampInteger(task.target, 1, Number.MAX_SAFE_INTEGER, generated.target);
+        return {
+          id: nonEmptyText(task.id, generated.id),
+          type,
+          tier,
+          target,
+          progress: type === 'value'
+            ? Math.min(target, normalizeGuildValueProgress(task.progress))
+            : clampInteger(task.progress, 0, Number.MAX_SAFE_INTEGER, 0),
+          reward: clampInteger(task.reward, 1, Number.MAX_SAFE_INTEGER, generated.reward),
+          label: type === 'value' && target === generated.target
+            ? generated.label
+            : nonEmptyText(task.label, generated.label),
+        };
+      });
+    }
+  }
+
+  // Retire legacy activity history; Guild membership and progress remain unaffected.
+  delete guild.chat;
+
+
+}
+
 function validateGuildNestedState(guild: Record<string, unknown>): void {
   const invalid = (field = 'unknown nested field') =>
     new Error(`Guild data contains malformed nested state; refusing to replace it. Guild ${String(guild.id ?? 'unknown')} field: ${field}.`);
 
-  // Numeric fields are used directly in reward, level and tax arithmetic.
-  // Finite fractional values or numbers above the exact-integer range are not
-  // valid persisted economy state.
-  for (const [field, minimum] of [['level', 1], ['xp', 0], ['tokens', 0]] as const) {
-    const value = guild[field];
-    if (value == null) continue; // Legacy saves can omit core economy defaults.
-    // XP is a cumulative counter: old versions could exceed MAX_SAFE_INTEGER or
-    // leave a fractional remainder. It is safely floored/capped during normalization.
-    if (field === 'xp') {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-        throw invalid('guild.xp');
-      }
-      continue;
-    }
-    if (!Number.isSafeInteger(value) || Number(value) < minimum) throw invalid(`guild.${field}`);
+  if (guild.tokens != null && (!Number.isSafeInteger(guild.tokens) || Number(guild.tokens) < 0)) {
+    throw invalid('guild.tokens');
   }
   if (guild.createdAt != null &&
       (!Number.isSafeInteger(guild.createdAt) || Number(guild.createdAt) < 0)) {
@@ -192,7 +356,7 @@ function validateGuildNestedState(guild: Record<string, unknown>): void {
       !isRecordValue(member) ||
       typeof member.username !== 'string' || !member.username.trim() ||
       !['owner', 'officer', 'member'].includes(String(member.role)) ||
-      !Number.isSafeInteger(member.contribution) || Number(member.contribution) < 0 ||
+      !isGuildValueProgress(member.contribution) ||
       (member.userId != null && typeof member.userId !== 'string') ||
       (member.trusted != null && typeof member.trusted !== 'boolean') ||
       (member.joinedAt != null && (!Number.isSafeInteger(member.joinedAt) || Number(member.joinedAt) < 0)) ||
@@ -207,8 +371,10 @@ function validateGuildNestedState(guild: Record<string, unknown>): void {
     if (
       !isRecordValue(challenge) ||
       !['rolls', 'value', 'rare'].includes(String(challenge.type)) ||
-      !Number.isSafeInteger(challenge.target) || Number(challenge.target) < 1 ||
-      !Number.isSafeInteger(challenge.progress) || Number(challenge.progress) < 0 ||
+      !(challenge.type === 'value'
+        ? isGuildValueProgress(challenge.target, 1) && isGuildValueProgress(challenge.progress)
+        : Number.isSafeInteger(challenge.target) && Number(challenge.target) >= 1 &&
+          Number.isSafeInteger(challenge.progress) && Number(challenge.progress) >= 0) ||
       !Number.isSafeInteger(challenge.reward) || Number(challenge.reward) < 1 ||
       typeof challenge.label !== 'string' || !challenge.label.trim()
     ) {
@@ -229,7 +395,6 @@ function validateGuildNestedState(guild: Record<string, unknown>): void {
       tokenYieldRank: 20,
       taskBountyRank: 20,
       comboRank: 10,
-      guildXpRank: 20,
     };
     for (const [rank, cap] of Object.entries(perkCaps)) {
       const value = guild.perks[rank];
@@ -242,7 +407,7 @@ function validateGuildNestedState(guild: Record<string, unknown>): void {
 
   if (guild.combo != null) {
     if (!isRecordValue(guild.combo)) throw invalid('guild.combo (expected object)');
-    for (const field of ['tier', 'activationProgress', 'endsAt', 'lastTickAt']) {
+    for (const field of ['tier', 'activationProgress', 'endsAt', 'lastTickAt', 'totalDurationMs']) {
       const value = guild.combo[field];
       if (value == null) continue; // Missing legacy timer fields decay to defaults.
       if (!Number.isSafeInteger(value) || Number(value) < 0) throw invalid(`guild.combo.${field}`);
@@ -262,56 +427,23 @@ function validateGuildNestedState(guild: Record<string, unknown>): void {
         if (!isRecordValue(task)) throw invalid('guild.tasks[] (expected object)');
         if (task.id != null && typeof task.id !== 'string') throw invalid('guild.tasks[].id');
         if (task.label != null && typeof task.label !== 'string') throw invalid('guild.tasks[].label');
-        for (const field of ['tier', 'target', 'progress', 'reward', 'guildXpReward']) {
+        for (const field of ['tier', 'target', 'progress', 'reward']) {
           const value = task[field];
           if (value == null) continue;
           const minimum = field === 'progress' ? 0 : 1;
-          if (!Number.isSafeInteger(value) || Number(value) < minimum) throw invalid(`guild.tasks[].${field}`);
+          const validValueProgress = task.type === 'value' &&
+            (field === 'target' || field === 'progress') &&
+            isGuildValueProgress(value, minimum);
+          const validSafeInteger = Number.isSafeInteger(value) && Number(value) >= minimum;
+          if (!validValueProgress && !validSafeInteger) throw invalid(`guild.tasks[].${field}`);
         }
       }
     }
   }
 
-  if (guild.chat != null) {
-    if (!Array.isArray(guild.chat)) throw invalid('guild.chat (expected array)');
-    for (const message of guild.chat) {
-      if (
-        !isRecordValue(message) ||
-        typeof message.id !== 'string' || !message.id.trim() ||
-        typeof message.username !== 'string' || !message.username.trim() ||
-        typeof message.text !== 'string' || !message.text.trim() ||
-        !Number.isSafeInteger(message.timestamp) || Number(message.timestamp) < 0 ||
-        (message.userId != null && typeof message.userId !== 'string') ||
-        (message.isSystem != null && typeof message.isSystem !== 'boolean')
-      ) {
-        throw invalid('guild.chat[] (invalid message fields)');
-      }
-    }
-  }
 
-  // A current-week boss is actively mutated during rolls. Its fields must be
-  // numeric and bounded before normalizeGuilds()/boss damage math can touch it.
-  if (guild.boss != null && guild.bossWeek === weekKey()) {
-    if (!isRecordValue(guild.boss)) throw invalid('guild.boss (expected object)');
-    const boss = guild.boss;
-    if (
-      typeof boss.id !== 'string' || !boss.id ||
-      typeof boss.name !== 'string' || !boss.name ||
-      // Older app versions could persist a valid boss tier above the current cap.
-      // normalizeGuilds() replaces those legacy bosses with a current capped boss.
-      !Number.isSafeInteger(boss.tier) || Number(boss.tier) < 1 ||
-      typeof boss.maxHp !== 'number' || !Number.isFinite(boss.maxHp) || boss.maxHp <= 0 ||
-      typeof boss.currentHp !== 'number' || !Number.isFinite(boss.currentHp) ||
-      boss.currentHp < 0 || boss.currentHp > boss.maxHp ||
-      typeof boss.defeated !== 'boolean' ||
-      !isRecordValue(boss.contributors) ||
-      !Object.values(boss.contributors).every(value =>
-        typeof value === 'number' && Number.isFinite(value) && value >= 0
-      )
-    ) {
-      throw invalid('guild.boss (id/name/tier/health/defeated/contributors)');
-    }
-  }
+
+
 }
 
 
@@ -347,9 +479,13 @@ function recoverGuildRecordForPlaytest(guild: Record<string, any>, index: number
 
   guild.id = nonEmptyString(guild.id, 'recovered-guild-' + (index + 1));
   guild.name = nonEmptyString(guild.name, 'Recovered Guild ' + (index + 1));
+  guild.nameStatus = ['pending', 'approved', 'rejected'].includes(String(guild.nameStatus)) ? guild.nameStatus : undefined;
   guild.tag = nonEmptyString(guild.tag, 'REC' + (index + 1));
-  guild.level = clampInt(guild.level, 1, 1_000_000, 1);
-  guild.xp = clampInt(guild.xp, 0, Number.MAX_SAFE_INTEGER, 0);
+  delete guild.level;
+  delete guild.xp;
+  delete guild.taxRate;
+  delete guild.boss;
+  delete guild.bossWeek;
   guild.tokens = clampInt(guild.tokens, 0, Number.MAX_SAFE_INTEGER, 0);
   if (!isSafeGuildInteger(guild.createdAt, 0)) guild.createdAt = Date.now();
 
@@ -361,7 +497,7 @@ function recoverGuildRecordForPlaytest(guild: Record<string, any>, index: number
       ...member,
       username: nonEmptyString(member.username, 'recovered-member-' + (memberIndex + 1)),
       role,
-      contribution: clampInt(member.contribution, 0, Number.MAX_SAFE_INTEGER, 0),
+      contribution: normalizeGuildValueProgress(member.contribution),
       userId: typeof member.userId === 'string' ? member.userId : undefined,
       trusted: typeof member.trusted === 'boolean' ? member.trusted : role === 'owner',
       joinedAt: isSafeGuildInteger(member.joinedAt, 0) ? member.joinedAt : undefined,
@@ -373,11 +509,15 @@ function recoverGuildRecordForPlaytest(guild: Record<string, any>, index: number
   if (!isRecordValue(challenge) || !['rolls', 'value', 'rare'].includes(String(challenge.type))) {
     delete guild.challenge;
   } else {
-    const target = clampInt(challenge.target, 1, Number.MAX_SAFE_INTEGER, 1);
+    const target = challenge.type === 'value'
+      ? Math.max(1, normalizeGuildValueProgress(challenge.target) || 1)
+      : clampInt(challenge.target, 1, Number.MAX_SAFE_INTEGER, 1);
     guild.challenge = {
       type: challenge.type,
       target,
-      progress: Math.min(target, clampInt(challenge.progress, 0, Number.MAX_SAFE_INTEGER, 0)),
+      progress: challenge.type === 'value'
+        ? Math.min(target, normalizeGuildValueProgress(challenge.progress))
+        : Math.min(target, clampInt(challenge.progress, 0, Number.MAX_SAFE_INTEGER, 0)),
       reward: clampInt(challenge.reward, 1, Number.MAX_SAFE_INTEGER, 1),
       label: nonEmptyString(challenge.label, 'Recovered Guild challenge'),
     };
@@ -386,7 +526,7 @@ function recoverGuildRecordForPlaytest(guild: Record<string, any>, index: number
   const perkCaps: Record<string, number> = {
     luckRank: 10, speedRank: 10, vaultRank: 10, shardRank: 10,
     critRank: 10, coinRank: 10, memberCapacityRank: 40,
-    tokenYieldRank: 20, taskBountyRank: 20, comboRank: 10, guildXpRank: 20,
+    tokenYieldRank: 20, taskBountyRank: 20, comboRank: 10,
   };
   if (!isRecordValue(guild.perks)) {
     delete guild.perks;
@@ -409,51 +549,31 @@ function recoverGuildRecordForPlaytest(guild: Record<string, any>, index: number
     guild.tasks = [];
   } else {
     guild.tasks = guild.tasks.filter(isRecordValue).map((task: Record<string, any>, taskIndex: number) => {
+      delete task.guildXpReward;
       const fallbackType = generatedFallbackTaskType(taskIndex);
       const type = ['rolls', 'value', 'rare'].includes(String(task.type)) ? task.type : fallbackType;
-      const target = clampInt(task.target, 1, Number.MAX_SAFE_INTEGER, 1);
+      const tier = clampInt(task.tier, 1, MAX_GUILD_TASK_TIER, 1);
+      const generated = createGuildTask(type, tier);
+      const target = type === 'value'
+        ? Math.max(1, normalizeGuildValueProgress(task.target) || generated.target)
+        : clampInt(task.target, 1, Number.MAX_SAFE_INTEGER, 1);
       return {
         ...task,
         id: nonEmptyString(task.id, 'recovered-task-' + (taskIndex + 1)),
         type,
-        tier: clampInt(task.tier, 1, 1_000_000, 1),
+        tier,
         target,
-        progress: Math.min(target, clampInt(task.progress, 0, Number.MAX_SAFE_INTEGER, 0)),
+        progress: type === 'value'
+          ? Math.min(target, normalizeGuildValueProgress(task.progress))
+          : Math.min(target, clampInt(task.progress, 0, Number.MAX_SAFE_INTEGER, 0)),
         reward: clampInt(task.reward, 1, Number.MAX_SAFE_INTEGER, 1),
-        guildXpReward: clampInt(task.guildXpReward, 1, Number.MAX_SAFE_INTEGER, 1),
         label: nonEmptyString(task.label, 'Recovered task ' + (taskIndex + 1)),
       };
     });
   }
 
-  if (Array.isArray(guild.chat)) {
-    guild.chat = guild.chat.filter((message: unknown) =>
-      isRecordValue(message) &&
-      typeof message.id === 'string' && !!message.id.trim() &&
-      typeof message.username === 'string' && !!message.username.trim() &&
-      typeof message.text === 'string' && !!message.text.trim() &&
-      isSafeGuildInteger(message.timestamp, 0) &&
-      (message.userId == null || typeof message.userId === 'string') &&
-      (message.isSystem == null || typeof message.isSystem === 'boolean'),
-    );
-  } else {
-    delete guild.chat;
-  }
+  delete guild.chat;
 
-  const boss = guild.boss;
-  if (!isRecordValue(boss) ||
-      typeof boss.id !== 'string' || !boss.id.trim() ||
-      typeof boss.name !== 'string' || !boss.name.trim() ||
-      !isSafeGuildInteger(boss.tier, 1) || Number(boss.tier) > 10 ||
-      typeof boss.maxHp !== 'number' || !Number.isFinite(boss.maxHp) || boss.maxHp <= 0 ||
-      typeof boss.currentHp !== 'number' || !Number.isFinite(boss.currentHp) ||
-      boss.currentHp < 0 || boss.currentHp > boss.maxHp ||
-      typeof boss.defeated !== 'boolean' ||
-      !isRecordValue(boss.contributors) ||
-      !Object.values(boss.contributors).every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) {
-    delete guild.boss;
-    delete guild.bossWeek;
-  }
   return guild as unknown as Guild;
 }
 
@@ -471,17 +591,18 @@ function parseGuildListRaw(raw: unknown): Guild[] {
       .filter(isRecordValue)
       .map((item, index) => recoverGuildRecordForPlaytest(item, index));
   }
-  for (const item of parsed) {
-    // Repair only recoverable, non-authoritative member metadata. Identity and
-    // role corruption remains a hard failure in the structural checks below.
-    if (isRecordValue(item)) normalizeRecoverableGuildMemberFields(item);
+  for (const [index, item] of parsed.entries()) {
+    // Repair only non-authoritative member/progression metadata. Stable Guild IDs,
+    // member IDs, and member roles remain strict and are never synthesized.
+    if (isRecordValue(item)) {
+      normalizeRecoverableGuildMemberFields(item);
+      normalizeRecoverableGuildNestedFields(item, index);
+    }
     if (
       !item || typeof item !== 'object' || Array.isArray(item) ||
       typeof (item as any).id !== 'string' ||
       typeof (item as any).name !== 'string' ||
       typeof (item as any).tag !== 'string' ||
-      !Number.isFinite((item as any).level) || Number((item as any).level) < 1 ||
-      !Number.isFinite((item as any).xp) || Number((item as any).xp) < 0 ||
       !Number.isFinite((item as any).tokens) || Number((item as any).tokens) < 0 ||
       !Array.isArray((item as any).members) ||
       !(item as any).members.every((member: unknown) =>
@@ -532,8 +653,14 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
     // Legacy persisted Guilds may predate one or more of these fields. The
     // parser rejects invalid present values, while normalization safely fills
     // omitted values before reward/tax arithmetic uses them.
-    g.level ??= 1;
-    g.xp = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(Number(g.xp ?? 0) || 0)));
+    delete (g as any).level;
+    delete (g as any).xp;
+    delete (g as any).taxRate;
+    delete (g as any).boss;
+    delete (g as any).bossWeek;
+    g.nameStatus = ['pending', 'approved', 'rejected'].includes(String(g.nameStatus))
+      ? g.nameStatus
+      : undefined;
     g.tokens ??= 0;
     if (!g.perks) {
       g.perks = {
@@ -547,7 +674,6 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
         tokenYieldRank: 0,
         taskBountyRank: 0,
         comboRank: 0,
-        guildXpRank: 0,
       };
     } else {
       if (g.perks.memberCapacityRank == null) {
@@ -558,23 +684,13 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
       g.perks.taskBountyRank = Math.max(legacyTaskBounty, currentTaskBounty);
       g.perks.tokenYieldRank = g.perks.taskBountyRank;
       g.perks.comboRank ??= 0;
-      g.perks.guildXpRank ??= 0;
     }
-    g.taxRate = Math.max(0, Math.min(10, Math.floor(Number(g.taxRate ?? 0) || 0)));
     for (const member of g.members) {
       if (member.role === 'owner') member.trusted = true;
       member.userId = member.userId || undefined;
     }
-    const existingBossTier = Number(g.boss?.tier);
-    const legacyBossTierAboveCap =
-      Number.isSafeInteger(existingBossTier) && existingBossTier > 10;
-    if (!g.boss || (g as any).bossWeek !== currentWeek || legacyBossTierAboveCap) {
-      // Repair legacy over-cap weekly bosses without discarding the Guild itself.
-      g.boss = createInitialGuildBoss(Math.max(1, Math.min(10, g.level || 1)));
-      (g as any).bossWeek = currentWeek;
-    }
     if (!Array.isArray(g.tasks) || g.tasks.length < 3) {
-      const generated = createInitialGuildTasks(g.level || 1);
+      const generated = createInitialGuildTasks();
       if (g.challenge) {
         generated[0] = {
           ...generated[0],
@@ -591,6 +707,7 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
       g.tasks = generated;
     } else {
       g.tasks = g.tasks.slice(0, 3).map((task, index) => {
+        delete (task as any).guildXpReward;
         const type: GuildTask['type'] =
           task.type === 'rolls' || task.type === 'value' || task.type === 'rare'
             ? task.type
@@ -598,7 +715,6 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
         const generated = createGuildTask(
           type,
           Math.max(1, Math.floor(Number(task.tier ?? 1) || 1)),
-          g.level || 1,
         );
         const target = Math.max(1, Math.floor(Number(task.target ?? generated.target) || generated.target));
         return {
@@ -610,14 +726,13 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
           target,
           progress: Math.max(0, Math.min(target, Math.floor(Number(task.progress ?? 0) || 0))),
           reward: Math.max(1, Math.floor(Number(task.reward ?? generated.reward) || generated.reward)),
-          guildXpReward: Math.max(1, Math.floor(Number(task.guildXpReward ?? generated.guildXpReward) || generated.guildXpReward)),
           label: String(task.label || generated.label),
         };
       });
     }
 
     while (g.tasks.length < 3) {
-      g.tasks.push(createGuildTask(generatedFallbackTaskType(g.tasks.length), 1, g.level || 1));
+      g.tasks.push(createGuildTask(generatedFallbackTaskType(g.tasks.length), 1));
     }
 
     g.taskCompletions = Math.max(0, Math.floor(Number(g.taskCompletions ?? 0) || 0));
@@ -631,7 +746,7 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
     const comboExpired = hasEscalatedTasks && (comboTier === 0 || (comboEndsAt > 0 && comboEndsAt <= now)) ||
       (comboTier > 0 && comboEndsAt > 0 && comboEndsAt <= now);
     if (comboExpired) {
-      g.tasks = createInitialGuildTasks(g.level || 1);
+      g.tasks = createInitialGuildTasks();
     }
     g.combo = decayGuildComboState(g.combo, now);
 
@@ -648,18 +763,6 @@ function normalizeGuilds(guilds: Guild[], now = Date.now()): Guild[] {
   return guilds;
 }
 
-function addGuildExperience(guild: Guild, requested: number): void {
-  // Guild XP is cumulative and can receive millions of reward writes over time.
-  // Keep it an exact safe integer forever, including when legacy data is near the limit.
-  const currentXp = Math.min(
-    Number.MAX_SAFE_INTEGER,
-    Math.max(0, Math.floor(Number(guild.xp) || 0)),
-  );
-  const earnedXp = Number.isFinite(requested) ? Math.max(0, Math.floor(requested)) : 0;
-  guild.xp = Math.min(Number.MAX_SAFE_INTEGER, currentXp + earnedXp);
-  guild.level = 1 + Math.floor(guild.xp / 500);
-}
-
 function generatedFallbackTaskType(index: number): GuildTask['type'] {
   return index === 0 ? 'rolls' : index === 1 ? 'value' : 'rare';
 }
@@ -670,10 +773,7 @@ function memberMatches(member: Guild['members'][number], requestedUsername?: str
   // records that predate user IDs; a stale username must not impersonate an
   // existing member whose stored ID belongs to another account.
   if (requestedUsername) return member.username === requestedUsername;
-  if (typeof member.userId === 'string' && member.userId.length > 0) {
-    return member.userId === user();
-  }
-  return member.username === username();
+  return guildMemberMatchesIdentity(member, username(), user());
 }
 
 function currentGuild(guilds: Guild[]): Guild | undefined {
@@ -690,7 +790,7 @@ function isTrustedMember(guild: Guild, member: Guild['members'][number]): boolea
 
 function guildPerkMax(perk: GuildPerkId): number {
   if (perk === 'memberCapacityRank') return 40;
-  if (perk === 'tokenYieldRank' || perk === 'taskBountyRank' || perk === 'guildXpRank') return 20;
+  if (perk === 'tokenYieldRank' || perk === 'taskBountyRank') return 20;
   if (perk === 'comboRank') return 10;
   return 10;
 }
@@ -705,9 +805,6 @@ async function applyGuildMigration(
   markerKey: string,
   migrate: (guilds: Guild[]) => void,
 ): Promise<void> {
-  // Once initialized, ordinary Guild reads should not queue behind the shared
-  // document lock just to re-check the marker. Recheck under the lock below
-  // when initialization is actually needed.
   const markerBeforeLock = await redis.get(markerKey);
   if (markerBeforeLock === '1') return;
   if (markerBeforeLock != null) {
@@ -719,6 +816,8 @@ async function applyGuildMigration(
     for (let attempt = 0; attempt < 8; attempt++) {
       const txn = await redis.watch(GUILDS_KEY, markerKey);
       let transactionClosed = false;
+      let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+      let writeCommitted = false;
       try {
         const marker = await redis.get(markerKey);
         if (marker === '1') {
@@ -732,19 +831,28 @@ async function applyGuildMigration(
           throw new Error('Guild migration marker is corrupted; refusing to rerun a destructive migration.');
         }
 
-        const raw = await redis.get(GUILDS_KEY);
-        const guilds = parseGuildList(raw);
+        const storedRaw = await redis.get(GUILDS_KEY);
+        const decodedRaw = await readRedisLargeValue(GUILDS_KEY, storedRaw);
+        const guilds = parseGuildList(decodedRaw);
         migrate(guilds);
+        writePlan = await createRedisLargeValueWritePlan(GUILDS_KEY, JSON.stringify(guilds));
 
         await txn.multi();
-        await txn.set(GUILDS_KEY, JSON.stringify(guilds));
+        await txn.set(GUILDS_KEY, writePlan.storedValue);
         await txn.set(markerKey, '1');
         const committed = await txn.exec();
         transactionClosed = true;
-        if (committed !== null) return;
+        if (committed !== null) {
+          writeCommitted = true;
+          await retireRedisLargeValue(GUILDS_KEY, storedRaw);
+          return;
+        }
       } finally {
         if (!transactionClosed) {
           await txn.unwatch().catch(() => undefined);
+        }
+        if (writePlan && !writeCommitted) {
+          await discardRedisLargeValueWritePlan(writePlan);
         }
       }
     }
@@ -766,49 +874,191 @@ async function ensureGuildMigrations(): Promise<void> {
         tokenYieldRank: 0,
         taskBountyRank: 0,
         comboRank: 0,
-        guildXpRank: 0,
+
       };
     }
   });
   await applyGuildMigration(GUILD_TOKEN_RESET_KEY, guilds => {
     for (const guild of guilds) guild.tokens = 0;
   });
+  await applyGuildCustomNameRestoreMigration();
 }
 
-async function updateGuilds<T>(mutator: (guilds: Guild[]) => Promise<T> | T): Promise<T> {
-  // Finish one-time migrations before taking the ordinary mutation lease.
+
+/**
+ * Roll back the temporary guild-name approval rollout. Restore pending names,
+ * retain names already approved, clear obsolete status metadata, and build the
+ * member ID -> guild name projection used by Reddit user flair.
+ */
+async function applyGuildCustomNameRestoreMigration(): Promise<void> {
+  const markerBeforeLock = await redis.get(GUILD_NAME_RESTORE_MIGRATION_KEY);
+  if (markerBeforeLock === '1') return;
+  if (markerBeforeLock != null) {
+    throw new Error('Guild custom-name restore marker is corrupted; refusing to rerun it.');
+  }
+
+  await ensureRedisStringKey(GUILDS_KEY, '[]');
+  await ensureRedisStringKey(GUILD_NAME_REQUESTS_KEY, '[]');
+  await withGuildDataMutationLock(async () => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const txn = await redis.watch(
+        GUILDS_KEY,
+        GUILD_NAME_REQUESTS_KEY,
+        GUILD_NAME_RESTORE_MIGRATION_KEY,
+        GUILD_FLAIR_NAMES_KEY,
+      );
+      let transactionClosed = false;
+      let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+      let writeCommitted = false;
+      try {
+        const marker = await redis.get(GUILD_NAME_RESTORE_MIGRATION_KEY);
+        if (marker === '1') {
+          await txn.unwatch();
+          transactionClosed = true;
+          return;
+        }
+        if (marker != null) {
+          await txn.unwatch();
+          transactionClosed = true;
+          throw new Error('Guild custom-name restore marker is corrupted; refusing to rerun it.');
+        }
+
+        const storedRaw = await redis.get(GUILDS_KEY);
+        const decodedRaw = await readRedisLargeValue(GUILDS_KEY, storedRaw);
+        const guilds = parseGuildListRaw(decodedRaw);
+        const requestRaw = await redis.get(GUILD_NAME_REQUESTS_KEY);
+        const decodedRequests = parseStoredJson<unknown>(requestRaw);
+        if (requestRaw != null && !Array.isArray(decodedRequests)) {
+          throw new Error('Guild name request queue could not be parsed; refusing to discard pending custom names.');
+        }
+        const requestedNameByGuild = new Map<string, string>();
+        if (Array.isArray(decodedRequests)) {
+          for (const request of decodedRequests) {
+            if (!request || typeof request !== 'object' || Array.isArray(request)) continue;
+            const item = request as { guildId?: unknown; requestedName?: unknown };
+            if (typeof item.guildId !== 'string') continue;
+            const requestedName = normalizeGuildName(item.requestedName);
+            if (requestedName.length >= 3) requestedNameByGuild.set(item.guildId, requestedName);
+          }
+        }
+
+        const restoringGuildIds = new Set(requestedNameByGuild.keys());
+        const usedNames = new Set<string>(
+          guilds
+            .filter(guild => !restoringGuildIds.has(guild.id))
+            .map(guild => normalizeGuildName(guild.name).toLowerCase())
+            .filter(Boolean),
+        );
+        for (const guild of guilds) {
+          const requestedName = requestedNameByGuild.get(guild.id);
+          if (requestedName && !usedNames.has(requestedName.toLowerCase())) {
+            guild.name = requestedName;
+            usedNames.add(requestedName.toLowerCase());
+          } else {
+            const safeExistingName = normalizeGuildName(guild.name);
+            if (safeExistingName) {
+              guild.name = safeExistingName;
+              usedNames.add(safeExistingName.toLowerCase());
+            }
+          }
+          delete guild.nameStatus;
+        }
+
+        normalizeGuilds(guilds);
+        const flairNames: Record<string, string> = {};
+        for (const guild of guilds) {
+          const guildName = normalizeGuildName(guild.name);
+          if (!guildName) continue;
+          for (const member of guild.members) {
+            const memberId = String(member.userId ?? '').trim();
+            if (memberId) flairNames[memberId] = guildName;
+          }
+        }
+
+        writePlan = await createRedisLargeValueWritePlan(GUILDS_KEY, JSON.stringify(guilds));
+        await txn.multi();
+        await txn.set(GUILDS_KEY, writePlan.storedValue);
+        await txn.set(GUILD_NAME_REQUESTS_KEY, '[]');
+        await txn.del(GUILD_FLAIR_NAMES_KEY);
+        if (Object.keys(flairNames).length > 0) await txn.hSet(GUILD_FLAIR_NAMES_KEY, flairNames);
+        await txn.set(GUILD_NAME_RESTORE_MIGRATION_KEY, '1');
+        const committed = await txn.exec();
+        transactionClosed = true;
+        if (committed !== null) {
+          writeCommitted = true;
+          await retireRedisLargeValue(GUILDS_KEY, storedRaw);
+          return;
+        }
+      } finally {
+        if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+        if (writePlan && !writeCommitted) await discardRedisLargeValueWritePlan(writePlan);
+      }
+    }
+    throw new Error('Guild custom-name restore migration changed while applying an update. Please retry.');
+  });
+  // Refresh the current player's flair after the one-time member index rebuild.
+  try {
+    await syncCurrentPlayerRarityFlair();
+  } catch (error) {
+    console.error('[Guild Flair] Could not sync the current player after name restoration.', error);
+  }
+}
+
+type GuildFlairMutation = {
+  set: Record<string, string>;
+  remove: string[];
+};
+
+async function updateGuilds<T>(
+  mutator: (guilds: Guild[], flair: GuildFlairMutation) => Promise<T> | T,
+): Promise<T> {
   await ensureGuildMigrations();
   return withGuildDataMutationLock(async () => {
     await ensureRedisStringKey(GUILDS_KEY, '[]');
 
     for (let attempt = 0; attempt < 8; attempt++) {
-      const txn = await redis.watch(GUILDS_KEY);
+      const txn = await redis.watch(GUILDS_KEY, GUILD_FLAIR_NAMES_KEY);
       let transactionClosed = false;
+      let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+      let writeCommitted = false;
       try {
-        const raw = await redis.get(GUILDS_KEY);
-        const guilds: Guild[] = parseGuildList(raw);
-        const result = await mutator(guilds);
+        const storedRaw = await redis.get(GUILDS_KEY);
+        const decodedRaw = await readRedisLargeValue(GUILDS_KEY, storedRaw);
+        const guilds: Guild[] = parseGuildList(decodedRaw);
+        const flair: GuildFlairMutation = { set: {}, remove: [] };
+        const result = await mutator(guilds, flair);
+        writePlan = await createRedisLargeValueWritePlan(GUILDS_KEY, JSON.stringify(guilds));
+
         await txn.multi();
-        await txn.set(GUILDS_KEY, JSON.stringify(guilds));
+        await txn.set(GUILDS_KEY, writePlan.storedValue);
+        for (const userId of flair.remove) {
+          if (userId) await txn.hDel(GUILD_FLAIR_NAMES_KEY, userId);
+        }
+        if (Object.keys(flair.set).length > 0) {
+          await txn.hSet(GUILD_FLAIR_NAMES_KEY, flair.set);
+        }
         const committed = await txn.exec();
         transactionClosed = true;
-        if (committed !== null) return result;
-      } finally {
-        if (!transactionClosed) {
-          await txn.unwatch().catch(() => undefined);
+        if (committed !== null) {
+          writeCommitted = true;
+          await retireRedisLargeValue(GUILDS_KEY, storedRaw);
+          return result;
         }
+      } finally {
+        if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+        if (writePlan && !writeCommitted) await discardRedisLargeValueWritePlan(writePlan);
       }
     }
     throw new Error('Guild data changed while processing the request. Please retry.');
   });
 }
 
-
 async function loadGuilds(): Promise<Guild[]> {
   await ensureGuildMigrations();
-  const raw = await redis.get(GUILDS_KEY);
-  const parsedSnapshot = parseStoredJson<unknown>(raw);
-  const rawGuilds = parseGuildListRaw(raw);
+  const storedRaw = await redis.get(GUILDS_KEY);
+  const decodedRaw = await readRedisLargeValue(GUILDS_KEY, storedRaw);
+  const parsedSnapshot = parseStoredJson<unknown>(decodedRaw);
+  const rawGuilds = parseGuildListRaw(decodedRaw);
   const now = Date.now();
   const storedComboExpired = rawGuilds.some(g => {
     const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
@@ -818,107 +1068,114 @@ async function loadGuilds(): Promise<Guild[]> {
     );
     return (
       (taskTierStuck && tier === 0) ||
-      // Older recovery code may have zeroed the Combo timer without resetting
-      // higher task tiers, so Tier 1 repair must not depend on endsAt surviving.
       (taskTierStuck && endsAt > 0 && endsAt <= now) ||
       (tier > 0 && endsAt > 0 && endsAt <= now)
     );
   });
   const guilds = normalizeGuilds(rawGuilds, now);
 
-  // Playtest recovery must not be an in-memory bandage. Once a valid JSON
-  // array has been safely normalized, persist the repaired snapshot with WATCH
-  // so later reads and mutations see the same clean Guild state. This is
-  // deliberately scoped to r/infinity_orbs_dev; production Guild data remains
-  // strict and is never silently rewritten by this recovery path.
   if (
     isGuildPlaytestRecoveryEnabled() &&
-    typeof raw === 'string' &&
+    typeof decodedRaw === 'string' &&
     Array.isArray(parsedSnapshot)
   ) {
     const recoveredRaw = JSON.stringify(guilds);
-    if (recoveredRaw !== raw) {
+    if (recoveredRaw !== decodedRaw) {
       try {
         await withGuildDataMutationLock(async () => {
           const txn = await redis.watch(GUILDS_KEY);
           let transactionClosed = false;
+          let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+          let writeCommitted = false;
           try {
-            const latestRaw = await redis.get(GUILDS_KEY);
-            if (latestRaw !== raw) {
+            const latestStoredRaw = await redis.get(GUILDS_KEY);
+            if (latestStoredRaw !== storedRaw) {
               await txn.unwatch();
               transactionClosed = true;
             } else {
+              writePlan = await createRedisLargeValueWritePlan(GUILDS_KEY, recoveredRaw);
               await txn.multi();
-              await txn.set(GUILDS_KEY, recoveredRaw);
-              // A conflicting write is not overwritten. The next read can recover
-              // the newer snapshot; recovery persistence must not block this read.
-              await txn.exec();
+              await txn.set(GUILDS_KEY, writePlan.storedValue);
+              const committed = await txn.exec();
               transactionClosed = true;
+              if (committed !== null) {
+                writeCommitted = true;
+                await retireRedisLargeValue(GUILDS_KEY, latestStoredRaw);
+              }
             }
           } finally {
             if (!transactionClosed) {
               await txn.unwatch().catch(() => undefined);
             }
+            if (writePlan && !writeCommitted) {
+              await discardRedisLargeValueWritePlan(writePlan);
+            }
           }
         });
       } catch (error) {
         console.error('[Guild Recovery] Could not persist the dev-only repaired snapshot:', error);
-        // Return the normalized in-memory snapshot even if best-effort repair
-        // persistence fails; strict production parsing is unaffected.
       }
     }
   }
 
   if (storedComboExpired) {
-    // Persist the expiry reset so a later read cannot resurrect the old task tiers.
     return withGuildDataMutationLock(async () => {
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const txn = await redis.watch(GUILDS_KEY);
-      let transactionClosed = false;
-      try {
-        const latestRaw = await redis.get(GUILDS_KEY);
-        // Validate the watched snapshot with the same parser as ordinary Guild
-        // reads. Filtering malformed rows here could silently delete Guild data.
-        const latestRawGuilds = parseGuildListRaw(latestRaw);
-        const latestNow = Date.now();
-        const latestExpired = latestRawGuilds.some(g => {
-          const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
-          const endsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
-          const taskTierStuck = Array.isArray(g.tasks) && g.tasks.some(task =>
-            Math.max(1, Math.floor(Number(task?.tier ?? 1) || 1)) > 1,
-          );
-          return (
-            (taskTierStuck && tier === 0) ||
-            (taskTierStuck && endsAt > 0 && endsAt <= latestNow) ||
-            (tier > 0 && endsAt > 0 && endsAt <= latestNow)
-          );
-        });
-        const latest = normalizeGuilds(latestRawGuilds, latestNow);
-        if (!latestExpired) {
-          await txn.unwatch();
-          transactionClosed = true;
-          return latest;
-        }
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const txn = await redis.watch(GUILDS_KEY);
+        let transactionClosed = false;
+        let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+        let writeCommitted = false;
+        try {
+          const latestStoredRaw = await redis.get(GUILDS_KEY);
+          const latestDecodedRaw = await readRedisLargeValue(GUILDS_KEY, latestStoredRaw);
+          const latestRawGuilds = parseGuildListRaw(latestDecodedRaw);
+          const latestNow = Date.now();
+          const latestExpired = latestRawGuilds.some(g => {
+            const tier = Math.max(0, Math.floor(Number(g.combo?.tier ?? 0) || 0));
+            const endsAt = Math.max(0, Math.floor(Number(g.combo?.endsAt ?? 0) || 0));
+            const taskTierStuck = Array.isArray(g.tasks) && g.tasks.some(task =>
+              Math.max(1, Math.floor(Number(task?.tier ?? 1) || 1)) > 1,
+            );
+            return (
+              (taskTierStuck && tier === 0) ||
+              (taskTierStuck && endsAt > 0 && endsAt <= latestNow) ||
+              (tier > 0 && endsAt > 0 && endsAt <= latestNow)
+            );
+          });
+          const latest = normalizeGuilds(latestRawGuilds, latestNow);
+          if (!latestExpired) {
+            await txn.unwatch();
+            transactionClosed = true;
+            return latest;
+          }
 
-        normalizeGuilds(latest, Date.now());
-        await txn.multi();
-        await txn.set(GUILDS_KEY, JSON.stringify(latest));
-        const committed = await txn.exec();
-        transactionClosed = true;
-        if (committed !== null) return latest;
-      } catch (error) {
-        // Malformed watched snapshots and other read failures must be surfaced;
-        // always release WATCH, then rethrow instead of silently continuing.
-        transactionClosed = true;
-        await txn.unwatch();
-        throw error;
-      } finally {
-        if (!transactionClosed) {
-          await txn.unwatch().catch(() => undefined);
+          normalizeGuilds(latest, Date.now());
+          writePlan = await createRedisLargeValueWritePlan(GUILDS_KEY, JSON.stringify(latest));
+          await txn.multi();
+          await txn.set(GUILDS_KEY, writePlan.storedValue);
+          const committed = await txn.exec();
+          transactionClosed = true;
+          if (committed !== null) {
+            writeCommitted = true;
+            await retireRedisLargeValue(GUILDS_KEY, latestStoredRaw);
+            return latest;
+          }
+        } catch (error) {
+          if (!transactionClosed) {
+            transactionClosed = true;
+            await txn.unwatch();
+          }
+          throw error;
+        } finally {
+          if (!transactionClosed) {
+            await txn.unwatch().catch(() => undefined);
+          }
+          if (writePlan && !writeCommitted) {
+            await discardRedisLargeValueWritePlan(writePlan);
+          }
         }
       }
-    }
-    throw new Error('Guild data changed while processing combo expiry. Please retry.');
+      throw new Error('Guild data changed while processing combo expiry. Please retry.');
     });
   }
 
@@ -1064,59 +1321,29 @@ export async function guildInfo() {
   const guilds = await loadGuilds();
   const mine = currentGuild(guilds);
 
-  // Mute is the visibility authority even if history purging partially fails.
-  // Treat any non-empty mute hash entry as muted; a corrupt row must not make
-  // prior messages visible again.
-  const rawMutes = await redis.hGetAll(GUILD_CHAT_MUTES_KEY);
-  const mutedUserIds = new Set<string>();
-  const mutedUsernames = new Set<string>();
-  if (rawMutes && typeof rawMutes === 'object') {
-    for (const [userId, raw] of Object.entries(rawMutes as Record<string, string>)) {
-      if (!raw) continue;
-      mutedUserIds.add(String(userId).trim());
-      const parsed = parseStoredJson<Partial<import('../shared/social.js').GuildChatMuteRecord>>(raw);
-      const normalized = String(parsed?.username ?? '').trim().replace(/^u\//i, '').toLowerCase();
-      if (normalized) mutedUsernames.add(normalized);
-      const storedId = String(parsed?.userId ?? '').trim();
-      if (storedId) mutedUserIds.add(storedId);
-    }
-  }
-  const filterMutedGuildChat = (guild: Guild): Guild => ({
-    ...guild,
-    chat: (guild.chat ?? []).filter(message => {
-      const messageUserId = String(message.userId ?? '').trim();
-      const messageUsername = String(message.username ?? '').trim().replace(/^u\//i, '').toLowerCase();
-      return !mutedUserIds.has(messageUserId) && !mutedUsernames.has(messageUsername);
-    }),
-  });
-
-  const visibleGuilds = guilds
-    .sort((a, b) => b.xp - a.xp)
+  // Guild chat/history has been retired. Listing Guilds must not depend on the
+  // old chat-moderation hash; an obsolete optional store must never hide the
+  // directory, member list, tasks, or Guild perks.
+  const visibleGuilds = [...guilds]
+    .sort((a, b) => b.tokens - a.tokens)
     .slice(0, 20)
-    .map(guild => {
-      const filtered = filterMutedGuildChat(guild);
-      return {
-        ...filtered,
-        members: filtered.members.map(member => {
-          const { lastLoginAt: _lastLoginAt, ...safeMember } = member;
-          return safeMember;
-        }),
-      };
-    });
+    .map(guild => ({
+      ...guild,
+      members: guild.members.map(member => {
+        const { lastLoginAt: _lastLoginAt, ...safeMember } = member;
+        return safeMember;
+      }),
+    }));
 
   let visibleMine: Guild | null = null;
   if (mine) {
     const actor = mine.members.find(member => memberMatches(member));
-    const hydrated = actor
+    visibleMine = actor
       ? await hydrateGuildLastLogins(mine, actor)
       : await hideGuildLastLogins(mine);
-    visibleMine = filterMutedGuildChat(hydrated);
   }
 
-  return {
-    guilds: visibleGuilds,
-    mine: visibleMine,
-  };
+  return { guilds: visibleGuilds, mine: visibleMine };
 }
 
 export async function getPlayerGuildContext(
@@ -1128,7 +1355,7 @@ export async function getPlayerGuildContext(
   combo: GuildComboState;
 }> {
   const guilds = await loadGuilds();
-  const mine = guilds.find(g => g.members.some(m => (uid && m.userId === uid) || m.username === uname));
+  const mine = guilds.find(g => g.members.some(m => guildMemberMatchesIdentity(m, uname, uid)));
   const perks = mine?.perks ?? {
     luckRank: 0,
     speedRank: 0,
@@ -1140,7 +1367,7 @@ export async function getPlayerGuildContext(
     tokenYieldRank: 0,
     taskBountyRank: 0,
     comboRank: 0,
-    guildXpRank: 0,
+
   };
   return {
     guildId: mine?.id ?? null,
@@ -1151,7 +1378,7 @@ export async function getPlayerGuildContext(
 
 export async function getPlayerGuildPerks(uname: string, uid?: string) {
   const guilds = await loadGuilds();
-  const mine = guilds.find(g => g.members.some(m => (uid && m.userId === uid) || m.username === uname));
+  const mine = guilds.find(g => g.members.some(m => guildMemberMatchesIdentity(m, uname, uid)));
   return mine?.perks ?? {
     luckRank: 0,
     speedRank: 0,
@@ -1163,13 +1390,13 @@ export async function getPlayerGuildPerks(uname: string, uid?: string) {
     tokenYieldRank: 0,
     taskBountyRank: 0,
     comboRank: 0,
-    guildXpRank: 0,
+
   };
 }
 
 export async function getPlayerGuildCombo(uname: string, uid?: string): Promise<GuildComboState> {
   const guilds = await loadGuilds();
-  const mine = guilds.find(g => g.members.some(m => (uid && m.userId === uid) || m.username === uname));
+  const mine = guilds.find(g => g.members.some(m => guildMemberMatchesIdentity(m, uname, uid)));
   return decayGuildComboState(mine?.combo);
 }
 
@@ -1185,7 +1412,7 @@ export async function buyGuildPerk(perk: GuildPerkId) {
     if (!guild.perks) guild.perks = {
       luckRank: 0, speedRank: 0, vaultRank: 0, shardRank: 0,
       critRank: 0, coinRank: 0, memberCapacityRank: 0, tokenYieldRank: 0,
-      taskBountyRank: 0, comboRank: 0, guildXpRank: 0,
+      taskBountyRank: 0, comboRank: 0,
     };
 
     if (perk === 'tokenYieldRank') perk = 'taskBountyRank';
@@ -1217,18 +1444,8 @@ export async function buyGuildPerk(perk: GuildPerkId) {
       tokenYieldRank: 'Task Bounty',
       taskBountyRank: 'Task Bounty',
       comboRank: 'Combo Reserve',
-      guildXpRank: 'Guild Growth',
-    };
+      };
 
-    if (!guild.chat) guild.chat = [];
-    guild.chat.push({
-      id: `msg-${Date.now()}`,
-      username: 'System',
-      text: `${username()} upgraded ${perkNames[perk]} to Level ${guild.perks[perk]}.`,
-      timestamp: Date.now(),
-      isSystem: true,
-    });
-    if (guild.chat.length > 50) guild.chat.shift();
 
     return { guild, perk, level: guild.perks[perk], cost };
   });
@@ -1304,15 +1521,6 @@ export async function adminSetGuildAuthority(
       target.trusted = true;
     }
 
-    if (!guild.chat) guild.chat = [];
-    guild.chat.push({
-      id: `msg-${Date.now()}-admin-authority`,
-      username: 'System',
-      text: `Admin changed u/shadow_fen's Guild authority to ${authority === 'owner' ? 'Owner' : 'Trusted Member'}.`,
-      timestamp: Date.now(),
-      isSystem: true,
-    });
-    if (guild.chat.length > 50) guild.chat.shift();
     return {
       guildId: guild.id,
       guildName: guild.name,
@@ -1345,24 +1553,20 @@ export async function kickGuildMember(targetUsername: string) {
   const requested = String(targetUsername ?? '').trim().replace(/^u\//i, '').toLowerCase();
   if (!requested) throw new Error('Guild member username is required.');
 
-  return updateGuilds(guilds => {
+  const result = await updateGuilds((guilds, flair) => {
     const guild = currentGuild(guilds);
     if (!guild) throw new Error('You are not in a guild.');
 
     const actor = guild.members.find(member => memberMatches(member));
     if (!actor) throw new Error('Guild membership could not be verified.');
-
     const target = guild.members.find(member => member.username.toLowerCase() === requested);
     if (!target) throw new Error('Guild member not found.');
     if (target.username === actor.username || (target.userId && target.userId === actor.userId)) {
       throw new Error('You cannot kick yourself.');
     }
     if (target.role === 'owner') throw new Error('The guild owner cannot be kicked.');
-
     if (actor.role !== 'owner') {
-      if (!isTrustedMember(guild, actor)) {
-        throw new Error('Only trusted members can kick Guild members.');
-      }
+      if (!isTrustedMember(guild, actor)) throw new Error('Only trusted members can kick Guild members.');
       if (target.role === 'officer' || target.trusted === true) {
         throw new Error('Trusted members can only kick non-trusted members.');
       }
@@ -1371,101 +1575,57 @@ export async function kickGuildMember(targetUsername: string) {
     guild.members = guild.members.filter(member =>
       !(member.username === target.username || (member.userId && target.userId && member.userId === target.userId)),
     );
+    const targetUserId = String(target.userId ?? '').trim();
+    if (targetUserId) flair.remove.push(targetUserId);
+    return { username: target.username, userId: targetUserId };
+  });
 
-    if (!guild.chat) guild.chat = [];
-    guild.chat.push({
-      id: 'msg-' + Date.now() + '-kick',
-      username: 'System',
-      text: actor.username + ' kicked ' + target.username + ' from the guild.',
-      timestamp: Date.now(),
-      isSystem: true,
+  if (result.userId) {
+    await syncPlayerRarityFlair(result.userId, result.username).catch(error => {
+      console.error('[Guild Flair] Kicking succeeded, but the member flair sync failed.', error);
     });
-    if (guild.chat.length > 50) guild.chat.shift();
-
-    return { success: true, username: target.username };
-  });
-}
-
-
-export async function setGuildTaxRate(rate: number) {
-  const safeRate = Math.max(0, Math.min(10, Math.floor(Number(rate) || 0)));
-  return updateGuilds(guilds => {
-    const guild = currentGuild(guilds);
-    if (!guild) throw new Error('You are not in a guild.');
-    const actor = guild.members.find(m => memberMatches(m));
-    if (!actor || !isTrustedMember(guild, actor)) {
-      throw new Error('You are not trusted to change the Guild Tax.');
-    }
-    guild.taxRate = safeRate;
-    if (!guild.chat) guild.chat = [];
-    guild.chat.push({
-      id: `msg-${Date.now()}-tax`,
-      username: 'System',
-      text: `Guild Tax set to ${safeRate}%.`,
-      timestamp: Date.now(),
-      isSystem: true,
-    });
-    if (guild.chat.length > 50) guild.chat.shift();
-    return guild;
-  });
-}
-
-export async function applyGuildTax(coinsEarned: number): Promise<{ taxedCoins: number; tokensEarned: number; xpEarned: number }> {
-  const safeCoins = Math.max(0, Math.floor(coinsEarned || 0));
-  if (safeCoins < 100) return { taxedCoins: 0, tokensEarned: 0, xpEarned: 0 };
-
-  return updateGuilds(guilds => {
-    const guild = currentGuild(guilds);
-    if (!guild) return { taxedCoins: 0, tokensEarned: 0, xpEarned: 0 };
-
-    const rate = Math.max(0, Math.min(10, Math.floor(Number(guild.taxRate ?? 0) || 0)));
-    const taxedCoins = Math.min(safeCoins, Math.floor(safeCoins * rate / 100));
-    if (taxedCoins <= 0) return { taxedCoins, tokensEarned: 0, xpEarned: 0 };
-
-    const xpMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.guildXpRank ?? 0)) * 0.10;
-    const xpEarned = Math.max(1, Math.floor((taxedCoins / 100) * xpMultiplier));
-    addGuildExperience(guild, xpEarned);
-    return { taxedCoins, tokensEarned: 0, xpEarned };
-  });
+  }
+  return { success: true, username: result.username };
 }
 
 
 export async function createGuild(name: string, tag: string) {
-  const cleanName = name.trim().slice(0, 32);
-  const cleanTag = tag.trim().replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase();
+  const cleanName = normalizeGuildName(name);
+  const cleanTag = typeof tag === 'string'
+    ? tag.trim().replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase()
+    : '';
   if (cleanName.length < 3 || cleanTag.length < 2) {
-    throw new Error('Guild name must be 3+ chars and tag 2-5 letters.');
+    throw new Error('Guild name must be 3+ characters and tag must be 2–5 letters or numbers.');
   }
 
-  return updateGuilds(guilds => {
-    if (guilds.some(g => g.name.toLowerCase() === cleanName.toLowerCase() || g.tag === cleanTag)) {
-      throw new Error('That guild name or tag is already taken.');
-    }
+  const guild = await updateGuilds((guilds, flair) => {
     const existingGuild = currentGuild(guilds);
-    const adminGuildOverride = (context.username ?? '').toLowerCase() === 'shadow_fen';
-    if (existingGuild && !adminGuildOverride) {
-      throw new Error('Leave your current guild first.');
-    }
+    const adminGuildOverride = isAdminUsername(context.username);
+    if (existingGuild && !adminGuildOverride) throw new Error('Leave your current guild first.');
     if (existingGuild && adminGuildOverride) {
+      const departingAdmin = existingGuild.members.find(member => memberMatches(member));
       existingGuild.members = existingGuild.members.filter(member => !memberMatches(member));
+      if (departingAdmin?.role === 'owner') promoteGuildOwnerIfNeeded(existingGuild.members);
       if (existingGuild.members.length === 0) {
         const index = guilds.indexOf(existingGuild);
         if (index >= 0) guilds.splice(index, 1);
       }
     }
 
+    if (guilds.some(g => g.name.toLowerCase() === cleanName.toLowerCase() ||
+        String(g.tag ?? '').toUpperCase() === cleanTag)) {
+      throw new Error('That guild name or tag is already taken.');
+    }
+
     const now = Date.now();
-    const guild: Guild = {
+    const createdGuild: Guild = {
       id: `${now}-${createSecureId()}`,
       name: cleanName,
       tag: cleanTag,
-      level: 1,
-      xp: 0,
       tokens: 0,
       createdAt: now,
-      taxRate: 0,
       challenge: challengeForWeek(),
-      tasks: createInitialGuildTasks(1),
+      tasks: createInitialGuildTasks(),
       taskCompletions: 0,
       combo: createInitialGuildCombo(now),
       members: [{ username: username(), userId: user(), contribution: 0, role: 'owner', trusted: true, joinedAt: now }],
@@ -1487,28 +1647,31 @@ export async function createGuild(name: string, tag: string) {
         tokenYieldRank: 0,
         taskBountyRank: 0,
         comboRank: 0,
-        guildXpRank: 0,
       },
     };
-    guilds.push(guild);
-    return guild;
+    guilds.push(createdGuild);
+    flair.set[user()] = createdGuild.name;
+    return createdGuild;
   });
+
+  await syncCurrentPlayerRarityFlair().catch(error => {
+    console.error('[Guild Flair] Guild was created, but its Reddit flair sync failed.', error);
+  });
+  return guild;
 }
 
 export async function joinGuild(guildId: string) {
-  return updateGuilds(guilds => {
-    if (currentGuild(guilds)) {
-      throw new Error('You are already in a guild.');
-    }
-    const guild = guilds.find(g => g.id === guildId);
-    if (!guild) throw new Error('Guild not found.');
-    const capacity = maxGuildMembers(guild);
-    if (guild.members.length >= capacity) {
-      throw new Error(`That guild is full (${guild.members.length}/${capacity}).`);
+  const guild = await updateGuilds((guilds, flair) => {
+    if (currentGuild(guilds)) throw new Error('You are already in a guild.');
+    const targetGuild = guilds.find(g => g.id === guildId);
+    if (!targetGuild) throw new Error('Guild not found.');
+    const capacity = maxGuildMembers(targetGuild);
+    if (targetGuild.members.length >= capacity) {
+      throw new Error(`That guild is full (${targetGuild.members.length}/${capacity}).`);
     }
 
     const now = Date.now();
-    guild.members.push({
+    targetGuild.members.push({
       username: username(),
       userId: user(),
       contribution: 0,
@@ -1516,84 +1679,45 @@ export async function joinGuild(guildId: string) {
       trusted: false,
       joinedAt: now,
     });
-    if (!guild.chat) guild.chat = [];
-    guild.chat.push({
-      id: `msg-${now}`,
-      username: 'System',
-      text: `${username()} joined the guild.`,
-      timestamp: now,
-      isSystem: true,
-    });
-    if (guild.chat.length > 50) guild.chat.shift();
-    return guild;
+    flair.set[user()] = targetGuild.name;
+    return targetGuild;
   });
+
+  await syncCurrentPlayerRarityFlair().catch(error => {
+    console.error('[Guild Flair] Guild was joined, but its Reddit flair sync failed.', error);
+  });
+  return guild;
 }
 
 export async function leaveGuild() {
-  return updateGuilds(guilds => {
+  await updateGuilds((guilds, flair) => {
     const guildIndex = guilds.findIndex(g => g.members.some(m => memberMatches(m)));
     if (guildIndex === -1) throw new Error('You are not in a guild.');
     const guild = guilds[guildIndex];
     const oldMember = guild.members.find(m => memberMatches(m));
     guild.members = guild.members.filter(m => !memberMatches(m));
+    flair.remove.push(user());
 
-    if (guild.members.length === 0) {
-      guilds.splice(guildIndex, 1);
-    } else {
-      if (oldMember?.role === 'owner') {
-        const topMember = [...guild.members].sort((a, b) => b.contribution - a.contribution)[0];
-        topMember.role = 'owner';
-        topMember.trusted = true;
-        if (!guild.chat) guild.chat = [];
-        guild.chat.push({
-          id: `msg-${Date.now()}-owner`,
-          username: 'System',
-          text: `${topMember.username} is now the guild owner.`,
-          timestamp: Date.now(),
-          isSystem: true,
-        });
-      }
-      if (!guild.chat) guild.chat = [];
-      guild.chat.push({
-        id: `msg-${Date.now()}`,
-        username: 'System',
-        text: `${username()} left the guild.`,
-        timestamp: Date.now(),
-        isSystem: true,
-      });
-      if (guild.chat.length > 50) guild.chat.shift();
-    }
-
-    return { success: true };
+    if (guild.members.length === 0) guilds.splice(guildIndex, 1);
+    else if (oldMember?.role === 'owner') promoteGuildOwnerIfNeeded(guild.members);
   });
+
+  await syncCurrentPlayerRarityFlair().catch(error => {
+    console.error('[Guild Flair] Leaving succeeded, but the Reddit flair sync failed.', error);
+  });
+  return { success: true };
 }
 
-export async function reportGuildChatMessage(messageId: string): Promise<{ success: true }> {
-  const cleanId = String(messageId ?? '').trim();
-  if (!cleanId) throw new Error('Message ID is required.');
-  const guild = currentGuild(await loadGuilds());
-  if (!guild) throw new Error('You are not in a guild.');
-  const message = (guild.chat ?? []).find(item => item.id === cleanId);
-  if (!message || message.isSystem) throw new Error('That chat message is no longer available to report.');
-  return submitChatReport('Guild Chat', message);
-}
-
-export async function postGuildMessage(_text: string): Promise<never> {
-  throw new Error('Guild Log is read-only. Player chat is disabled.');
-}
-
-export async function contribute(value: number, rollCount = 1, bestRarity?: number) {
+export async function contribute(value: number, rollCount = 1, bestRarity?: number, rareOrbCount?: number) {
   try {
-    const safeValue = capSafeGuildCounter(value);
+    const safeValue = capGuildValue(value);
     if (safeValue <= 0) return;
     await updateGuilds(guilds => {
-      const guild = guilds.find(g => g.members.some(m => m.username === username()));
+      const guild = currentGuild(guilds);
       if (!guild) return;
-
-      const member = guild.members.find(m => m.username === username());
+      const member = guild.members.find(m => memberMatches(m));
       if (!member) return;
 
-      const xpMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.guildXpRank ?? 0)) * 0.10;
       const taskBountyMultiplier = 1 + Math.max(
         0,
         Math.floor(guild.perks?.taskBountyRank ?? guild.perks?.tokenYieldRank ?? 0),
@@ -1603,251 +1727,106 @@ export async function contribute(value: number, rollCount = 1, bestRarity?: numb
         Math.floor(guild.perks?.comboRank ?? 0),
       ) * 0.05;
 
-      member.contribution = capSafeGuildCounter(member.contribution + safeValue);
-      addGuildExperience(guild, Math.max(1, Math.floor(Math.max(1, Math.floor(safeValue / 250)) * xpMultiplier)));
-
-      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
-        guild.tasks = createInitialGuildTasks(guild.level);
-      }
-
+      member.contribution = addGuildValueProgress(member.contribution, safeValue);
+      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) guild.tasks = createInitialGuildTasks();
       const now = Date.now();
-      const taskProgressValue = safeValue;
       const taskProgressRolls = capSafeGuildCounter(rollCount);
-      const taskProgressRare = (bestRarity ?? 0) >= 100 ? 1 : 0;
-
+      const taskProgressRare = capSafeGuildCounter(rareOrbCount ?? ((bestRarity ?? 0) >= 100 ? 1 : 0));
       for (let i = 0; i < guild.tasks.length; i++) {
         let task = guild.tasks[i];
         if (!task) continue;
-        if (task.type === 'value') task.progress = capSafeGuildCounter(task.progress + taskProgressValue);
+        if (task.type === 'value') task.progress = addGuildValueProgress(task.progress, safeValue);
         else if (task.type === 'rolls') task.progress = capSafeGuildCounter(task.progress + taskProgressRolls);
         else if (task.type === 'rare') task.progress = capSafeGuildCounter(task.progress + taskProgressRare);
-
-        // Roll the same contribution across successive task tiers. The old
-        // one-pass logic clamped overflow below the next target, which made very
-        // large tasks appear stuck and forfeited rewards for skipped tiers.
         let completions = 0;
         while (task.progress >= task.target && completions < 1000) {
           completions += 1;
           const completedTier = Math.max(1, Math.floor(Number(task.tier) || 1));
           const overflow = Math.max(0, task.progress - task.target);
           const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
-          const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
-
           guild.tokens = capSafeGuildCounter((guild.tokens ?? 0) + reward);
-          addGuildExperience(guild, xpReward);
           guild.taskCompletions = capSafeGuildCounter((guild.taskCompletions ?? 0) + 1);
-          guild.combo = activateGuildComboStack(
-            guild.combo,
-            now,
-            GUILD_COMBO_MAX_TIER,
-            comboDurationMultiplier,
-          );
-
-          const replacement = createGuildTask(task.type, completedTier + 1, guild.level);
-          // Keep the full contribution overflow. If it still clears the new
-          // target, the next loop completes that tier and awards its rewards too.
-          replacement.progress = Math.min(Number.MAX_SAFE_INTEGER, overflow);
+          guild.combo = activateGuildComboStack(guild.combo, now, GUILD_COMBO_MAX_TIER, comboDurationMultiplier);
+          const replacement = createGuildTask(task.type, completedTier + 1);
+          replacement.progress = task.type === 'value'
+            ? capGuildValue(overflow)
+            : Math.min(Number.MAX_SAFE_INTEGER, overflow);
           guild.tasks[i] = replacement;
           task = replacement;
-
-          if (!guild.chat) guild.chat = [];
-          guild.chat.push({
-            id: `msg-${Date.now()}-task-${completedTier}`,
-            username: 'System',
-            text: `Guild Task completed! Tier ${completedTier} → Tier ${completedTier + 1}. +${reward.toLocaleString()} Guild Tokens and +${xpReward.toLocaleString()} Guild XP.`,
-            timestamp: Date.now(),
-            isSystem: true,
-          });
-          if (guild.chat.length > 50) guild.chat.shift();
         }
       }
-
       const firstTask = guild.tasks[0];
-      guild.challenge = {
-        type: firstTask.type,
-        target: firstTask.target,
-        progress: Math.min(firstTask.target, firstTask.progress),
-        reward: firstTask.reward,
-        label: firstTask.label,
-      };
-
-      if (guild.boss && !guild.boss.defeated) {
-        const damage = capSafeGuildCounter(safeValue + taskProgressRolls * 25);
-        guild.boss.currentHp = Math.max(0, guild.boss.currentHp - damage);
-        if (!guild.boss.contributors) guild.boss.contributors = {};
-        guild.boss.contributors[username()] = capSafeGuildCounter((guild.boss.contributors[username()] ?? 0) + damage);
-
-        if (guild.boss.currentHp <= 0) {
-          guild.boss.defeated = true;
-          const guildXpReward = Math.max(0, Math.floor(guild.boss.rewardGuildXp ?? 0));
-          addGuildExperience(guild, guildXpReward);
-          if (!guild.chat) guild.chat = [];
-          guild.chat.push({
-            id: `msg-${Date.now()}-boss`,
-            username: 'System',
-            text: `🏆 RAID BOSS SLAIN! ${guild.boss.name} was defeated! +${guildXpReward.toLocaleString()} Guild XP.`,
-            timestamp: Date.now(),
-            isSystem: true,
-          });
-          if (guild.chat.length > 50) guild.chat.shift();
-        }
-      }
+      guild.challenge = { type: firstTask.type, target: firstTask.target, progress: Math.min(firstTask.target, firstTask.progress), reward: firstTask.reward, label: firstTask.label };
     });
   } catch (err) {
     console.error('Error in guild contribution:', err);
   }
 }
+
 export async function prepareGuildRollEffects(
-  coinsEarned: number,
   value: number,
   rollCount: number,
   bestRarity?: number,
   pendingWrite?: { expectedValue: string | null; nextValue: string },
+  rareOrbCount?: number,
 ): Promise<{
-  taxedCoins: number;
   extraWrite?: { key: string; expectedValue: string | null; nextValue: string; conflictMessage?: string; optional?: boolean };
 }> {
-  // Callers load authoritative player/guild context before processing a roll.
+  // Guild tasks and member contribution are optional projections of a completed roll.
+  // They never withhold Coins or block the authoritative player reward.
   await ensureRedisStringKey(GUILDS_KEY, '[]');
-
   const persistedRaw = await redis.get(GUILDS_KEY);
-  const sourceRaw = pendingWrite ? pendingWrite.nextValue : persistedRaw;
+  const sourceRaw = pendingWrite ? pendingWrite.nextValue : await readRedisLargeValue(GUILDS_KEY, persistedRaw);
   const guilds = parseGuildList(sourceRaw);
   const guild = currentGuild(guilds);
-  if (!guild) {
-    return pendingWrite
-      ? { taxedCoins: 0, extraWrite: { key: GUILDS_KEY, ...pendingWrite } }
-      : { taxedCoins: 0 };
-  }
+  if (!guild) return pendingWrite ? { extraWrite: { key: GUILDS_KEY, ...pendingWrite } } : {};
 
-  const capInteger = (value: number) =>
-    Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0));
-  const safeCoins = capInteger(coinsEarned);
-  const safeValue = capInteger(value);
+  const capInteger = (value: number) => Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0));
+  const safeValue = capGuildValue(value);
   const safeRolls = capInteger(rollCount);
-  let taxedCoins = 0;
-
-  if (safeCoins >= 100) {
-    const rate = Math.max(0, Math.min(10, Math.floor(Number(guild.taxRate ?? 0) || 0)));
-    taxedCoins = Math.min(safeCoins, Math.floor(safeCoins * rate / 100));
-    if (taxedCoins > 0) {
-      const xpMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.guildXpRank ?? 0)) * 0.10;
-      const xpEarned = Math.max(1, Math.floor((taxedCoins / 100) * xpMultiplier));
-      guild.xp = capInteger(guild.xp + xpEarned);
-      guild.level = 1 + Math.floor(guild.xp / 500);
-    }
-  }
-
   if (safeValue > 0) {
     const member = guild.members.find(candidate => memberMatches(candidate));
     if (member) {
-      const xpMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.guildXpRank ?? 0)) * 0.10;
-      const taskBountyMultiplier = 1 + Math.max(
-        0,
-        Math.floor(guild.perks?.taskBountyRank ?? guild.perks?.tokenYieldRank ?? 0),
-      ) * 0.05;
-      const comboDurationMultiplier = 1 + Math.max(
-        0,
-        Math.floor(guild.perks?.comboRank ?? 0),
-      ) * 0.05;
-
-      member.contribution = capInteger(member.contribution + safeValue);
-      guild.xp = capInteger(guild.xp + Math.max(1, Math.floor(Math.max(1, Math.floor(safeValue / 250)) * xpMultiplier)));
-      guild.level = 1 + Math.floor(guild.xp / 500);
-
-      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) {
-        guild.tasks = createInitialGuildTasks(guild.level);
-      }
+      const taskBountyMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.taskBountyRank ?? guild.perks?.tokenYieldRank ?? 0)) * 0.05;
+      const comboDurationMultiplier = 1 + Math.max(0, Math.floor(guild.perks?.comboRank ?? 0)) * 0.05;
+      member.contribution = addGuildValueProgress(member.contribution, safeValue);
+      if (!Array.isArray(guild.tasks) || guild.tasks.length < 3) guild.tasks = createInitialGuildTasks();
       const now = Date.now();
-      const taskProgressValue = safeValue;
-      const taskProgressRolls = safeRolls;
-      const taskProgressRare = (bestRarity ?? 0) >= 100 ? 1 : 0;
-
+      const taskProgressRare = capInteger(rareOrbCount ?? ((bestRarity ?? 0) >= 100 ? 1 : 0));
       for (let i = 0; i < guild.tasks.length; i++) {
         let task = guild.tasks[i];
         if (!task) continue;
-        if (task.type === 'value') task.progress = capInteger(task.progress + taskProgressValue);
-        else if (task.type === 'rolls') task.progress = capInteger(task.progress + taskProgressRolls);
+        if (task.type === 'value') task.progress = addGuildValueProgress(task.progress, safeValue);
+        else if (task.type === 'rolls') task.progress = capInteger(task.progress + safeRolls);
         else if (task.type === 'rare') task.progress = capInteger(task.progress + taskProgressRare);
-
-        // A single Collection Value contribution can satisfy several successive
-        // tiers. Keep carrying every remaining point forward and pay every tier's
-        // Token/XP reward rather than clamping overflow below the next target.
         let completions = 0;
         while (task.progress >= task.target && completions < 1000) {
           completions += 1;
           const completedTier = Math.max(1, Math.floor(Number(task.tier) || 1));
           const overflow = Math.max(0, task.progress - task.target);
           const reward = Math.max(1, Math.floor(task.reward * taskBountyMultiplier));
-          const xpReward = Math.max(1, Math.floor(task.guildXpReward * xpMultiplier));
           guild.tokens = capInteger((guild.tokens ?? 0) + reward);
-          guild.xp = capInteger(guild.xp + xpReward);
-          guild.level = 1 + Math.floor(guild.xp / 500);
           guild.taskCompletions = capInteger((guild.taskCompletions ?? 0) + 1);
           guild.combo = activateGuildComboStack(guild.combo, now, GUILD_COMBO_MAX_TIER, comboDurationMultiplier);
-
-          const replacement = createGuildTask(task.type, completedTier + 1, guild.level);
-          replacement.progress = Math.min(Number.MAX_SAFE_INTEGER, overflow);
+          const replacement = createGuildTask(task.type, completedTier + 1);
+          replacement.progress = task.type === 'value'
+            ? capGuildValue(overflow)
+            : Math.min(Number.MAX_SAFE_INTEGER, overflow);
           guild.tasks[i] = replacement;
           task = replacement;
-
-          if (!guild.chat) guild.chat = [];
-          guild.chat.push({
-            id: `msg-${Date.now()}-task-${completedTier}`,
-            username: 'System',
-            text: `Guild Task completed! Tier ${completedTier} → Tier ${completedTier + 1}. +${reward.toLocaleString()} Guild Tokens and +${xpReward.toLocaleString()} Guild XP.`,
-            timestamp: Date.now(),
-            isSystem: true,
-          });
-          if (guild.chat.length > 50) guild.chat.shift();
         }
       }
-
       const firstTask = guild.tasks[0];
-      guild.challenge = {
-        type: firstTask.type,
-        target: firstTask.target,
-        progress: Math.min(firstTask.target, firstTask.progress),
-        reward: firstTask.reward,
-        label: firstTask.label,
-      };
-      if (guild.boss && !guild.boss.defeated) {
-        const damage = Math.min(Number.MAX_SAFE_INTEGER, Math.round(safeValue + safeRolls * 25));
-        guild.boss.currentHp = Math.max(0, guild.boss.currentHp - damage);
-        if (!guild.boss.contributors) guild.boss.contributors = {};
-        guild.boss.contributors[username()] = capInteger((guild.boss.contributors[username()] ?? 0) + damage);
-        if (guild.boss.currentHp <= 0) {
-          guild.boss.defeated = true;
-          const guildXpReward = Math.max(0, Math.floor(guild.boss.rewardGuildXp ?? 0));
-          guild.xp = capInteger(guild.xp + guildXpReward);
-          guild.level = 1 + Math.floor(guild.xp / 500);
-          if (!guild.chat) guild.chat = [];
-          guild.chat.push({
-            id: `msg-${Date.now()}-boss`,
-            username: 'System',
-            text: `🏆 RAID BOSS SLAIN! ${guild.boss.name} was defeated! +${guildXpReward.toLocaleString()} Guild XP.`,
-            timestamp: Date.now(),
-            isSystem: true,
-          });
-          if (guild.chat.length > 50) guild.chat.shift();
-        }
-      }
+      guild.challenge = { type: firstTask.type, target: firstTask.target, progress: Math.min(firstTask.target, firstTask.progress), reward: firstTask.reward, label: firstTask.label };
     }
   }
-
   return {
-    taxedCoins,
     extraWrite: {
       key: GUILDS_KEY,
-      expectedValue: pendingWrite
-        ? pendingWrite.expectedValue
-        : persistedRaw == null ? null : String(persistedRaw),
+      expectedValue: pendingWrite ? pendingWrite.expectedValue : persistedRaw == null ? null : String(persistedRaw),
       nextValue: JSON.stringify(guilds),
-      conflictMessage: 'Guild data changed before the roll saved. Please retry.',
-      // Without withheld Guild tax, contribution/task progress is a projection.
-      // If another request updates Guild data first, save() can preserve the
-      // valid player roll and skip only this side write rather than rejecting it.
-      ...(taxedCoins === 0 && !pendingWrite ? { optional: true } : {}),
+      conflictMessage: 'Guild task progress changed before it saved. Your roll was still saved.',
+      ...(!pendingWrite ? { optional: true } : {}),
     },
   };
 }
@@ -2237,6 +2216,9 @@ function normalizeRedditPostId(value: unknown): string {
   return /^t3_/i.test(id) ? id : 't3_' + id;
 }
 const GLOBAL_CHAT_MAX_MESSAGES = 100;
+// Keep this single-key JSON projection below RedisAPI/Set's request ceiling,
+// even when external Reddit comments contain characters JSON expands to \\uXXXX.
+const GLOBAL_CHAT_MAX_TEXT_CHARS = 2_000;
 const CHAT_REPORTS_KEY = key('chat-reports:v1');
 const CHAT_REPORT_RESERVATION_PREFIX = key('chat-report-reservation:v1:');
 const CHAT_COOLDOWN_PREFIX = key('chat-cooldown:v1:');
@@ -2295,24 +2277,60 @@ async function isRegisteredFrenzyPost(postId: string): Promise<boolean> {
   return false;
 }
 
+async function isRegisteredOrbSharePost(postId: string): Promise<boolean> {
+  const rawId = String(postId ?? '').trim();
+  const normalizedId = normalizeRedditPostId(rawId);
+  if (!normalizedId) return false;
+  const bareId = normalizedId.replace(/^t3_/i, '');
+  const candidates = [...new Set([rawId, normalizedId, bareId].filter(Boolean))];
+  for (const candidate of candidates) {
+    if (await redis.get('io:shared-orb:post:' + candidate) != null) return true;
+  }
+  return false;
+}
+
 async function resolveGlobalGamePostId(): Promise<string> {
   const saved = normalizeRedditPostId(await redis.get(GLOBAL_GAME_POST_KEY));
-  if (!saved) {
-    throw new Error('Global Chat is disabled because the main Game post was not registered by the official post-creation flow.');
-  }
-  if (await isRegisteredFrenzyPost(saved)) {
-    throw new Error('Global Chat is disabled because the registered Game destination is an invalid Frenzy post. Create a new main Game post.');
+  const savedIsFrenzy = saved ? await isRegisteredFrenzyPost(saved) : false;
+  const savedIsShare = saved ? await isRegisteredOrbSharePost(saved) : false;
+  if (!saved || savedIsFrenzy || savedIsShare) {
+    // Only the trusted admin can repair a stale destination, and the current post
+    // must pass the same validation as the explicit moderator repair endpoint.
+    const username = String(context.username ?? '').trim().replace(/^u\//i, '').toLowerCase();
+    if (username === 'shadow_fen') {
+      try { return (await registerCurrentPostAsGlobalChatDestination()).postId; } catch {
+        // Fall through to the actionable disabled state if current post is not a valid main Game post.
+      }
+    }
+    if (!saved) throw new Error('Global Chat is disabled because the main Game post was not registered by the official post-creation flow.');
+    if (savedIsFrenzy) throw new Error('Global Chat is disabled because the registered Game destination is an invalid Frenzy post. Create a new main Game post.');
+    throw new Error('Global Chat is disabled because the registered Game destination is an invalid shared-Orb post. Create a new main Game post.');
   }
   return saved;
 }
 
-async function requireGlobalChatLauncher(): Promise<string> {
-  const destination = await resolveGlobalGamePostId();
-  const currentPostId = normalizeRedditPostId(String(context.postId ?? '').trim());
-  if (!currentPostId || currentPostId !== destination || await isRegisteredFrenzyPost(currentPostId)) {
-    throw new Error("Global Chat is disabled because you're not in the main Game launcher.");
+/** Repairs a missing/stale registration when the moderator is viewing the real main Game post. */
+export async function registerCurrentPostAsGlobalChatDestination(): Promise<{ postId: string }> {
+  const postId = normalizeRedditPostId(String(context.postId ?? '').trim());
+  if (!postId || postId === 't3_') throw new Error('The current Reddit post ID is unavailable. Open the main Infinity Orbs Game post and retry.');
+  if (await isRegisteredFrenzyPost(postId)) throw new Error('A Frenzy post cannot be registered as the Global Chat destination. Open the main Game post and retry.');
+  if (await isRegisteredOrbSharePost(postId)) throw new Error('A shared-Orb post cannot be registered as the Global Chat destination. Open the main Game post and retry.');
+  const existing = normalizeRedditPostId(await redis.get(GLOBAL_GAME_POST_KEY));
+  if (existing && existing !== postId &&
+      !(await isRegisteredFrenzyPost(existing)) &&
+      !(await isRegisteredOrbSharePost(existing))) {
+    throw new Error('A valid main Game post is already registered. Use the official post-creation flow to replace it.');
   }
-  return destination;
+  await redis.set(GLOBAL_GAME_POST_KEY, postId);
+  return { postId };
+}
+
+async function requireGlobalChatLauncher(): Promise<string> {
+  // Global Chat may be opened from the main Game or a Frenzy web view, and
+  // Devvit's context.postId can vary across embedded entrypoints. The canonical
+  // ID is always server-registered; the current launcher never chooses or
+  // changes the destination. Every public comment is posted to the main Game.
+  return resolveGlobalGamePostId();
 }
 
 export async function getGlobalChatStatus(): Promise<{ enabled: boolean; reason?: string }> {
@@ -2325,6 +2343,34 @@ export async function getGlobalChatStatus(): Promise<{ enabled: boolean; reason?
       reason: error instanceof Error ? error.message : 'Global Chat is unavailable here.',
     };
   }
+}
+
+/** Resolve the commenter identity from the onCommentCreate event payload.
+ *
+ * CommentV2.author is the comment author's username. The top-level author is
+ * normally the same account, but in embedded trigger deliveries it can reflect
+ * the app account; never let that mismatch overwrite the visible commenter.
+ */
+export function resolveGlobalChatCommentAuthor(eventValue: unknown): { username: string; userId?: string } {
+  const event = isRecordValue(eventValue) ? eventValue : {};
+  const comment = isRecordValue(event.comment) ? event.comment : {};
+  const authorValue = event.author;
+  const author = isRecordValue(authorValue) ? authorValue : {};
+  const normalizeName = (value: unknown): string => typeof value === 'string'
+    ? value.trim().replace(/^u\//i, '').trim()
+    : '';
+  const commentName = normalizeName(comment.author ?? comment.authorName);
+  const topLevelName = normalizeName(author.name ?? author.username ?? (typeof authorValue === 'string' ? authorValue : ''));
+  const alternateName = normalizeName(event.authorName);
+  const names = [commentName, alternateName, topLevelName].filter(Boolean);
+  // Prefer a real commenter when trigger metadata disagrees and identifies the
+  // app itself. If every available source says infinity-orbs, keep that author.
+  const username = names.find(name => name.toLowerCase() !== 'infinity-orbs') ?? names[0] ?? '';
+  const authorId = String(author.id ?? '').trim();
+  return {
+    username,
+    ...(authorId && topLevelName.toLowerCase() === username.toLowerCase() ? { userId: authorId } : {}),
+  };
 }
 
 export async function recordGlobalChatComment(input: {
@@ -2346,8 +2392,9 @@ export async function recordGlobalChatComment(input: {
   const bareId = rawId.replace(/^t1_/i, '');
   if (!/^[a-z0-9]+$/i.test(bareId)) return null;
   const id = 't1_' + bareId;
-  const text = String(input.text ?? '').trim();
-  if (!text || text.length > 10_000) return null;
+  const incomingText = String(input.text ?? '').trim();
+  if (!incomingText || incomingText.length > 10_000) return null;
+  const text = incomingText.slice(0, GLOBAL_CHAT_MAX_TEXT_CHARS);
   const userId = String(input.userId ?? '').trim();
   const message: GlobalChatMessage = {
     id,
@@ -2366,7 +2413,9 @@ export async function recordGlobalChatComment(input: {
     let closed = false;
     try {
       const raw = await redis.get(GLOBAL_CHAT_KEY);
-      const messages = parseGlobalChatList(raw).filter(item => /^t1_[a-z0-9]+$/i.test(String(item.id ?? '').trim()));
+      const messages = parseGlobalChatList(raw)
+        .filter(item => /^t1_[a-z0-9]+$/i.test(String(item.id ?? '').trim()))
+        .map(item => ({ ...item, text: item.text.slice(0, GLOBAL_CHAT_MAX_TEXT_CHARS) }));
       const previous = messages.find(item => item.id === id);
       if (previous) {
         await txn.unwatch();
@@ -2376,7 +2425,7 @@ export async function recordGlobalChatComment(input: {
       messages.push(message);
       messages.sort((a, b) => a.timestamp - b.timestamp);
       await txn.multi();
-      await txn.set(GLOBAL_CHAT_KEY, JSON.stringify(messages.slice(-GLOBAL_CHAT_MAX_MESSAGES)));
+      await txn.set(GLOBAL_CHAT_KEY, compressStorageString(JSON.stringify(messages.slice(-GLOBAL_CHAT_MAX_MESSAGES))));
       const committed = await txn.exec();
       closed = true;
       if (committed !== null) return message;
@@ -2405,14 +2454,16 @@ async function purgeChatMessagesForUser(userId: string, targetUsername: string):
     const txn = await redis.watch(GLOBAL_CHAT_KEY);
     const raw = await redis.get(GLOBAL_CHAT_KEY);
     const messages = parseGlobalChatList(raw);
-    const retained = messages.filter(message => {
-      const messageUserId = String(message.userId ?? '').trim();
-      const messageUsername = String(message.username ?? '').trim().replace(/^u\//i, '').toLowerCase();
-      return messageUserId !== userId && messageUsername !== cleanUsername;
-    });
+    const retained = messages
+      .filter(message => {
+        const messageUserId = String(message.userId ?? '').trim();
+        const messageUsername = String(message.username ?? '').trim().replace(/^u\//i, '').toLowerCase();
+        return messageUserId !== userId && messageUsername !== cleanUsername;
+      })
+      .map(message => ({ ...message, text: message.text.slice(0, GLOBAL_CHAT_MAX_TEXT_CHARS) }));
 
     await txn.multi();
-    await txn.set(GLOBAL_CHAT_KEY, JSON.stringify(retained.slice(-GLOBAL_CHAT_MAX_MESSAGES)));
+    await txn.set(GLOBAL_CHAT_KEY, compressStorageString(JSON.stringify(retained.slice(-GLOBAL_CHAT_MAX_MESSAGES))));
     const committed = await txn.exec();
     if (committed !== null) return;
   }
@@ -2706,20 +2757,61 @@ function sortLeaderboard(entries: LeaderboardEntry[], selector: (entry: Leaderbo
     .slice(0, 25);
 }
 
-export async function leaderboards(): Promise<import('../shared/social.js').LeaderboardBoards> {
+function isLeaderboardBoards(value: unknown): value is LeaderboardBoards {
+  if (!isRecordValue(value)) return false;
+  const ids: Array<keyof LeaderboardBoards> = [
+    'collectionValue',
+    'mostRolls',
+    'highestDryStreak',
+    'currentDryStreak',
+    'bestOrb',
+    'mostPlaytime',
+    'chainLength',
+    'highestDepthReached',
+  ];
+  return ids.every(id => Array.isArray(value[id]));
+}
+
+export async function leaderboards(options: { fresh?: boolean } = {}): Promise<LeaderboardBoards> {
+  if (!options.fresh) {
+    let cached: unknown = null;
+    try {
+      cached = parseStoredJson<unknown>(await redis.get(LEADERBOARDS_CACHE_KEY));
+    } catch (error) {
+      // The projection is an optimization only. If the cache is unavailable,
+      // build rankings from the durable player records as before.
+      console.warn('[Leaderboard] Snapshot cache read failed; rebuilding:', error);
+    }
+    if (isLeaderboardBoards(cached)) return cached;
+  }
+  if (leaderboardSnapshotInFlight) return leaderboardSnapshotInFlight;
+
+  const snapshotRequest = buildLeaderboardsSnapshot();
+  leaderboardSnapshotInFlight = snapshotRequest;
+  try {
+    const boards = await snapshotRequest;
+    await redis.set(LEADERBOARDS_CACHE_KEY, compressStorageString(JSON.stringify(boards)), {
+      expiration: new Date(Date.now() + LEADERBOARDS_CACHE_TTL_MS),
+    }).catch(error => {
+      console.error('[Leaderboard] Could not cache the current snapshot:', error);
+    });
+    return boards;
+  } finally {
+    if (leaderboardSnapshotInFlight === snapshotRequest) leaderboardSnapshotInFlight = null;
+  }
+}
+
+async function buildLeaderboardsSnapshot(): Promise<LeaderboardBoards> {
   const rawRegistry = await redis.hGetAll(PLAYER_REGISTRY_KEY);
   const registry = rawRegistry && typeof rawRegistry === 'object'
     ? rawRegistry as Record<string, string>
     : {};
-  const userIds = Object.keys(registry);
-  const saves = userIds.length > 0
-    ? await redis.mGet(userIds.map(id => `player:${id}`))
-    : [];
 
-  const eligible: LeaderboardEntry[] = [];
-  const legacyRaw = await redis.get(key('leaderboard'));
-  // Legacy entries are only a fallback for the read projection. A corrupted
-  // board must not make the entire player-derived leaderboard unavailable.
+  const legacyStoredRaw = await redis.get(key('leaderboard'));
+  const legacyRaw = await readRedisLargeValue(key('leaderboard'), legacyStoredRaw);
+  // The legacy projection is retained as a read-only recovery index. If registry
+  // fields are missing, its user IDs let us rebuild the visible boards from the
+  // durable player saves instead of returning empty leaderboards.
   let legacyBoard: LeaderboardEntry[] = [];
   try {
     legacyBoard = parseLeaderboardList(legacyRaw);
@@ -2731,16 +2823,44 @@ export async function leaderboards(): Promise<import('../shared/social.js').Lead
     if (entry.userId) legacyById.set(entry.userId, entry);
   }
 
+  const userIds = Array.from(new Set([...Object.keys(registry), ...legacyById.keys()]));
+  const [saves, combatSaves] = userIds.length > 0
+    ? await Promise.all([
+      readInBatches(userIds.map(id => `player:${id}`), keys => redis.mGet(keys)),
+      readInBatches(userIds.map(id => `infinity-orbs:combat:${id}`), keys => redis.mGet(keys)),
+    ])
+    : [[], []];
+
+  const decodedPlayerSaves = await Promise.all(userIds.map((userId, index) =>
+    saves[index] == null ? Promise.resolve(null) : readPlayerSaveForUser(userId, String(saves[index])),
+  ));
+
+  const missingRegistryCount = userIds.filter(userId =>
+    !Object.prototype.hasOwnProperty.call(registry, userId),
+  ).length;
+  if (missingRegistryCount > 0) {
+    console.warn(
+      '[Leaderboard] Recovering ' + missingRegistryCount +
+      ' account IDs from the legacy projection because the player registry is missing entries.',
+    );
+  }
+
+  const eligible: LeaderboardEntry[] = [];
   for (let index = 0; index < userIds.length; index += 1) {
     const userId = userIds[index];
     const registryEntry = parseStoredJson<Partial<PlayerRegistryLeaderboardEntry>>(registry[userId]) ?? {};
-    const save = saves[index] ? parseStoredJson<Partial<PlayerState>>(saves[index]) : null;
+    const save = decodedPlayerSaves[index] ? parseStoredJson<Partial<PlayerState>>(decodedPlayerSaves[index]) : null;
     if (!save) continue;
+    const combatSave = combatSaves[index] ? parseStoredJson<unknown>(combatSaves[index]) : null;
+    const legacy = legacyById.get(userId);
 
-    const sharedAt = Number(save.lastShareAt ?? 0) || 0;
+    // Prefer the authoritative save. Older saves lacking lastShareAt may use
+    // the last durable projection value; an explicit zero still means ineligible.
+    const sharedAt = Number(
+      save.lastShareAt ?? legacy?.sharedAt ?? 0,
+    ) || 0;
     if (sharedAt <= 0) continue;
 
-    const legacy = legacyById.get(userId);
     const playtimeMs = Math.max(
       0,
       Number(registryEntry.playtimeMs ?? legacy?.playtimeMs ?? 0) || 0,
@@ -2761,19 +2881,55 @@ export async function leaderboards(): Promise<import('../shared/social.js').Lead
       currentDryStreak: Math.max(0, Number(save.rollsSinceBest ?? 0) || 0),
       playtimeMs,
       chainLength: highestCodexChain(save.collection),
+      bestDepth: Math.max(
+        combatHighestDepthReached(combatSave),
+        Math.max(0, Number(legacy?.bestDepth ?? 0) || 0),
+      ),
       title: legacy?.title,
       guildTag: legacy?.guildTag,
     });
   }
 
+  // Older projections may predate userId/sharedAt fields. They cannot be
+  // joined back to a saved player, but they are still valid display records
+  // for the three original boards and must not make the entire leaderboard blank.
+  const normalizeBoardUsername = (value: unknown): string =>
+    String(value ?? '').trim().replace(/^u\//i, '').toLowerCase();
+  const authoritativeNames = new Set(eligible.map(entry => normalizeBoardUsername(entry.username)));
+  const legacyOnlyEntries: LeaderboardEntry[] = legacyBoard
+    .filter(entry =>
+      !entry.userId &&
+      normalizeBoardUsername(entry.username).length > 0 &&
+      !authoritativeNames.has(normalizeBoardUsername(entry.username)),
+    )
+    .map(entry => ({
+      ...entry,
+      username: String(entry.username).trim().replace(/^u\//i, '').slice(0, 100),
+      value: Math.max(0, Number.isFinite(Number(entry.value)) ? Number(entry.value) : 0),
+      highestRarity: Math.max(0, Number.isFinite(Number(entry.highestRarity)) ? Number(entry.highestRarity) : 0),
+      totalRolls: Math.max(0, Number.isFinite(Number(entry.totalRolls)) ? Number(entry.totalRolls) : 0),
+      // Presence in the legacy shared-orb leaderboard proves historical eligibility.
+      sharedAt: Number(entry.sharedAt) > 0 ? Number(entry.sharedAt) : 1,
+      legacyOnly: true,
+    }));
+  const primaryBoards = [...eligible, ...legacyOnlyEntries];
+  const boardsWithHistoricalMetric = (field: keyof LeaderboardEntry) => [
+    ...eligible,
+    ...legacyOnlyEntries.filter(entry => entry[field] !== undefined),
+  ];
+
   return {
-    collectionValue: sortLeaderboard(eligible, entry => entry.value),
-    mostRolls: sortLeaderboard(eligible, entry => entry.totalRolls),
-    highestDryStreak: sortLeaderboard(eligible, entry => entry.highestDryStreak ?? 0),
-    currentDryStreak: sortLeaderboard(eligible, entry => entry.currentDryStreak ?? 0),
-    bestOrb: sortLeaderboard(eligible, entry => entry.highestRarity),
-    mostPlaytime: sortLeaderboard(eligible, entry => entry.playtimeMs ?? 0),
-    chainLength: sortLeaderboard(eligible, entry => entry.chainLength ?? 0),
+    collectionValue: sortLeaderboard(primaryBoards, entry => entry.value),
+    mostRolls: sortLeaderboard(primaryBoards, entry => entry.totalRolls),
+    highestDryStreak: sortLeaderboard(boardsWithHistoricalMetric('highestDryStreak'), entry => entry.highestDryStreak ?? 0),
+    currentDryStreak: sortLeaderboard(boardsWithHistoricalMetric('currentDryStreak'), entry => entry.currentDryStreak ?? 0),
+    bestOrb: sortLeaderboard(primaryBoards, entry => entry.highestRarity),
+    mostPlaytime: sortLeaderboard(boardsWithHistoricalMetric('playtimeMs'), entry => entry.playtimeMs ?? 0),
+    chainLength: sortLeaderboard(boardsWithHistoricalMetric('chainLength'), entry => entry.chainLength ?? 0),
+    highestDepthReached: sortLeaderboard(
+      boardsWithHistoricalMetric('bestDepth').filter(entry => (entry.bestDepth ?? 0) > 0),
+      entry => entry.bestDepth ?? 0,
+    ),
   };
 }
 
@@ -2791,7 +2947,8 @@ export async function recordLeaderboard(s: PlayerState) {
   const incomingRevision = Math.max(0, Math.floor(Number(s.stateRevision ?? 0)) || 0);
   // Projection tasks run asynchronously. Prefer the newest durable save when
   // an older callback resumes after a later mutation has already committed.
-  const persistedRaw = await redis.get(`player:${userId}`);
+  const persistedStoredRaw = await redis.get(`player:${userId}`);
+  const persistedRaw = await readPlayerSaveForUser(userId, persistedStoredRaw);
   const persisted = parseStoredJson<Partial<PlayerState>>(persistedRaw);
   const persistedRevision = Number(persisted?.stateRevision);
   const source: PlayerState =
@@ -2801,6 +2958,7 @@ export async function recordLeaderboard(s: PlayerState) {
   if (!(source.lastShareAt && Number(source.lastShareAt) > 0)) return;
 
   const leaderboardKey = key('leaderboard');
+  const throttleKey = key('leaderboard:projection-throttle:v1:' + encodeURIComponent(userId));
   const name = username();
   const registry = parseStoredJson<{ playtimeMs?: unknown }>(await redis.hGet(PLAYER_REGISTRY_KEY, userId));
   const next: LeaderboardEntry = {
@@ -2818,27 +2976,71 @@ export async function recordLeaderboard(s: PlayerState) {
   };
 
   for (let attempt = 0; attempt < 6; attempt++) {
-    const txn = await redis.watch(leaderboardKey);
-    const raw = await redis.get(leaderboardKey);
-    const board: LeaderboardEntry[] = parseLeaderboardList(raw);
-    const existing = board.find(existing =>
-      next.userId
-        ? existing.userId === next.userId || (!existing.userId && existing.username === name)
-        : existing.username === name,
-    );
-    if (existing) {
-      const existingRevision = Number(existing.stateRevision);
-      // WATCH protects list writes, not source freshness. An earlier async
-      // projection can finish later, so never replace a newer saved revision.
-      if (!Number.isSafeInteger(existingRevision) || existingRevision <= next.stateRevision!) {
-        Object.assign(existing, next);
+    const txn = await redis.watch(leaderboardKey, throttleKey);
+    let transactionClosed = false;
+    let writeCommitted = false;
+    let storedRaw: string | null = null;
+    let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+    try {
+      if (await redis.get(throttleKey) != null) {
+        await txn.unwatch();
+        transactionClosed = true;
+        return;
       }
-    } else board.push(next);
-    board.sort((a, b) => b.value - a.value);
-    await txn.multi();
-    await txn.set(leaderboardKey, JSON.stringify(board.slice(0, 5000)));
-    const committed = await txn.exec();
-    if (committed !== null) return;
+      storedRaw = await redis.get(leaderboardKey);
+      const raw = await readRedisLargeValue(leaderboardKey, storedRaw);
+      const board: LeaderboardEntry[] = parseLeaderboardList(raw);
+      const existing = board.find(existing =>
+        next.userId
+          ? existing.userId === next.userId || (!existing.userId && existing.username === name)
+          : existing.username === name,
+      );
+      if (existing) {
+        const existingRevision = Number(existing.stateRevision);
+        // A stale or duplicate callback must not rewrite an unchanged large snapshot.
+        if (Number.isSafeInteger(existingRevision) && existingRevision >= next.stateRevision!) {
+          await txn.unwatch();
+          transactionClosed = true;
+          return;
+        }
+        Object.assign(existing, next);
+      } else board.push(next);
+      board.sort((a, b) => b.value - a.value);
+      const compactBoard = board.slice(0, 5000).map(entry => {
+        const usernameValue = String(entry.username ?? '').replace(/^u\//i, '').slice(0, 100);
+        if (entry.userId) {
+          return {
+            username: usernameValue, userId: entry.userId,
+            value: entry.value, highestRarity: entry.highestRarity,
+            totalRolls: entry.totalRolls, level: entry.level,
+            sharedAt: entry.sharedAt, stateRevision: entry.stateRevision,
+            title: entry.title, guildTag: entry.guildTag,
+          };
+        }
+        return {
+          username: usernameValue, value: entry.value,
+          highestRarity: entry.highestRarity, totalRolls: entry.totalRolls,
+          level: entry.level, sharedAt: entry.sharedAt,
+        };
+      });
+      const serialized = JSON.stringify(compactBoard);
+      writePlan = await createRedisLargeValueWritePlan(leaderboardKey, serialized);
+      await txn.multi();
+      await txn.set(leaderboardKey, writePlan.storedValue);
+      await txn.set(throttleKey, String(Date.now()), {
+        expiration: new Date(Date.now() + LEADERBOARD_PROJECTION_INTERVAL_MS),
+      });
+      const committed = await txn.exec();
+      transactionClosed = true;
+      if (committed !== null) {
+        writeCommitted = true;
+        await retireRedisLargeValue(leaderboardKey, storedRaw);
+        return;
+      }
+    } finally {
+      if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+      if (writePlan && !writeCommitted) await discardRedisLargeValueWritePlan(writePlan);
+    }
   }
   throw new Error('Leaderboard changed while recording the result. Please retry.');
 }
@@ -3012,7 +3214,8 @@ export async function claimAchievement(_s: PlayerState, id: string) {
 
   for (let attempt = 0; attempt < 6; attempt++) {
     const txn = await redis.watch(playerKey, generationKey);
-    const raw = await redis.get(playerKey);
+    const storedRaw = await redis.get(playerKey);
+    const raw = await readPlayerSaveForUser(user(), storedRaw);
     const generationRaw = await redis.get(generationKey);
     const state = parseStoredJson<PlayerState>(raw);
     const generation = Math.max(0, Number.parseInt(String(generationRaw ?? '0'), 10) || 0);
@@ -3055,25 +3258,34 @@ export async function claimAchievement(_s: PlayerState, id: string) {
       throw new Error('Achievement Coin reward is invalid.');
     }
 
-    const currentCoins = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(state.coins)));
-    const requestedGain = Math.min(Number.MAX_SAFE_INTEGER, achievement.rewardCoins);
-    const rewardCoins = Math.min(requestedGain, Number.MAX_SAFE_INTEGER - currentCoins);
-    const lifetimeCoins = Math.min(
-      Number.MAX_SAFE_INTEGER,
-      Math.max(0, Math.floor(state.lifetimeCoins ?? currentCoins)),
-    );
+    const currentCoins = normalizeCoinAmount(state.coins);
+    const requestedGain = normalizeCoinAmount(achievement.rewardCoins);
+    const rewardCoins = Math.min(requestedGain, Number.MAX_VALUE - currentCoins);
+    const lifetimeCoins = normalizeCoinAmount(state.lifetimeCoins ?? currentCoins);
 
     state.claimedAchievements.push(id);
     state.stateRevision = Math.max(0, Math.floor(Number(state.stateRevision ?? 0)) || 0) + 1;
-    state.coins = currentCoins + rewardCoins;
-    state.lifetimeCoins = Math.min(Number.MAX_SAFE_INTEGER, lifetimeCoins + rewardCoins);
+    state.coins = addCoinAmount(currentCoins, rewardCoins);
+    state.lifetimeCoins = addCoinAmount(lifetimeCoins, rewardCoins);
     const rewardShards = grantFreeShards(state, achievement.rewardShards ?? 0);
 
-    await txn.multi();
-    await txn.set(playerKey, JSON.stringify(state));
-    const committed = await txn.exec();
-    if (committed !== null) {
-      return { state, rewardCoins, rewardShards };
+    let writePlan: Awaited<ReturnType<typeof createPlayerSaveWritePlanForUser>> | null = null;
+    let transactionClosed = false;
+    let writeCommitted = false;
+    try {
+      writePlan = await createPlayerSaveWritePlanForUser(user(), state);
+      await txn.multi();
+      await txn.set(playerKey, writePlan.storedValue);
+      const committed = await txn.exec();
+      transactionClosed = true;
+      if (committed !== null) {
+        writeCommitted = true;
+        await cleanupPreviousPlayerSave(user(), storedRaw);
+        return { state, rewardCoins, rewardShards };
+      }
+    } finally {
+      if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+      if (writePlan && !writeCommitted) await discardPlayerSaveWritePlan(writePlan);
     }
   }
 

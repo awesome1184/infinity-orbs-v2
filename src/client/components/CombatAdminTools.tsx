@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, Coins, Gem, Gauge, HeartPulse, RefreshCw, Shield, Sparkles, Sword, Zap } from 'lucide-react';
-import { COMBAT_MAJOR_ABILITY_IDS, type CombatGearSlot, type CombatRuneRarity, type CombatRuneStat, type CombatSnapshot } from '../../shared/combat.js';
+import { COMBAT_MAJOR_ABILITY_IDS, COMBAT_RUNE_RARITIES, type CombatGearSlot, type CombatRuneRarity, type CombatRuneStat, type CombatSnapshot } from '../../shared/combat.js';
 
 type Projection={depth:number;damage:number;speed:number;maxHealth:number;maxOrbCritDamage:number;enemyHp:number;enemyDamage:number;enemySpeed:number};
 type LabResponse=CombatSnapshot&{
@@ -9,7 +9,7 @@ type LabResponse=CombatSnapshot&{
   balance?:{generatedAt:number;rarityOdds:Record<string,number>;statBudgets:Record<string,number>;projections:Projection[];checks:Array<{label:string;passed:boolean;detail:string}>};
 };
 const slots:CombatGearSlot[]=['weapon','helmet','armor','gloves','boots','ring','amulet'];
-const runeRarities:CombatRuneRarity[]=['Common','Uncommon','Rare','Epic','Legendary','Mythic','Cosmic'];
+const runeRarities:CombatRuneRarity[]=COMBAT_RUNE_RARITIES;
 const runeStats:CombatRuneStat[]=['luckPct','coinGainPct','shardChancePct','xpGainPct'];
 const runeMajorAbilityIds=['fateweaver','midas-engine','memory-well'] as const;
 const fmt=(v:unknown)=>Number(v||0).toLocaleString(undefined,{maximumFractionDigits:0});
@@ -28,7 +28,7 @@ export const CombatAdminTools:React.FC=()=>{
   const [lastActions,setLastActions]=useState<Array<{actor:string;kind:string;text:string}>>([]);
   const [depth,setDepth]=useState('1000'),[scrap,setScrap]=useState('100000'),[marks,setMarks]=useState('100000');
   const [slot,setSlot]=useState<CombatGearSlot>('weapon'),[quality,setQuality]=useState('90'),[gearAbility,setGearAbility]=useState('none');
-  const [runeRarity,setRuneRarity]=useState<CombatRuneRarity>('Cosmic'),[runeStat,setRuneStat]=useState<CombatRuneStat>('luckPct'),[runeAbility,setRuneAbility]=useState('none');
+  const [runeRarity,setRuneRarity]=useState<CombatRuneRarity>('Transcendent'),[runeStat,setRuneStat]=useState<CombatRuneStat>('luckPct'),[runeAbility,setRuneAbility]=useState('none');
   const refresh=useCallback(async(showNotice=false)=>{
     try{const result=await request<LabResponse>('/api/dev/combat-lab/state');setData(result);setError('');if(showNotice)setNotice('Combat snapshot and diagnostics refreshed.');}
     catch(e){setError(e instanceof Error?e.message:'Could not load Combat Lab.');}

@@ -11,7 +11,6 @@ import {
   rollContinuum,
   calculatePrestigeDust,
   calculateCosmicDust,
-  MAX_COSMIC_DUST,
   aftershockCriticalLuckBonus,
   unbrokenMomentumSpeedBonus,
   recordRollingSessionActivity,
@@ -20,10 +19,20 @@ import {
   altarCoinFloor,
   calculateAltarMultipliers,
   cooldownMs,
+  cooldownReclaimerEnergyPerActivationMs,
+  constellationAtlasDiscoveredRarities,
+  constellationAtlasMilestonesUnlocked,
   critMultiplier,
   effectiveOfflineTickMs,
   upgradeCost,
   createInitialGlobalBoosters,
+  GLOBAL_BOOSTERS,
+  PREMIUM_BOOSTERS,
+  AUTOMATIONS,
+  SHARD_SYNTHESIS_COST,
+  ROLL_SHARD_PROC_CHANCE_CAP,
+  formatShardAmount,
+  roundShardAmount,
   activateGlobalBoosterStack,
   decayGlobalBoosterState,
   createInitialGuildCombo,
@@ -41,12 +50,18 @@ import {
   GUILD_COMBO_MAX_TIER,
   grantFreeShards,
   grantRollShards,
+  resolveShardPityReward,
+  SHARD_PITY_ROLLS_TO_REWARD,
+  SHARD_PITY_REWARD,
+  SHARD_PROC_REWARD,
   spendShards,
-  FREE_SHARD_DAILY_CAP,
   onlinePlayerLuckMultiplier,
   luckMultiplier,
+  luckRarityFactor,
   frenzyClaimCountForRarity,
   frenzyOrbCountForRarity,
+  FRENZY_OWNER_SHARD_REWARD,
+  grantFrenzyOwnerShards,
   FRENZY_LOG_BASE,
   bestCodexChain,
   nextCodexChainRarity,
@@ -54,6 +69,7 @@ import {
   CHAIN_PATCHER_COOLDOWN_MS,
   applyLevelProgress,
   xpRequiredForLevel,
+  visibleContinuumTiers,
 } from '../src/shared/game.js';
 import {
   createGuildTask,
@@ -63,10 +79,81 @@ import {
 const NOW = 1_800_000_000_000;
 
 
+test('Continuum keeps high rarity multipliers precise by applying them before flooring', () => {
+  // Both samples floor to 4 without a multiplier. Scaling that integer loses
+  // the distinction; scaling the continuous samples first preserves it.
+  assert.equal(rollContinuum(1, () => 0.25), 4);
+  assert.equal(rollContinuum(1, () => 0.2499999), 4);
+  assert.equal(rollContinuum(1, () => 0.25, 1_000_000), 4_000_000);
+  assert.equal(rollContinuum(1, () => 0.2499999, 1_000_000), 4_000_001);
+
+  // The minimum rarity floor must participate in the same final calculation.
+  assert.equal(rollContinuum(1, () => 0.5, 10, 40), 40);
+  assert.equal(rollContinuum(1, () => 0.25, Number.MAX_VALUE), Number.POSITIVE_INFINITY);
+});
+
+test('extreme Luck scales rarity without a hard cap', () => {
+  const luck = 5.302749637842076e21;
+  const scale = Math.sqrt(luck);
+
+  assert.equal(luckRarityFactor(1), 1);
+  assert.equal(luckRarityFactor(25), 5);
+  assert.equal(luckRarityFactor(luck), scale);
+  assert.ok(scale > 70_000_000_000);
+  assert.equal(luckRarityFactor(Number.MAX_VALUE), Math.sqrt(Number.MAX_VALUE));
+
+  // With u = 0.5, this is exactly 2 × sqrt(Luck) at Level 1.
+  assert.equal(
+    rollContinuum(luck, () => 0.5, 1, 2, 1),
+    Math.floor(2 * scale),
+  );
+  assert.ok(rollContinuum(luck, () => 0.5, 1, 2, 1) > 100_000_000_000);
+});
+
+test('Frenzy poster reward is 100 Shards per successful claim', () => {
+  assert.equal(FRENZY_OWNER_SHARD_REWARD, 100);
+  const state = createInitialState(NOW);
+  const shardsBefore = state.shards;
+  assert.equal(grantFrenzyOwnerShards(state), 100);
+  assert.equal(state.shards, shardsBefore + 100);
+});
+
+test('player level scales rarity linearly without folding its base bonus into Luck', () => {
+  assert.equal(rollContinuum(1, () => 0.25, 1, 2, 1), 4);
+  assert.equal(rollContinuum(1, () => 0.25, 1, 2, 10), 40);
+  assert.equal(rollContinuum(1, () => 0.25, 1, 2, 100), 400);
+  assert.equal(rollContinuum(1, () => 0.25, 2, 2, 10), 80);
+
+  const state = createInitialState(NOW);
+  state.dailyStreakCommunity = undefined;
+  state.level = 2;
+  assert.equal(luckMultiplier(state), 1, 'the automatic +1% per-level base is now represented by rarity scaling');
+});
+
+test('rarity tiers unlock in stages and the nine new tiers use 100x threshold jumps', () => {
+  assert.equal(visibleContinuumTiers(999_999).length, 9);
+  assert.equal(visibleContinuumTiers(1_000_000).length, 18);
+  assert.equal(visibleContinuumTiers(1e15 - 1).length, 18);
+
+  const expanded = visibleContinuumTiers(1e15);
+  assert.equal(expanded.length, 27);
+  assert.equal(expanded[18].minRarity, 1e19);
+  assert.deepEqual(expanded.slice(18).map(tier => tier.minRarity), [
+    1e19, 1e21, 1e23, 1e25, 1e27, 1e29, 1e31, 1e33, 1e35,
+  ]);
+  for (let i = 19; i < expanded.length; i += 1) {
+    assert.ok(Math.abs(expanded[i].minRarity / expanded[i - 1].minRarity - 100) < 1e-10);
+  }
+});
+
 test('the finite rarity ceiling stays numeric while over-cap rolls display as Infinity', () => {
   assert.equal(MAX_ORB_RARITY, Number.MAX_VALUE);
   assert.equal(rollContinuum(1, () => Number.MIN_VALUE), Number.POSITIVE_INFINITY);
-  assert.equal(getOrbTier(MAX_ORB_RARITY), 'Endless');
+  assert.equal(getOrbTier(MAX_ORB_RARITY), 'Omega');
+  assert.equal(getOrbTier(1e17), 'Endless');
+  assert.equal(getOrbTier(1e19), 'Empyrean');
+  assert.equal(getOrbTier(1e21), 'Hyperversal');
+  assert.equal(getOrbTier(1e35), 'Omega');
   assert.equal(formatRarity(MAX_ORB_RARITY), '1.797693e308');
   assert.equal(formatRarity(Number.POSITIVE_INFINITY), 'Infinity');
   assert.equal(formatRarity(MAX_ORB_RARITY, true), 'Infinity');
@@ -81,26 +168,27 @@ test('Chain Patcher chooses the lowest adjacent rarity and prices 1/900 at 10 Sh
 
   assert.equal(bestCodexChain(collection).length, 898);
   assert.equal(nextCodexChainRarity(collection), 900);
-  assert.equal(chainPatcherShardCost(900), 10);
-  assert.equal(chainPatcherShardCost(999), 10);
-  assert.equal(chainPatcherShardCost(1_000), 11);
+  assert.equal(chainPatcherShardCost(900), 100);
+  assert.equal(chainPatcherShardCost(999), 100);
+  assert.equal(chainPatcherShardCost(1_000), 110);
   assert.equal(nextCodexChainRarity({}), 2);
-  assert.equal(chainPatcherShardCost(2), 1);
+  assert.equal(chainPatcherShardCost(2), 10);
   assert.equal(CHAIN_PATCHER_COOLDOWN_MS, 24 * 60 * 60 * 1_000);
 });
 
-test('Chain Patcher extends the cheapest edge of the longest Codex chain', () => {
+test('Chain Patcher advances from the upper end of the longest Codex chain', () => {
   const collection: Record<string, number> = {};
   for (let rarity = 900; rarity <= 905; rarity += 1) collection[String(rarity)] = 1;
   assert.equal(bestCodexChain(collection).length, 6);
-  assert.equal(nextCodexChainRarity(collection), 899);
+  assert.equal(nextCodexChainRarity(collection), 906);
 });
 
-test('collection value accumulation saturates instead of losing precision or becoming non-finite', () => {
-  const max = Number.MAX_SAFE_INTEGER;
-  assert.equal(addCollectionValue(max - 2, 10), max);
-  assert.equal(addCollectionValue(max + 10, 1), max);
-  assert.equal(addCollectionValue(100, Number.POSITIVE_INFINITY), max);
+test('collection value accumulation uses the full finite Number range without overflowing', () => {
+  const safeIntegerCeiling = Number.MAX_SAFE_INTEGER;
+  assert.ok(addCollectionValue(safeIntegerCeiling - 2, 10) > safeIntegerCeiling);
+  assert.ok(addCollectionValue(safeIntegerCeiling, 1e100) > safeIntegerCeiling);
+  assert.equal(addCollectionValue(Number.MAX_VALUE, Number.MAX_VALUE), Number.MAX_VALUE);
+  assert.equal(addCollectionValue(100, Number.POSITIVE_INFINITY), Number.MAX_VALUE);
   assert.equal(addCollectionValue(-1, 25), 25);
   assert.equal(addCollectionValue(Number.NaN, 25), 25);
   assert.equal(addCollectionValue(25, Number.NaN), 25);
@@ -117,15 +205,20 @@ test('Prestige Dust has a million-value minimum step and logarithmic diminishing
   assert.equal(calculatePrestigeDust(300_000_000), 58);
 });
 
-test('Cosmic Dust earnings never exceed the 50-Dust wallet cap', () => {
+test('Cosmic Dust earnings are not capped at 50 and respect only the safe-integer storage boundary', () => {
   const state=createInitialState();
   state.collectionValue=300_000_000;
-  assert.equal(MAX_COSMIC_DUST,50);
-  assert.equal(calculateCosmicDust(state),50);
+  assert.equal(calculateCosmicDust(state),58);
   state.cosmicDust=49;
-  assert.equal(calculateCosmicDust(state),1,'only remaining capacity can be earned');
+  assert.equal(calculateCosmicDust(state),58,'existing Dust does not reduce prestige earnings');
   state.cosmicDust=50;
-  assert.equal(calculateCosmicDust(state),0,'prestige should not consume a run without any Dust reward');
+  assert.equal(calculateCosmicDust(state),58,'the old 50-Dust ceiling no longer applies');
+  state.cosmicDust=1_000;
+  assert.equal(calculateCosmicDust(state),58,'balances well above 50 can continue earning Dust');
+  state.cosmicDust=Number.MAX_SAFE_INTEGER-10;
+  assert.equal(calculateCosmicDust(state),10,'new earnings cannot overflow the safe-integer save format');
+  state.cosmicDust=Number.MAX_SAFE_INTEGER;
+  assert.equal(calculateCosmicDust(state),0,'a full safe-integer balance cannot overflow');
 });
 
 test('Aftershock turns the best record-breaking dry interval into permanent Critical Luck', () => {
@@ -213,6 +306,16 @@ test('Cosmic Reserve multiplies Luck from unspent Cosmic Dust only', () => {
   state.cosmicDust = 100;
   state.prestigeUpgrades.cosmicReserve = 0;
   assert.equal(luckMultiplier(state), withoutReserve);
+});
+
+test('repeatable core-game upgrades cost 15% more while capped upgrades keep their original curve', () => {
+  assert.equal(upgradeCost('luck', 0), 86);
+  assert.equal(upgradeCost('luck', 1), 133);
+  assert.equal(upgradeCost('multi', 0), 138);
+  assert.equal(upgradeCost('speed', 0), 45, 'capped Roll Speed keeps its original cost curve');
+  assert.equal(upgradeCost('offlineRate', 0), 90, 'capped Offline Generation Speed keeps its original cost curve');
+  assert.equal(upgradeCost('speed', 20), Infinity);
+  assert.equal(upgradeCost('offlineRate', 8), Infinity);
 });
 
 test('Offline Generation Speed reaches its 60% reduction cap at level 8', () => {
@@ -389,7 +492,7 @@ test('Guild Combo advances beyond tier 10 and remains bounded by the configured 
 });
 
 test('Guild task set starts with one task of each type', () => {
-  const tasks = createInitialGuildTasks(1);
+  const tasks = createInitialGuildTasks();
 
   assert.equal(tasks.length, 3);
   assert.deepEqual(tasks.map(task => task.type).sort(), ['rare', 'rolls', 'value']);
@@ -398,37 +501,35 @@ test('Guild task set starts with one task of each type', () => {
     assert.equal(task.progress, 0);
     assert.ok(task.target > 0);
     assert.ok(task.reward > 0);
-    assert.ok(task.guildXpReward > 0);
   }
 });
 
 test('Guild task difficulty and rewards scale upward by tier', () => {
   for (const type of ['rolls', 'value', 'rare'] as const) {
-    const tier1 = createGuildTask(type, 1, 1);
-    const tier2 = createGuildTask(type, 2, 1);
-    const tier5 = createGuildTask(type, 5, 1);
+    const tier1 = createGuildTask(type, 1);
+    const tier2 = createGuildTask(type, 2);
+    const tier5 = createGuildTask(type, 5);
 
     assert.ok(tier2.target > tier1.target, `${type}: tier 2 target should exceed tier 1`);
     assert.ok(tier5.target > tier2.target, `${type}: tier 5 target should exceed tier 2`);
     assert.ok(tier2.reward > tier1.reward, `${type}: tier 2 token reward should exceed tier 1`);
     assert.ok(tier5.reward > tier2.reward, `${type}: tier 5 token reward should exceed tier 2`);
-    assert.ok(tier2.guildXpReward > tier1.guildXpReward, `${type}: tier 2 XP reward should exceed tier 1`);
   }
 });
 
-test('Guild task targets scale with Guild level', () => {
-  const level1 = createGuildTask('rolls', 4, 1);
-  const level25 = createGuildTask('rolls', 4, 25);
-
-  assert.ok(level25.target > level1.target);
-  assert.equal(level25.tier, level1.tier);
+test('Guild task difficulty is driven by tier alone and does not carry Guild XP', () => {
+  const task = createGuildTask('rolls', 4);
+  assert.equal(task.tier, 4);
+  assert.ok(task.target > createGuildTask('rolls', 1).target);
+  assert.ok(task.reward > createGuildTask('rolls', 1).reward);
+  assert.equal('guildXpReward' in task, false);
 });
 
 test('Guild task rewards remain capped', () => {
-  const extreme = createGuildTask('rolls', 10_000, 10_000);
+  const extreme = createGuildTask('rolls', 10_000);
 
   assert.ok(extreme.reward <= 25_000);
-  assert.ok(extreme.guildXpReward <= 10_000);
+  assert.equal('guildXpReward' in extreme, false);
 });
 
 test('Cosmic Reserve multiplies Luck by unspent Cosmic Dust at 1% per Dust per upgrade level', () => {
@@ -456,21 +557,36 @@ test('Offline Generation Speed cannot be purchased past its 60% hard cap', () =>
   assert.equal(upgradeCost('offlineRate', 8), Infinity);
 });
 
-test('roll Shards respect the hard 50-per-day cap while free reward Shards bypass it', () => {
+test('roll Shards are uncapped, whole-number only, and tracked without rounding errors', () => {
   const state = createInitialState(NOW);
   state.lastFreeShardReset = new Date(NOW).toISOString().slice(0, 10);
-  state.freeShardsEarnedToday = 49;
+  state.freeShardsEarnedToday = 49.75;
   state.shards = 0;
   state.lifetimeShards = 0;
 
-  assert.equal(grantRollShards(state, 10, NOW), 1);
+  assert.equal(grantRollShards(state, 1, NOW), 1);
   assert.equal(state.shards, 1);
   assert.equal(state.freeShardsEarnedToday, 50);
-  assert.equal(grantRollShards(state, 10, NOW), 0);
+  assert.equal(grantRollShards(state, 60, NOW), 60);
+  assert.equal(state.shards, 61);
+  assert.equal(state.freeShardsEarnedToday, 110);
 
-  assert.equal(grantFreeShards(state, 10, NOW), 10);
-  assert.equal(state.shards, 11);
-  assert.equal(state.freeShardsEarnedToday, 50);
+  assert.equal(grantFreeShards(state, 5, NOW), 5);
+  assert.equal(state.shards, 66);
+  assert.equal(state.freeShardsEarnedToday, 110);
+  assert.equal(state.lifetimeShards, 66);
+});
+
+test('whole-number Shard sinks discard legacy fractional remainders and preserve purchased provenance', () => {
+  const state = createInitialState(NOW);
+  state.shards = 250.75;
+  state.purchasedShards = 100;
+  state.purchasedShardLots = { orderA: 100 };
+
+  assert.equal(spendShards(state, 250), 250);
+  assert.equal(state.shards, 0);
+  assert.equal(state.purchasedShards, 0);
+  assert.deepEqual(state.purchasedShardLots, {});
 });
 
 test('invalid Shard spend amounts are rejected before touching wallet state', () => {
@@ -503,20 +619,31 @@ test("Shard reward paths do not overflow the persisted balance's safe integer ra
   assert.equal(state.lifetimeShards, Number.MAX_SAFE_INTEGER);
 });
 
-test('malformed daily Shard counter fails closed without producing NaN', () => {
+test('malformed Shard telemetry is repaired without suppressing whole-number rewards', () => {
   const state = createInitialState(NOW);
   state.lastFreeShardReset = new Date(NOW).toISOString().slice(0, 10);
   state.freeShardsEarnedToday = 'broken' as unknown as number;
   state.shards = 0;
   state.lifetimeShards = 'broken' as unknown as number;
 
-  assert.equal(grantRollShards(state, 7, NOW), 0);
-  assert.equal(state.freeShardsEarnedToday, FREE_SHARD_DAILY_CAP);
-  assert.equal(state.shards, 0);
-  assert.equal(Number.isFinite(state.lifetimeShards), true);
+  assert.equal(grantRollShards(state, 1, NOW), 1);
+  assert.equal(state.freeShardsEarnedToday, 1);
+  assert.equal(state.shards, 1);
+  assert.equal(state.lifetimeShards, 1);
 });
 
-test('non-finite roll Shard request grants zero while preserving a valid budget', () => {
+test('Shard pity is removed: misses pay nothing and successful procs pay one whole Shard', () => {
+  const state = createInitialState(NOW);
+  assert.equal(SHARD_PITY_ROLLS_TO_REWARD, 0);
+  assert.equal(SHARD_PITY_REWARD, 0);
+  state.shardPityRolls = 100;
+  assert.equal(resolveShardPityReward(state, false), 0);
+  assert.equal(state.shardPityRolls, 0);
+  assert.equal(resolveShardPityReward(state, true), SHARD_PROC_REWARD);
+  assert.equal(state.shardPityRolls, 0);
+});
+
+test('non-finite roll Shard requests grant zero while preserving reporting telemetry', () => {
   const state = createInitialState(NOW);
   state.lastFreeShardReset = new Date(NOW).toISOString().slice(0, 10);
   state.freeShardsEarnedToday = 12;
@@ -530,12 +657,13 @@ test('non-finite roll Shard request grants zero while preserving a valid budget'
   assert.equal(state.lifetimeShards, 20);
 });
 
-test('Orb Frenzy batch size follows logarithmic rarity scaling', () => {
+test('Orb Frenzy batch size follows the strengthened logarithmic rarity scaling', () => {
   assert.equal(frenzyOrbCountForRarity(1), 1);
   assert.equal(frenzyOrbCountForRarity(2), Math.floor(Math.log(2) / Math.log(FRENZY_LOG_BASE)));
   assert.ok(frenzyOrbCountForRarity(1_000) > frenzyOrbCountForRarity(100));
   assert.ok(frenzyOrbCountForRarity(1_000_000) < 1_000_000);
-  assert.ok(frenzyOrbCountForRarity(1e15) < 1_000);
+  assert.equal(frenzyOrbCountForRarity(1e15), Math.floor(Math.log(1e15) / Math.log(FRENZY_LOG_BASE)));
+  assert.ok(frenzyOrbCountForRarity(1e15) > 1_000);
 });
 
 test('Codex Devotion reports the best consecutive rarity chain', () => {
@@ -573,13 +701,25 @@ test('Astral Reserve adds exactly 2% Luck per level', () => {
   assert.equal(luckMultiplier(state), 1.10);
 });
 
-test('Frenzy Volley counts each additional multiball at 20% efficiency', () => {
+test('Frenzy Volley adds 20% on top of the full Multiball payout', () => {
   const base = frenzyOrbCountForRarity(100);
   assert.equal(frenzyClaimCountForRarity(100, 1, 0), base);
-  assert.equal(frenzyClaimCountForRarity(100, 2, 1), Math.floor(base * 1.20));
-  assert.equal(frenzyClaimCountForRarity(100, 3, 1), Math.floor(base * 1.40));
+  assert.equal(frenzyClaimCountForRarity(100, 2, 0), base * 2);
+  assert.equal(frenzyClaimCountForRarity(100, 2, 1), Math.floor(base * 2 * 1.20));
+  assert.equal(frenzyClaimCountForRarity(100, 3, 1), Math.floor(base * 3 * 1.20));
 });
 
+
+test('Shard sinks are pricier, whole-number values are formatted, and Global Booster costs ignore tier', () => {
+  assert.deepEqual(Object.values(GLOBAL_BOOSTERS).map(booster => booster.costShards), [250, 250, 250]);
+  assert.equal(PREMIUM_BOOSTERS.barrage.costShards, 1_000);
+  assert.equal(AUTOMATIONS.autoUpgrade.costShards, 15_000);
+  assert.equal(SHARD_SYNTHESIS_COST, 100);
+  assert.equal(chainPatcherShardCost(900), 100);
+  assert.equal(formatShardAmount(0.005), '0');
+  assert.equal(formatShardAmount(3.125), '3');
+  assert.equal(roundShardAmount(1.23456), 1);
+});
 
 test('Global Booster bar preserves the real tier of its latest four activation segments', () => {
   let booster = createInitialGlobalBoosters(NOW).luck;
@@ -625,4 +765,40 @@ test('Unbroken Momentum uses the requested logarithmic Speed curve', () => {
     '72 hours should grant approximately 25% permanent Speed');
   assert.equal(unbrokenMomentumSpeedBonus(1000 * hour), 0.30,
     'long sessions should respect the 30% cap');
+});
+
+
+test('primary roll Shard proc chance has a strict 0.25% per-Orb ceiling', () => {
+  assert.equal(ROLL_SHARD_PROC_CHANCE_CAP, 0.0025);
+});
+
+test('Guild tasks retain token rewards but do not model Titan or Guild XP rewards', () => {
+  const tasks = createInitialGuildTasks();
+  assert.equal(tasks.length, 3);
+  assert.ok(tasks.every(task => task.reward > 0));
+  assert.ok(tasks.every(task => !('guildXpReward' in task)));
+  assert.ok(tasks.every(task => !('bossDamage' in task)));
+});
+
+
+test('Constellation Atlas rewards breadth across distinct owned rarity values', () => {
+  const collection = { '2': 1, '3': 4, '7': 1, '10': 0, 'Infinity': 1 };
+  assert.equal(constellationAtlasDiscoveredRarities(collection), 4);
+  assert.equal(constellationAtlasMilestonesUnlocked(3, collection), 0);
+  assert.equal(constellationAtlasMilestonesUnlocked(4, collection), 0);
+  const broader = { ...collection, '12': 1, '14': 1 };
+  assert.equal(constellationAtlasMilestonesUnlocked(2, broader), 1);
+});
+
+test('Cooldown Reclaimer banks only theoretical cooldown below the live floor', () => {
+  const state = createInitialState(NOW);
+  state.masterySkills!.cooldownReclaimer = 1;
+  assert.equal(cooldownReclaimerEnergyPerActivationMs(state), 0);
+  state.upgrades.speed = 20;
+  state.masterySkills!.chronoFlow = 20;
+  state.prestigeUpgrades.permSpeed = 10;
+  state.prestigeUpgrades.steadyHands = 10;
+  state.prestigeUpgrades.temporalCompression = 20;
+  state.dailyStreakCommunity = { ...state.dailyStreakCommunity!, speedMultiplier: 0.05 };
+  assert.ok(cooldownReclaimerEnergyPerActivationMs(state) > 0);
 });
