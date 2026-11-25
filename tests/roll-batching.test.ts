@@ -178,7 +178,7 @@ test('server uses weighted sample counts for Luck, player totals, XP, Coins, and
   assert.match(apply, /const isCompressedGroup = sampleWeight > 1/);
   assert.match(apply, /source === 'offline'[\s\S]{0,100}MAX_SIMULATED_OFFLINE_ROLLS_PER_BATCH/);
   assert.match(apply, /forcedRarity == null,[\s\S]{0,100}maxSimulatedRolls/);
-  assert.match(apply, /rollContinuum\(\s*sampleLuck,\s*rng,\s*runeLuckMultiplier,\s*runeRarityFloor/);
+  assert.match(apply, /rollContinuum\(\s*sampleLuck,\s*rarityRng,\s*runeLuckMultiplier,\s*runeRarityFloor/);
   assert.match(apply, /runeLuckMultiplier \* criticalMultiplier/);
   assert.match(apply, /runeLuckMultiplier \* supernovaMultiplier/);
   assert.match(apply, /const criticalTailWeight = normalCriticalGroupCount \* criticalMultiplier/);
