@@ -16,6 +16,8 @@ import {
 test('Rift Relic levels are bounded and equipped loadouts contain only owned relics', () => {
   const levels = normalizeRiftRelicLevels({
     'clock-without-hands': 99,
+    'temporal-arbitrage': 1,
+    'unlucky-star': 1,
     observer: -2,
     'loaded-die': 2.8,
     'rift-tithe': '3',
@@ -90,8 +92,10 @@ test('Relic crafting costs both currencies and increases each rank', () => {
 test('Observer Luck scales logarithmically toward the challenge objective', () => {
   const target = 1_000_000;
   assert.equal(riftObserverLuckMultiplier(1_000, target, 3), 1);
-  assert.ok(Math.abs(riftObserverLuckMultiplier(target ** 0.9, target, 3) - 2) < 1e-10);
-  assert.ok(Math.abs(riftObserverLuckMultiplier(target ** 0.99, target, 3) - 5) < 1e-10);
+  const rarityAt90 = 2 * Math.pow(target / 2, 0.9);
+  const rarityAt99 = 2 * Math.pow(target / 2, 0.99);
+  assert.ok(Math.abs(riftObserverLuckMultiplier(rarityAt90, target, 3) - 2) < 1e-10);
+  assert.ok(Math.abs(riftObserverLuckMultiplier(rarityAt99, target, 3) - 5) < 1e-10);
 });
 
 test('Clock Without Hands and Stillness Engine reduce the remaining Temporal Drag penalty multiplicatively', () => {
