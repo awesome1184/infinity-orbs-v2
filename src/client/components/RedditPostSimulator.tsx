@@ -54,6 +54,7 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
     const entryFile = post.entry === 'rift' ? 'rift.html' : 'frenzy.html';
     const url = new URL(entryFile, window.location.href);
     url.searchParams.set('previewPostId', post.postId);
+    if (post.entry === 'rift') url.searchParams.set('player', 'RiftPostSimulatorViewer');
     return url.toString();
   }, [post?.postId, post?.entry]);
 
