@@ -463,6 +463,15 @@ export async function adminGrantRiftProgress(
   });
 }
 
+export async function ensureRiftCompletionSimulatorArchive(): Promise<void> {
+  return withPlayerMutationLock(async () => {
+    const key = archiveKey();
+    const existing = await redis.get(key);
+    if (typeof existing === 'string' && existing) return;
+    await writeArchive(createEmptyRiftChallengeArchive(Date.now()));
+  });
+}
+
 export async function registerRiftCompletionPost(
   record: Omit<RiftCompletionPostRecord, 'version'>,
 ): Promise<void> {
