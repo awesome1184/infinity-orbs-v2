@@ -678,6 +678,13 @@ export async function startRiftChallenge(
     if ((archive.riftPerkLevels.chronoEngine ?? 0) > 0) {
       state.masterySkills = { ...state.masterySkills, cooldownReclaimer: Math.max(1, state.masterySkills?.cooldownReclaimer ?? 0) };
     }
+    const relicSlots = archive.riftPerkLevels.timelineFork > 0
+      ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+      : RIFT_RELIC_EQUIP_SLOTS;
+    const relicEffects = getRiftRelicEffects(archive.equippedRiftRelics, archive.riftRelicLevels, relicSlots);
+    if (relicEffects.multiballBonus > 0) {
+      state.upgrades = { ...state.upgrades, multi: Math.max(0, state.upgrades.multi ?? 0) + relicEffects.multiballBonus };
+    }
     if ((archive.riftPerkLevels.automationOverride ?? 0) > 0) {
       state.upgrades.auto = 1;
       state.manualRolls = Math.max(3, state.manualRolls);
