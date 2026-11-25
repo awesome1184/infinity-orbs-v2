@@ -47,7 +47,7 @@ jobs:
         run: npm run type-check
 
       - name: Test Rift Challenges and the Pages backend simulator
-        run: node --import tsx --test tests/rift-challenges.test.ts tests/pages-rift-challenges.test.ts tests/pages-reddit-simulator.test.ts tests/rift-completion-posts.test.ts tests/rift-relics.test.ts tests/pages-rift-relics.test.ts
+        run: node --import tsx --test tests/rift-challenges.test.ts tests/pages-rift-challenges.test.ts tests/pages-reddit-simulator.test.ts tests/rift-completion-posts.test.ts tests/rift-relics.test.ts tests/pages-rift-relics.test.ts tests/full-log-snapshot.test.ts
 
       - name: Build the real Infinity Orbs client for Pages
         run: npm run build:pages
