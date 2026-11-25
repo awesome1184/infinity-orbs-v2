@@ -51,6 +51,7 @@ export default defineConfig({
       input: {
         index: path.join(clientRoot, 'index.html'),
         frenzy: path.join(clientRoot, 'frenzy.html'),
+        rift: path.join(clientRoot, 'rift.html'),
       },
     },
   },
