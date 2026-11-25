@@ -13,6 +13,7 @@ test('Rift Relic Forge persists loadouts and applies equipped relic effects to a
   const game = read('src/server/game.ts');
   const combat = read('src/server/combat.ts');
   const pagesApi = read('src/pages/api.ts');
+  const app = read('src/server/app.ts');
   const client = read('src/client/components/RiftChallengesSection.tsx');
 
   assert.match(shared, /riftRelicLevels: RiftRelicLevels/);
@@ -36,6 +37,9 @@ test('Rift Relic Forge persists loadouts and applies equipped relic effects to a
   assert.match(pagesApi, /\/api\/rift-challenges\/relic\/forge/);
   assert.match(pagesApi, /\/api\/rift-challenges\/relic\/equip/);
   assert.match(pagesApi, /\/api\/rift-challenges\/relics\/status/);
+  assert.match(app, /app\.get\('\/api\/rift-challenges\/relics\/status'/);
+  assert.match(app, /app\.post\('\/api\/rift-challenges\/relic\/forge'/);
+  assert.match(app, /app\.post\('\/api\/rift-challenges\/relic\/equip'/);
   assert.match(client, /The Relic Forge/);
   assert.match(client, /FORGE/);
   assert.match(client, /UNEQUIP/);
