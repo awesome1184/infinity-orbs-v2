@@ -107,7 +107,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeRun(value: unknown): RiftChallengeRun | null {
+function normalizeRun(value: unknown, maxRelicSlots = RIFT_RELIC_EQUIP_SLOTS): RiftChallengeRun | null {
   if (!isRecord(value)) return null;
   const challenge = getRiftChallengeDefinition(value.challengeId);
   if (!challenge || (value.status !== 'active' && value.status !== 'completed')) return null;
@@ -173,7 +173,7 @@ function normalizeRun(value: unknown): RiftChallengeRun | null {
     completedMutations: safeInteger(value.completedMutations),
     emergencyProtocolsUsed: safeInteger(value.emergencyProtocolsUsed),
     emergencyProtocolUntilRoll: safeInteger(value.emergencyProtocolUntilRoll),
-    equippedRelics: normalizeEquippedRiftRelics(value.equippedRelics),
+    equippedRelics: normalizeEquippedRiftRelics(value.equippedRelics, undefined, maxRelicSlots),
     fractureCascadePending: value.fractureCascadePending === true,
     gameState: isRecord(value.gameState) ? value.gameState as unknown as PlayerState : null,
   };
@@ -199,7 +199,10 @@ function normalizeArchive(value: unknown, now = Date.now()): RiftChallengeArchiv
   const riftProgressValue = Number(value.riftProgress);
   const archive: RiftChallengeArchive = {
     version: 4,
-    activeRun: normalizeRun(value.activeRun),
+    activeRun: normalizeRun(
+      value.activeRun,
+      riftPerkLevels.timelineFork > 0 ? RIFT_RELIC_FORKED_EQUIP_SLOTS : RIFT_RELIC_EQUIP_SLOTS,
+    ),
     completedChallengeIds: [...new Set(completed)],
     bestRarityByChallenge,
     totalCompletedRuns: safeInteger(value.totalCompletedRuns),
