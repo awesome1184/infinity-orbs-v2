@@ -6316,12 +6316,24 @@ export async function applyRolls(
   const nullificationScale = mutationActive && mutation?.id === 'nullification'
     ? 1 - 0.5 * mutationPenalty
     : 1;
-  const challengeLuckMultiplier =
+  const temporalArbitrageRelic = 1 +
+    (Math.max(1, s.riftSession?.temporalDragMultiplier ?? 1) - 1) *
+    (s.riftSession?.riftTemporalArbitrageEfficiency ?? 0);
+  const rawChallengeLuckMultiplier =
     (1 + (s.riftSession?.upgradeLevels.fortune ?? 0) * 0.12) *
     (1 + (s.riftSession?.riftLuckPerkLevel ?? 0) * 0.05) *
     riftTemporalArbitrageMultiplier(s.riftSession?.temporalDragMultiplier ?? 1, s.riftSession?.temporalArbitrageLevel ?? 0) *
+    temporalArbitrageRelic *
     calibrationLuck * conditioningLuck * reservoirLuck * criticalConversionLuck * milestoneLuck *
     emergencyLuck * nullificationScale;
+  const crossesLoadedDieMilestone = Boolean(s.riftSession) &&
+    baseBatchRollCount > 0 &&
+    Math.floor((s.totalRolls + baseBatchRollCount) / 100) > Math.floor(s.totalRolls / 100);
+  const challengeLuckMultiplier =
+    (1 + (rawChallengeLuckMultiplier - 1) * (s.riftSession?.riftRelicLuckExcessMultiplier ?? 1)) *
+    (s.riftSession?.riftObserverLuckMultiplier ?? 1) *
+    (crossesLoadedDieMilestone ? (s.riftSession?.riftLoadedDieMultiplier ?? 1) : 1) *
+    (s.riftSession?.riftFractureCascadePending ? (s.riftSession?.riftFractureCascadeMultiplier ?? 1) : 1);
   const baseLuckCandidate = (luckMultiplier(luckState) + Math.max(0, communityLuck - 1) + bossLuckBonus) *
     riftMultipliers.luckMultiplier * challengeLuckMultiplier * mutationLuckMultiplier;
   const baseLuck = Number.isFinite(baseLuckCandidate) ? Math.max(1, baseLuckCandidate) : Number.MAX_VALUE;
@@ -6983,6 +6995,9 @@ export async function applyRolls(
         (s.riftSession.fractureRecyclingLevel ?? 0) * 0.05)
       : 1) *
     (mutationActive ? 1 + (s.riftSession?.anomalyHarvestingLevel ?? 0) * 0.05 : 1) *
+    (s.riftSession
+      ? riftRelicProgressCoinMultiplier(bestRarity, s.riftSession.targetRarity, s.riftSession.riftRelicProgressCoinBonus ?? 0)
+      : 1) *
     mutationCoinMultiplier;
   coinsGained = normalizeCoinAmount(Math.round(coinsGained * coinBonusMul));
 
