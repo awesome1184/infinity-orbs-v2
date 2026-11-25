@@ -87,14 +87,20 @@ test('Pages Reddit Post Simulator can create and render a local Rift first-clear
 
   assert.match(pagesApi, /case '\/api\/rift-completion\/simulator\/create'/);
   assert.match(pagesApi, /registerRiftCompletionPost\(/);
-  assert.match(pagesApi, /ensureRiftCompletionSimulatorArchive\(\)/);
+  assert.match(pagesApi, /ownerId = 'simulated-rift-owner:' \+ viewerId/);
+  assert.match(pagesApi, /simulateRiftCompletionKudos\(body\.postId\)/);
+  assert.match(pagesApi, /registerRiftCompletionPost\(/);
+  assert.match(simulator, /player', 'RiftPostSimulatorViewer'/);
   assert.match(pagesApi, /getRiftCompletionPostInfo\(url\.searchParams\.get\('postId'\)\)/);
-  assert.match(pagesApi, /awardRiftCompletionKudos\(body\.postId\)/);
+  assert.match(pagesApi, /case '\/api\/rift-completion\/simulator\/kudos'/);
+  assert.match(pagesApi, /simulateRiftCompletionKudos\(body\.postId\)/);
   assert.match(simulator, /Rift First Clear/);
   assert.match(simulator, /\/api\/rift-completion\/simulator\/create/);
   assert.match(simulator, /entryFile = post\.entry === 'rift' \? 'rift\.html' : 'frenzy\.html'/);
   assert.match(simulator, /player', 'RiftPostSimulatorViewer'/);
   assert.match(post, /previewPostId/);
   assert.match(post, /info\.postId \|\| previewPostId \|\| context\.postId/);
+  assert.match(post, /previewPostId\s*\?\s*'\/api\/rift-completion\/simulator\/kudos'/);
+  assert.match(post, /No live rewards or saves were changed/);
   assert.match(pagesBuild, /rift: path\.join\(clientRoot, 'rift\.html'\)/);
 });
