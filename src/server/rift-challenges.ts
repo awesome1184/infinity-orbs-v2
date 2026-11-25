@@ -2,7 +2,7 @@ import { context, redis } from './devvit-mock.js';
 import { withPlayerMutationLock, withPlayerMutationLockFor } from './player-lock.js';
 import { loadRaw, deleteRiftCodexForRun, save, prepareFrenzyOwnerRewardWrites } from './game.js';
 import { getCombatScrapBalance, spendCombatScrapForRiftForge, refundCombatScrapForRiftForge } from './combat.js';
-import { normalizeRiftRelicLevels, normalizeEquippedRiftRelics, riftRelicCost, RIFT_RELICS, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS, type RiftRelicId } from '../shared/rift-relics.js';
+import { normalizeRiftRelicLevels, normalizeEquippedRiftRelics, riftRelicCost, getRiftRelicEffects, RIFT_RELICS, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS, type RiftRelicId } from '../shared/rift-relics.js';
 import {
   createInitialState,
   calculateLevelFromXp,
@@ -198,7 +198,7 @@ function normalizeArchive(value: unknown, now = Date.now()): RiftChallengeArchiv
   const lastAccrued = safeInteger(value.riftLastAccruedAt, now);
   const riftProgressValue = Number(value.riftProgress);
   const archive: RiftChallengeArchive = {
-    version: 3,
+    version: 4,
     activeRun: normalizeRun(value.activeRun),
     completedChallengeIds: [...new Set(completed)],
     bestRarityByChallenge,
