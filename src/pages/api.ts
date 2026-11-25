@@ -202,10 +202,11 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
       case '/api/rift-challenges/mark-opened':
         return jsonResponse(await riftChallenges.markRiftGameOpened());
       case '/api/rift-completion/simulator/create': {
-        const ownerId = String(context.userId ?? '').trim();
-        if (!ownerId.startsWith('github-pages-test-')) {
+        const viewerId = String(context.userId ?? '').trim();
+        if (!viewerId.startsWith('github-pages-test-')) {
           throw new Error('The Rift completion post simulator is only available in the GitHub Pages test build.');
         }
+        const ownerId = 'simulated-rift-owner:' + viewerId;
         const challengeId = String(body.challengeId ?? '').trim();
         const challenge = getRiftChallengeDefinition(challengeId);
         if (!challenge) throw new Error('Choose a valid Rift challenge to preview.');
@@ -228,7 +229,6 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
           'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\n\n' +
           'Use the buttons below to open Infinity Orbs or send Kudos. Sending Kudos will not open the game.';
 
-        await riftChallenges.ensureRiftCompletionSimulatorArchive();
         await riftChallenges.registerRiftCompletionPost({
           postId,
           runId,
@@ -255,6 +255,8 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
           expiresAt: createdAt + 24 * 60 * 60_000,
         });
       }
+      case '/api/rift-completion/simulator/kudos':
+        return jsonResponse(await riftChallenges.simulateRiftCompletionKudos(body.postId));
       case '/api/rift-completion/kudos':
         return jsonResponse(await riftChallenges.awardRiftCompletionKudos(body.postId));
       case '/api/rift-challenges/start':
