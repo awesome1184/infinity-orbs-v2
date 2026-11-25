@@ -1182,8 +1182,18 @@ export interface RiftPlayerSession {
   emergencyProtocolUntilRoll?: number;
   emergencyProtocolCharges?: number;
   challengeCoinMultiplier: number;
+  riftRelicLuckExcessMultiplier?: number;
+  riftObserverLuckMultiplier?: number;
+  riftLoadedDieMultiplier?: number;
+  riftFractureCascadeMultiplier?: number;
+  riftFractureCascadePending?: boolean;
+  riftRelicCompletionRewardMultiplier?: number;
+  riftTemporalArbitrageEfficiency?: number;
+  riftTemporalDragPenaltyReduction?: number;
+  riftStillnessCooldownReduction?: number;
+  riftRelicProgressCoinBonus?: number;
 }
-
+ 
 export interface PlayerState {
   /** Runtime-only marker that routes all normal game reads and writes to the active Rift save. */
   riftSession?: RiftPlayerSession;
