@@ -33,7 +33,7 @@ test('Rift Relic levels are bounded and equipped loadouts contain only owned rel
   assert.equal(Object.values(emptyRiftRelicLevels()).every(level => level === 0), true);
 });
 
-test('Relic effects require an owned relic and an equipped loadout entry', () => {
+test('Relic effects require each relic to be owned and equipped within the slot limit', () => {
   const levels = {
     ...emptyRiftRelicLevels(),
     'clock-without-hands': 3,
@@ -49,23 +49,30 @@ test('Relic effects require an owned relic and an equipped loadout entry', () =>
   const inactive = getRiftRelicEffects([], levels);
   assert.equal(inactive.temporalArbitrageEfficiency, 0);
   assert.equal(inactive.completionRewardMultiplier, 1);
-  const equipped = getRiftRelicEffects([
-    'clock-without-hands', 'temporal-arbitrage', 'unlucky-star',
-    'observer', 'loaded-die', 'fracture-cascade', 'mirror-array',
-    'stillness-engine', 'rift-tithe',
-  ], levels, RIFT_RELIC_FORKED_EQUIP_SLOTS);
-  assert.equal(equipped.temporalDragPenaltyReduction, 0.4);
-  assert.equal(equipped.temporalArbitrageEfficiency, 0.2);
-  assert.equal(equipped.luckExcessMultiplier, 0.5);
-  assert.equal(equipped.completionRewardMultiplier, 2.5);
-  assert.equal(equipped.observerRank, 3);
-  assert.equal(equipped.loadedDieMultiplier, 40);
-  assert.equal(equipped.fractureCascadeMultiplier, 1.75);
-  assert.equal(equipped.multiballBonus, 3);
-  assert.equal(equipped.noAutomationCooldownReduction, 0.2);
-  assert.equal(equipped.progressCoinBonus, 0.75);
-});
 
+  const tempo = getRiftRelicEffects(['clock-without-hands', 'temporal-arbitrage'], levels);
+  assert.equal(tempo.temporalDragPenaltyReduction, 0.4);
+  assert.equal(tempo.temporalArbitrageEfficiency, 0.2);
+
+  const risk = getRiftRelicEffects(['unlucky-star'], levels);
+  assert.equal(risk.luckExcessMultiplier, 0.5);
+  assert.equal(risk.completionRewardMultiplier, 2.5);
+
+  assert.equal(getRiftRelicEffects(['observer'], levels).observerRank, 3);
+  assert.equal(getRiftRelicEffects(['loaded-die'], levels).loadedDieMultiplier, 40);
+  assert.equal(getRiftRelicEffects(['fracture-cascade'], levels).fractureCascadeMultiplier, 1.75);
+  assert.equal(getRiftRelicEffects(['mirror-array'], levels).multiballBonus, 3);
+  assert.equal(getRiftRelicEffects(['stillness-engine'], levels).noAutomationCooldownReduction, 0.2);
+  assert.equal(getRiftRelicEffects(['rift-tithe'], levels).progressCoinBonus, 0.75);
+
+  const overfilled = getRiftRelicEffects(
+    ['clock-without-hands', 'temporal-arbitrage', 'unlucky-star', 'observer'],
+    levels,
+  );
+  assert.equal(overfilled.temporalDragPenaltyReduction, 0.4);
+  assert.equal(overfilled.completionRewardMultiplier, 1);
+  assert.equal(overfilled.observerRank, 0);
+});
 test('Relic crafting costs both currencies and increases each rank', () => {
   const first = riftRelicCost('clock-without-hands', 0);
   const second = riftRelicCost('clock-without-hands', 1);
