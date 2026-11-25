@@ -24,6 +24,7 @@ test('Rift Relic Forge persists loadouts and applies equipped relic effects to a
   assert.match(server, /refundCombatScrapForRiftForge/);
   assert.match(server, /export async function setEquippedRiftRelic/);
   assert.match(server, /equippedRelics: \[\.\.\.archive\.equippedRiftRelics\]/);
+  assert.match(server, /activeRun: normalizeRun[\\s\\S]*?riftPerkLevels\\.timelineFork > 0/);
   assert.match(game, /riftRelicCompletionRewardMultiplier/);
   assert.match(game, /riftObserverLuckMultiplier/);
   assert.match(game, /riftRelicProgressCoinMultiplier/);
