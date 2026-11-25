@@ -1194,16 +1194,16 @@ export function createApp() {
         return Array.from(cryptoApi.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('');
       };
       const ownerId = 'simulated-rift-owner:' + viewerId;
-      const ownerUsername = String(context.username ?? 'Redditor').trim().replace(/^u\\//i, '').slice(0, 32) || 'Redditor';
-      const subredditName = String(context.subredditName ?? '').trim().replace(/^r\\//i, '').slice(0, 100);
+      const ownerUsername = String(context.username ?? 'Redditor').trim().replace(/^u\//i, '').slice(0, 32) || 'Redditor';
+      const subredditName = String(context.subredditName ?? '').trim().replace(/^r\//i, '').slice(0, 100);
       if (!subredditName) throw new Error('Subreddit context is unavailable for the simulated post.');
       const createdAt = Date.now();
       const postId = 't3_sim_rift_preview-' + makeId();
       const runId = 'rift-post-simulator-' + makeId();
       const title = 'u/' + ownerUsername + ' has completed the Rift ' + challenge.name + ' for the first time!';
-      const postBody = 'u/' + ownerUsername + ' has completed the rift ' + challenge.name + ' for the first time!\\n\\n' +
-        'Celebrate this first clear with Kudos. Each player can send Kudos once, during the first 24 hours after the post is published.\\n\\n' +
-        'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\\n\\n' +
+      const postBody = 'u/' + ownerUsername + ' has completed the rift ' + challenge.name + ' for the first time!\n\n' +
+        'Celebrate this first clear with Kudos. Each player can send Kudos once, during the first 24 hours after the post is published.\n\n' +
+        'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\n\n' +
         'Use the buttons below to open Infinity Orbs or send Kudos. Sending Kudos will not open the game.';
       await registerRiftCompletionPost({
         postId,
