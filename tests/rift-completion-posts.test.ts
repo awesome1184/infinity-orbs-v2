@@ -77,3 +77,22 @@ test('Rift admin tools are registered in the searchable console and expose Rift-
   assert.match(debug, /debugRouter\.get\('\/rift\/status'/);
   assert.match(debug, /debugRouter\.post\('\/rift\/grant'/);
 });
+
+
+test('Pages Reddit Post Simulator can create and render a local Rift first-clear post', () => {
+  const pagesApi = read('src/pages/api.ts');
+  const simulator = read('src/client/components/RedditPostSimulator.tsx');
+  const post = read('src/client/rift.tsx');
+  const pagesBuild = read('vite.pages.config.ts');
+
+  assert.match(pagesApi, /case '\/api\/rift-completion\/simulator\/create'/);
+  assert.match(pagesApi, /registerRiftCompletionPost\(/);
+  assert.match(pagesApi, /getRiftCompletionPostInfo\(url\.searchParams\.get\('postId'\)\)/);
+  assert.match(pagesApi, /awardRiftCompletionKudos\(body\.postId\)/);
+  assert.match(simulator, /Rift First Clear/);
+  assert.match(simulator, /\/api\/rift-completion\/simulator\/create/);
+  assert.match(simulator, /entryFile = post\.entry === 'rift' \? 'rift\.html' : 'frenzy\.html'/);
+  assert.match(post, /previewPostId/);
+  assert.match(post, /info\.postId \|\| previewPostId \|\| context\.postId/);
+  assert.match(pagesBuild, /rift: path\.join\(clientRoot, 'rift\.html'\)/);
+});
