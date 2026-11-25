@@ -31,6 +31,12 @@ test('Rift Relic levels are bounded and equipped loadouts contain only owned rel
   assert.equal(RIFT_RELIC_EQUIP_SLOTS, 2);
   assert.equal(RIFT_RELIC_FORKED_EQUIP_SLOTS, 3);
   assert.equal(Object.values(emptyRiftRelicLevels()).every(level => level === 0), true);
+  const forkedLoadout = normalizeEquippedRiftRelics(
+    ['clock-without-hands', 'temporal-arbitrage', 'unlucky-star', 'observer'],
+    levels,
+    RIFT_RELIC_FORKED_EQUIP_SLOTS,
+  );
+  assert.deepEqual(forkedLoadout, ['clock-without-hands', 'temporal-arbitrage', 'unlucky-star']);
 });
 
 test('Relic effects require each relic to be owned and equipped within the slot limit', () => {
