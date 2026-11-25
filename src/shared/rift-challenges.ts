@@ -373,7 +373,7 @@ export interface RiftChallengeRun {
 }
 
 export interface RiftChallengeArchive {
-  version: 3;
+  version: 4;
   activeRun: RiftChallengeRun | null;
   completedChallengeIds: string[];
   bestRarityByChallenge: Record<string, number>;
@@ -626,7 +626,7 @@ export function riftRatePerHour(completedChallengeIds: readonly string[], perkLe
 export function createEmptyRiftChallengeArchive(now = Date.now()): RiftChallengeArchive {
   const riftPerkLevels = emptyRiftPerkLevels();
   return {
-    version: 3,
+    version: 4,
     activeRun: null,
     completedChallengeIds: [],
     bestRarityByChallenge: {},
