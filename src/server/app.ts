@@ -127,7 +127,7 @@ import { APP_VERSION } from '../shared/version.js';
 import { getRiftChallengeDefinition } from '../shared/rift-challenges.js';
 import { globalFeaturesForRequest } from '../shared/admin-cli.js';
 import { getCombatSnapshot, getCombatMarksBalance, performCombatBeat, equipCombatItem, scrapCombatItem, forgeCombatGear, equipCombatSkill, rollCombatSkill, rankUpCombatSkillGacha, buyCombatUpgrade, setCombatOrbFocus, getCombatArenaOpponents, challengeCombatArena, setCombatAutoTactic, setCombatDungeon, equipCombatRune, sacrificeCombatRuneInto, updateCombatRuneAutoSacrificeSettings, processCombatRuneAutoSacrifice, hasCompletedCombatTutorial, markCombatTutorialSeen, buyCombatStrategyGuideRank } from './combat.js';
-import { getRiftChallengeStatus, startRiftChallenge, rollRiftChallenge, buyRiftChallengeUpgrade, buyRiftPerk, setRiftTemporalDrag, chooseRiftMutation, activateRiftEmergencyProtocol, abandonRiftChallenge, markRiftGameOpened, registerRiftCompletionPost, getRiftCompletionPostInfo, awardRiftCompletionKudos, simulateRiftCompletionKudos } from './rift-challenges.js';
+import { getRiftChallengeStatus, getRiftRelicForgeStatus, buyRiftRelic, setEquippedRiftRelic, startRiftChallenge, rollRiftChallenge, buyRiftChallengeUpgrade, buyRiftPerk, setRiftTemporalDrag, chooseRiftMutation, activateRiftEmergencyProtocol, abandonRiftChallenge, markRiftGameOpened, registerRiftCompletionPost, getRiftCompletionPostInfo, awardRiftCompletionKudos, simulateRiftCompletionKudos } from './rift-challenges.js';
 
 const payments = (devvitServer as typeof devvitServer & {
   payments: {
@@ -1159,6 +1159,17 @@ export function createApp() {
     }
   });
 
+  app.get('/api/rift-challenges/relics/status', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      res.json(await getRiftRelicForgeStatus());
+    } catch (error: any) {
+      const message = error?.message || 'Could not load the Rift Relic Forge.';
+      res.status(message === 'REDDIT_LOGIN_REQUIRED' ? 401 : transientContentionError(error) ? 503 : 500)
+        .json({ error: message });
+    }
+  });
+
   app.post('/api/rift-challenges/mark-opened', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
@@ -1333,6 +1344,46 @@ export function createApp() {
       const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
         : message.startsWith('Need ') || message.includes('already at maximum') ||
           message.includes('valid Rift perk') ? 400
+        : transientContentionError(error) ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-challenges/relic/forge', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const relicId = req.body?.relicId;
+      if (typeof relicId !== 'string' || relicId.length > 40) {
+        return res.status(400).json({ error: 'Choose a valid Rift relic.' });
+      }
+      res.json(await buyRiftRelic(relicId));
+    } catch (error: any) {
+      const message = error?.message || 'Rift Relic crafting failed.';
+      const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
+        : message.startsWith('Need ') || message.includes('not enough Combat Scrap') ||
+          message.includes('Complete your first Rift Challenge') ||
+          message.includes('active Rift run') || message.includes('maximum rank') ||
+          message.includes('valid Rift relic') ? 400
+        : transientContentionError(error) ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-challenges/relic/equip', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const relicId = req.body?.relicId;
+      const equipped = req.body?.equipped;
+      if (typeof relicId !== 'string' || relicId.length > 40 || typeof equipped !== 'boolean') {
+        return res.status(400).json({ error: 'Choose a valid Rift relic and equipment action.' });
+      }
+      res.json(await setEquippedRiftRelic(relicId, equipped));
+    } catch (error: any) {
+      const message = error?.message || 'Rift Relic equipment could not be updated.';
+      const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
+        : message.includes('Complete your first Rift Challenge') ||
+          message.includes('active Rift run') || message.includes('Forge this relic') ||
+          message.includes('slots are occupied') || message.includes('valid Rift relic') ? 400
         : transientContentionError(error) ? 503 : 500;
       res.status(status).json({ error: message });
     }
