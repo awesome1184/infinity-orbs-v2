@@ -27,6 +27,7 @@ import {
   type RiftChallengeMainProgress,
   type RiftChallengeRun,
 } from '../shared/rift-challenges.js';
+import { getRiftRelicEffects, riftObserverLuckMultiplier, riftRelicProgressCoinMultiplier, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS } from '../shared/rift-relics.js';
 
 const notifications = (notificationsModule as any).notifications;
 import { APP_VERSION } from '../shared/version.js';
@@ -4216,6 +4217,16 @@ interface ActiveRiftRunContext {
   emergencyProtocolUntilRoll: number;
   emergencyProtocolCharges: number;
   challengeCoinMultiplier: number;
+  riftRelicLuckExcessMultiplier: number;
+  riftObserverLuckMultiplier: number;
+  riftLoadedDieMultiplier: number;
+  riftFractureCascadeMultiplier: number;
+  riftFractureCascadePending: boolean;
+  riftRelicCompletionRewardMultiplier: number;
+  riftTemporalArbitrageEfficiency: number;
+  riftTemporalDragPenaltyReduction: number;
+  riftStillnessCooldownReduction: number;
+  riftRelicProgressCoinBonus: number;
   upgradeLevels: { fortune: number; speed: number; prosperity: number; critical: number };
   gameState: PlayerState;
 }
@@ -4249,6 +4260,11 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       gameState.stateRevision = 0;
     }
     const riftPerks = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
+    const relicLevels = isPlainRecord(archive.riftRelicLevels) ? archive.riftRelicLevels : {};
+    const relicSlots = safeNonNegativeInteger(riftPerks.timelineFork) > 0
+      ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+      : RIFT_RELIC_EQUIP_SLOTS;
+    const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
     if (safeNonNegativeInteger(riftPerks.automationOverride) > 0) {
       gameState.upgrades = { ...gameState.upgrades, auto: Math.max(1, gameState.upgrades?.auto ?? 0) };
       gameState.manualRolls = Math.max(3, gameState.manualRolls ?? 0);
@@ -4323,6 +4339,18 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
           safeNonNegativeInteger(run.emergencyProtocolsUsed),
       ),
       challengeCoinMultiplier: challenge.coinMultiplier,
+      riftRelicLuckExcessMultiplier: relicEffects.luckExcessMultiplier,
+      riftObserverLuckMultiplier: riftObserverLuckMultiplier(gameState.highestRarity, challenge.targetRarity, relicEffects.observerRank),
+      riftLoadedDieMultiplier: relicEffects.loadedDieMultiplier,
+      riftFractureCascadeMultiplier: relicEffects.fractureCascadeMultiplier,
+      riftFractureCascadePending: run.fractureCascadePending === true && relicEffects.fractureCascadeRank > 0,
+      riftRelicCompletionRewardMultiplier: relicEffects.completionRewardMultiplier,
+      riftTemporalArbitrageEfficiency: relicEffects.temporalArbitrageEfficiency,
+      riftTemporalDragPenaltyReduction: relicEffects.temporalDragPenaltyReduction,
+      riftStillnessCooldownReduction: challenge.id === 'first-spark' && safeNonNegativeInteger(riftPerks.automationOverride) <= 0
+        ? relicEffects.noAutomationCooldownReduction
+        : 0,
+      riftRelicProgressCoinBonus: relicEffects.progressCoinBonus,
       upgradeLevels: {
         fortune: safeNonNegativeInteger(levels.fortune),
         speed: safeNonNegativeInteger(levels.speed),
@@ -4483,6 +4511,12 @@ async function saveActiveRiftPlayerState(
       }
 
       const riftPerkLevels = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
+      const relicLevels = isPlainRecord(archive.riftRelicLevels) ? archive.riftRelicLevels : {};
+      const relicSlots = safeNonNegativeInteger(riftPerkLevels.timelineFork) > 0
+        ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+        : RIFT_RELIC_EQUIP_SLOTS;
+      const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
+      const previousBestRarity = Math.max(2, Number(run.bestRarity) || 2);
       const interest = accrueRiftDimensionalInterest(
         state.coins,
         state.lifetimeCoins ?? state.coins,
@@ -4499,9 +4533,13 @@ async function saveActiveRiftPlayerState(
       run.coins = storedState.coins;
       run.totalRolls = storedState.totalRolls;
       const riftBestRarity = Math.max(2, Number(storedState.highestRarity) || 2);
+      if (run.fractureCascadePending === true) run.fractureCascadePending = false;
+      if (relicEffects.fractureCascadeRank > 0 && riftBestRarity > previousBestRarity) {
+        run.fractureCascadePending = true;
+      }
       run.bestRarity = riftBestRarity;
       run.updatedAt = now;
-      archive.version = 3;
+      archive.version = 4;
       advanceStoredRiftProgress(archive, now);
 
       const mutationLevels = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
@@ -4566,7 +4604,7 @@ async function saveActiveRiftPlayerState(
           challenge.targetRarity,
           safeNonNegativeInteger(riftPerkLevels.overkill),
         );
-        const reward = Math.min(Number.MAX_SAFE_INTEGER, Math.round(baseReward * rewardMultiplier));
+        const reward = Math.min(Number.MAX_SAFE_INTEGER, Math.round(baseReward * rewardMultiplier * relicEffects.completionRewardMultiplier));
         archive.riftPoints = Math.min(Number.MAX_SAFE_INTEGER, safeNonNegativeInteger(archive.riftPoints) + reward);
         archive.totalRiftPointsEarned = Math.min(Number.MAX_SAFE_INTEGER, safeNonNegativeInteger(archive.totalRiftPointsEarned) + reward);
         const bestByChallenge = isPlainRecord(archive.bestRarityByChallenge) ? archive.bestRarityByChallenge : {};
@@ -4918,6 +4956,16 @@ export async function loadRaw(options: { registerActivity?: boolean; persistMigr
       emergencyProtocolCharges: activeRiftRun.emergencyProtocolCharges,
       riftConditioningCompletions: activeRiftRun.riftConditioningCompletions,
       challengeCoinMultiplier: activeRiftRun.challengeCoinMultiplier,
+      riftRelicLuckExcessMultiplier: activeRiftRun.riftRelicLuckExcessMultiplier,
+      riftObserverLuckMultiplier: activeRiftRun.riftObserverLuckMultiplier,
+      riftLoadedDieMultiplier: activeRiftRun.riftLoadedDieMultiplier,
+      riftFractureCascadeMultiplier: activeRiftRun.riftFractureCascadeMultiplier,
+      riftFractureCascadePending: activeRiftRun.riftFractureCascadePending,
+      riftRelicCompletionRewardMultiplier: activeRiftRun.riftRelicCompletionRewardMultiplier,
+      riftTemporalArbitrageEfficiency: activeRiftRun.riftTemporalArbitrageEfficiency,
+      riftTemporalDragPenaltyReduction: activeRiftRun.riftTemporalDragPenaltyReduction,
+      riftStillnessCooldownReduction: activeRiftRun.riftStillnessCooldownReduction,
+      riftRelicProgressCoinBonus: activeRiftRun.riftRelicProgressCoinBonus,
       upgradeLevels: { ...activeRiftRun.upgradeLevels },
     };
   }
@@ -6265,12 +6313,24 @@ export async function applyRolls(
   const nullificationScale = mutationActive && mutation?.id === 'nullification'
     ? 1 - 0.5 * mutationPenalty
     : 1;
-  const challengeLuckMultiplier =
+  const temporalArbitrageRelic = 1 +
+    (Math.max(1, s.riftSession?.temporalDragMultiplier ?? 1) - 1) *
+    (s.riftSession?.riftTemporalArbitrageEfficiency ?? 0);
+  const rawChallengeLuckMultiplier =
     (1 + (s.riftSession?.upgradeLevels.fortune ?? 0) * 0.12) *
     (1 + (s.riftSession?.riftLuckPerkLevel ?? 0) * 0.05) *
     riftTemporalArbitrageMultiplier(s.riftSession?.temporalDragMultiplier ?? 1, s.riftSession?.temporalArbitrageLevel ?? 0) *
+    temporalArbitrageRelic *
     calibrationLuck * conditioningLuck * reservoirLuck * criticalConversionLuck * milestoneLuck *
     emergencyLuck * nullificationScale;
+  const crossesLoadedDieMilestone = Boolean(s.riftSession) &&
+    baseBatchRollCount > 0 &&
+    Math.floor((s.totalRolls + baseBatchRollCount) / 100) > Math.floor(s.totalRolls / 100);
+  const challengeLuckMultiplier =
+    (1 + (rawChallengeLuckMultiplier - 1) * (s.riftSession?.riftRelicLuckExcessMultiplier ?? 1)) *
+    (s.riftSession?.riftObserverLuckMultiplier ?? 1) *
+    (crossesLoadedDieMilestone ? (s.riftSession?.riftLoadedDieMultiplier ?? 1) : 1) *
+    (s.riftSession?.riftFractureCascadePending ? (s.riftSession?.riftFractureCascadeMultiplier ?? 1) : 1);
   const baseLuckCandidate = (luckMultiplier(luckState) + Math.max(0, communityLuck - 1) + bossLuckBonus) *
     riftMultipliers.luckMultiplier * challengeLuckMultiplier * mutationLuckMultiplier;
   const baseLuck = Number.isFinite(baseLuckCandidate) ? Math.max(1, baseLuckCandidate) : Number.MAX_VALUE;
@@ -6932,6 +6992,9 @@ export async function applyRolls(
         (s.riftSession.fractureRecyclingLevel ?? 0) * 0.05)
       : 1) *
     (mutationActive ? 1 + (s.riftSession?.anomalyHarvestingLevel ?? 0) * 0.05 : 1) *
+    (s.riftSession
+      ? riftRelicProgressCoinMultiplier(bestRarity, s.riftSession.targetRarity, s.riftSession.riftRelicProgressCoinBonus ?? 0)
+      : 1) *
     mutationCoinMultiplier;
   coinsGained = normalizeCoinAmount(Math.round(coinsGained * coinBonusMul));
 

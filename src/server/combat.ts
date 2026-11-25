@@ -515,6 +515,33 @@ export async function getCombatMarksBalance():Promise<number>{
   const key=combatKey();
   return normalizeState(await readRedisLargeValue(key,await redis.get(key))).combatMarks;
 }
+
+/** Read the Scrap wallet used by the Rift Relic Forge without mutating Combat state. */
+export async function getCombatScrapBalance(): Promise<number> {
+  const key = combatKey();
+  return normalizeState(await readRedisLargeValue(key, await redis.get(key))).scrap;
+}
+
+/** Spend Scrap under the same Combat save lock used by gear scrapping and forging. */
+export async function spendCombatScrapForRiftForge(amountValue: unknown): Promise<number> {
+  const amount = finiteInt(amountValue, -1, 0, Number.MAX_SAFE_INTEGER);
+  if (amount <= 0) throw new Error('A positive Scrap amount is required.');
+  return mutate(state => {
+    if (state.scrap < amount) throw new Error('Not enough Scrap for the Rift Relic Forge.');
+    state.scrap -= amount;
+    return state.scrap;
+  });
+}
+
+/** Compensation path if the Rift archive write fails after Scrap was spent. */
+export async function refundCombatScrapForRiftForge(amountValue: unknown): Promise<number> {
+  const amount = finiteInt(amountValue, 0, 0, Number.MAX_SAFE_INTEGER);
+  if (amount <= 0) return getCombatScrapBalance();
+  return mutate(state => {
+    state.scrap = Math.min(Number.MAX_SAFE_INTEGER, state.scrap + amount);
+    return state.scrap;
+  });
+}
 export async function getCombatSnapshot():Promise<CombatSnapshot>{
   let coreProgression:{level?:unknown;highestRarity?:unknown;autoScrapLevel?:unknown;autoScrapSettings?:unknown}|null=null;
   try {

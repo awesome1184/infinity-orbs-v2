@@ -1,4 +1,5 @@
 import type { PlayerState } from './game.js';
+import type { RiftRelicId, RiftRelicLevels } from './rift-relics.js';
 export type RiftChallengeUpgradeId = 'fortune' | 'speed' | 'prosperity' | 'critical';
 export type RiftChallengeRunStatus = 'active' | 'completed';
 
@@ -135,7 +136,8 @@ export type RiftPerkId =
   | 'criticalConversion' | 'fractureRecycling' | 'emergencyProtocol'
   | 'milestoneAmplifier' | 'anomalyHarvesting' | 'anomalyForecaster'
   | 'mutationStabilizer' | 'mutationAmplifier' | 'mutationExtraction'
-  | 'anomalyPersistence';
+  | 'anomalyPersistence'
+  | 'timelineFork';
 
 export type RiftPerkLevels = Record<RiftPerkId, number>;
 
@@ -252,6 +254,7 @@ export const RIFT_PERKS: Record<RiftPerkId, RiftPerkDefinition> = {
   mutationAmplifier: { id: 'mutationAmplifier', name: 'Mutation Amplifier', category: 'rift', description: 'Make mutations more volatile and more rewarding.', effect: '+5% mutation benefits and +2% mutation penalties per level.', baseCost: 11, costGrowth: 1.78, maxLevel: 10 },
   mutationExtraction: { id: 'mutationExtraction', name: 'Mutation Extraction', category: 'rift', description: 'Convert completed mutations into additional Rift Point rewards.', effect: '+1 Rift Point per completed mutation per level.', baseCost: 14, costGrowth: 1.8, maxLevel: 10 },
   anomalyPersistence: { id: 'anomalyPersistence', name: 'Anomaly Persistence', category: 'rift', description: 'Keep beneficial and harmful mutations active for longer.', effect: '+5 mutation rolls of duration per level.', baseCost: 10, costGrowth: 1.75, maxLevel: 10 },
+  timelineFork: { id: 'timelineFork', name: 'Timeline Fork', category: 'rift', description: 'Split the Rift timeline and stabilize a third permanent relic slot.', effect: 'Equip 3 Rift Relics instead of 2.', baseCost: 60, costGrowth: 1.9, maxLevel: 1 },
 };
 
 export const RIFT_MUTATIONS = [
@@ -361,12 +364,16 @@ export interface RiftChallengeRun {
   completedMutations: number;
   emergencyProtocolsUsed: number;
   emergencyProtocolUntilRoll: number;
+  /** Relic loadout captured when this run starts. */
+  equippedRelics: RiftRelicId[];
+  /** Consumed on the next roll activation after a new Rift personal best. */
+  fractureCascadePending: boolean;
   /** Complete, isolated main-game save used while this Rift challenge is active. */
   gameState?: PlayerState | null;
 }
 
 export interface RiftChallengeArchive {
-  version: 3;
+  version: 4;
   activeRun: RiftChallengeRun | null;
   completedChallengeIds: string[];
   bestRarityByChallenge: Record<string, number>;
@@ -388,6 +395,8 @@ export interface RiftChallengeArchive {
   /** Kudos received during the previous interval, displayed in the current game session. */
   kudosDisplaySinceLastOpen: number;
   riftPerkLevels: RiftPerkLevels;
+  riftRelicLevels: RiftRelicLevels;
+  equippedRiftRelics: RiftRelicId[];
 }
 
 export interface RiftChallengeSnapshot {
@@ -488,6 +497,7 @@ export function emptyRiftPerkLevels(): RiftPerkLevels {
     milestoneAmplifier: 0, anomalyHarvesting: 0, anomalyForecaster: 0,
     mutationStabilizer: 0, mutationAmplifier: 0, mutationExtraction: 0,
     anomalyPersistence: 0,
+    timelineFork: 0,
   };
 }
 
@@ -616,7 +626,7 @@ export function riftRatePerHour(completedChallengeIds: readonly string[], perkLe
 export function createEmptyRiftChallengeArchive(now = Date.now()): RiftChallengeArchive {
   const riftPerkLevels = emptyRiftPerkLevels();
   return {
-    version: 3,
+    version: 4,
     activeRun: null,
     completedChallengeIds: [],
     bestRarityByChallenge: {},
@@ -632,5 +642,11 @@ export function createEmptyRiftChallengeArchive(now = Date.now()): RiftChallenge
     kudosSinceLastOpen: 0,
     kudosDisplaySinceLastOpen: 0,
     riftPerkLevels,
+    riftRelicLevels: {
+      'clock-without-hands': 0, 'temporal-arbitrage': 0, 'unlucky-star': 0,
+      observer: 0, 'loaded-die': 0, 'fracture-cascade': 0, 'mirror-array': 0,
+      'stillness-engine': 0, 'rift-tithe': 0,
+    },
+    equippedRiftRelics: [],
   };
 }

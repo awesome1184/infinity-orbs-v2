@@ -55,6 +55,7 @@ jobs:
           npm run preflight:guard
           # Exercise the new Rift post, Kudos, archive-counter, admin, and popup paths on every relevant change.
           node --import tsx --test tests/rift-challenges.test.ts tests/rift-completion-posts.test.ts tests/popups.test.ts tests/predeploy-check.test.ts
+          node --import tsx --test tests/pages-rift-challenges.test.ts tests/pages-reddit-simulator.test.ts tests/rift-relics.test.ts tests/pages-rift-relics.test.ts tests/full-log-snapshot.test.ts
           node --import tsx --test tests/alignment-prompt-ui.test.ts
           node --import tsx --test tests/player-save-chunking.test.ts tests/player-lock.test.ts tests/inline-main-post-cta-layout.test.ts tests/game-ban-status.test.ts
           node --import tsx --test tests/storage-compression.test.ts

@@ -10,6 +10,7 @@ import type { RollResponse, PlayerState, PopupConfig, PopupStats, GamePopupId } 
 import { APP_VERSION } from '../../shared/version.js';
 import { sound } from '../sound.js';
 import { CombatAdminTools } from './CombatAdminTools.js';
+import { FullLogSnapshotPanel } from './FullLogSnapshotPanel.js';
 
 let clientOperationSequence = 0;
 function createClientOperationId(prefix: string): string {
@@ -247,6 +248,7 @@ const ADMIN_CONSOLE_SECTIONS: AdminConsoleSection[] = [
     { id: 'impressions-dashboard', label: 'Impressions Dashboard', target: 'io-impressions-tab' },
   ] },
   { id: 'diagnostics', label: 'Diagnostics', target: 'io-diagnostics-group', tools: [
+    { id: 'full-log-snapshot', label: 'Full Log Snapshot', target: 'io-tool-full-log-snapshot' },
     { id: 'e2e-test', label: 'End-to-End Test', target: 'io-tool-e2e-test' },
     { id: 'ccu-load', label: 'CCU & Load Testing', target: 'io-tool-ccu-load' },
     { id: 'payment-logs', label: 'Payment Logs', target: 'io-tool-payment-logs' },
@@ -5241,6 +5243,12 @@ const result = await request<any>('/api/dev/force-roll', { rarity: 9, randomValu
           </summary>
           {renderAdminToolBar('diagnostics')}
           <div className="mt-3 space-y-3">
+        <details id="io-tool-full-log-snapshot" hidden={activeAdminTool !== 'full-log-snapshot'} open={activeAdminTool === 'full-log-snapshot'} className="rounded-xl border border-cyan-500/30 bg-black/10 p-3">
+          <summary className="cursor-pointer list-none flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-wider text-cyan-200">
+            <span>Full Log Snapshot · live browser session</span><span className="text-slate-600">Expand</span>
+          </summary>
+          <div className="mt-3"><FullLogSnapshotPanel /></div>
+        </details>
         <details id="io-tool-e2e-test" hidden={activeAdminTool !== 'e2e-test'} open={activeAdminTool === 'e2e-test'} className="rounded-xl border border-slate-800 bg-black/10 p-3">
           <summary className="cursor-pointer list-none flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-wider text-slate-300">
             <span>Full End-to-End Test · rewrites admin save</span><span className="text-slate-600">Expand</span>

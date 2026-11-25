@@ -24,6 +24,10 @@ interface KudosResult {
   shardsGrantedToYou: number;
   shardsGrantedToOwner: number;
   progressMinutesGranted: number;
+  simulated?: boolean;
+  wouldGrantShardsToYou?: number;
+  wouldGrantShardsToOwner?: number;
+  wouldGrantProgressMinutes?: number;
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -43,6 +47,7 @@ function formatRemaining(milliseconds: number): string {
 }
 
 function RiftCompletionPost() {
+  const previewPostId = new URLSearchParams(window.location.search).get('previewPostId')?.trim() ?? '';
   const [info, setInfo] = useState<RiftCompletionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -53,13 +58,16 @@ function RiftCompletionPost() {
 
   useEffect(() => {
     let active = true;
-    void fetch('/api/rift-completion/info', { cache: 'no-store' })
+    const infoUrl = previewPostId
+      ? '/api/rift-completion/info?postId=' + encodeURIComponent(previewPostId)
+      : '/api/rift-completion/info';
+    void fetch(infoUrl, { cache: 'no-store' })
       .then(readJson<RiftCompletionInfo>)
       .then(result => { if (active) setInfo(result); })
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load the Rift completion details.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [previewPostId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -72,17 +80,27 @@ function RiftCompletionPost() {
     setError('');
     setNotice('');
     try {
-      const result = await readJson<KudosResult>(await fetch('/api/rift-completion/kudos', {
+      const kudosEndpoint = previewPostId
+        ? '/api/rift-completion/simulator/kudos'
+        : '/api/rift-completion/kudos';
+      const result = await readJson<KudosResult>(await fetch(kudosEndpoint, {
         method: 'POST',
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId: context.postId }),
+        body: JSON.stringify({ postId: info.postId || previewPostId || context.postId }),
       }));
       setReward(result);
       setInfo(current => current ? { ...current, alreadyKudosed: true, canKudos: false } : current);
       setNotice(result.alreadyKudosed
-        ? 'You have already sent Kudos for this first clear.'
-        : 'Kudos delivered. Both Shard rewards and the Rift progress bonus have been applied.');
+        ? (result.simulated
+          ? 'This local preview viewer has already sent simulated Kudos for this post.'
+          : 'You have already sent Kudos for this first clear.')
+        : result.simulated
+          ? 'Simulation complete. This would grant +' + (result.wouldGrantShardsToYou ?? 10) +
+            ' Shards to you, +' + (result.wouldGrantShardsToOwner ?? 10) +
+            ' Shards to the Rift champion, and +' + (result.wouldGrantProgressMinutes ?? 1) +
+            ' minute of Rift progress. No live rewards or saves were changed.'
+          : 'Kudos delivered. Both Shard rewards and the Rift progress bonus have been applied.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not send Kudos.');
     } finally {
@@ -172,8 +190,8 @@ function RiftCompletionPost() {
         {error && <div className="io-rift-post-error" role="alert">{error}</div>}
 
         <div className="io-rift-post-actions">
-          <button type="button" className="io-rift-post-play" onClick={openGame}>
-            <Gamepad2 size={17} /> Play Infinity Orbs <ArrowRight size={16} />
+          <button type="button" className="io-rift-post-play" onClick={openGame} disabled={Boolean(previewPostId)}>
+            <Gamepad2 size={17} /> {previewPostId ? 'Simulator preview only' : 'Play Infinity Orbs'} {!previewPostId && <ArrowRight size={16} />}
           </button>
           <button
             type="button"

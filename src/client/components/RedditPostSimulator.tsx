@@ -1,21 +1,34 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { PlayerState, RollResponse } from '../../shared/game.js';
 import { formatRarity } from '../../shared/game.js';
+import { RIFT_CHALLENGES } from '../../shared/rift-challenges.js';
 
-interface CreatedFrenzyPost {
+interface CreatedPostBase {
   postId: string;
   title: string;
   body: string;
   subredditName: string;
   ownerUsername: string;
   runAs: 'USER';
-  entry: 'frenzy';
   flairId: string | null;
-  rarity: number;
-  isInfinity: boolean;
   createdAt: number;
   expiresAt: number;
 }
+
+interface CreatedFrenzyPost extends CreatedPostBase {
+  entry: 'frenzy';
+  rarity: number;
+  isInfinity: boolean;
+}
+
+interface CreatedRiftCompletionPost extends CreatedPostBase {
+  entry: 'rift';
+  challengeId: string;
+  challengeName: string;
+}
+
+type CreatedPost = CreatedFrenzyPost | CreatedRiftCompletionPost;
+type PostKind = 'frenzy' | 'rift';
 
 interface RedditPostSimulatorProps {
   state: PlayerState;
@@ -28,22 +41,27 @@ async function readApiError(response: Response, fallback: string): Promise<strin
 }
 
 export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state, onClaimed }) => {
+  const [postKind, setPostKind] = useState<PostKind>('frenzy');
   const [rarityInput, setRarityInput] = useState(() => String(Math.max(2, Number(state.highestRarity) || 2)));
-  const [post, setPost] = useState<CreatedFrenzyPost | null>(null);
+  const [challengeId, setChallengeId] = useState<string>(RIFT_CHALLENGES[0]?.id ?? 'first-spark');
+  const [post, setPost] = useState<CreatedPost | null>(null);
   const [loadingPost, setLoadingPost] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
 
   const previewUrl = useMemo(() => {
     if (!post) return '';
-    const url = new URL('frenzy.html', window.location.href);
+    const entryFile = post.entry === 'rift' ? 'rift.html' : 'frenzy.html';
+    const url = new URL(entryFile, window.location.href);
     url.searchParams.set('previewPostId', post.postId);
+    if (post.entry === 'rift') url.searchParams.set('player', 'RiftPostSimulatorViewer');
     return url.toString();
-  }, [post?.postId]);
+  }, [post?.postId, post?.entry]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
+      if (post?.entry !== 'frenzy') return;
       const message = event.data as { type?: unknown; result?: unknown } | null;
       if (message?.type !== 'io-frenzy-preview-claimed' || !message.result || typeof message.result !== 'object') return;
       const result = message.result as RollResponse;
@@ -52,31 +70,51 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onClaimed]);
+  }, [onClaimed, post?.entry]);
 
   const createAndViewPost = async () => {
-    const selectedRarity = Number(rarityInput.trim());
-    if (!Number.isFinite(selectedRarity) || !Number.isInteger(selectedRarity) || selectedRarity < 2) {
-      setError('Enter a whole-number rarity of at least 2. Scientific notation is accepted.');
-      return;
-    }
     setLoadingPost(true);
     setError(null);
     setPost(null);
     try {
-      const response = await fetch('/api/frenzy/simulator/create', {
+      let endpoint: string;
+      let payload: Record<string, unknown>;
+      let fallback: string;
+
+      if (postKind === 'rift') {
+        endpoint = '/api/rift-completion/simulator/create';
+        payload = { challengeId };
+        fallback = 'Could not generate the Rift first-clear post preview.';
+      } else {
+        const selectedRarity = Number(rarityInput.trim());
+        if (!Number.isFinite(selectedRarity) || !Number.isInteger(selectedRarity) || selectedRarity < 2) {
+          throw new Error('Enter a whole-number rarity of at least 2. Scientific notation is accepted.');
+        }
+        endpoint = '/api/frenzy/simulator/create';
+        payload = { rarity: selectedRarity };
+        fallback = 'Could not generate the Frenzy post preview.';
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rarity: selectedRarity }),
+        body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(await readApiError(response, 'Could not generate the Frenzy post preview.'));
-      const created = await response.json() as CreatedFrenzyPost;
+      if (!response.ok) throw new Error(await readApiError(response, fallback));
+      const created = await response.json() as CreatedPost;
+      if (created.entry !== postKind) throw new Error('The simulator returned a different post entry than requested.');
       setPost(created);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not generate the Frenzy post preview.');
+      setError(cause instanceof Error ? cause.message : 'Could not generate the Reddit post preview.');
     } finally {
       setLoadingPost(false);
     }
+  };
+
+  const changePostKind = (next: PostKind) => {
+    setPostKind(next);
+    setPost(null);
+    setError(null);
   };
 
   return (
@@ -85,31 +123,70 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
         <div>
           <span>POST INTEGRATION TEST</span>
           <h1>Reddit Post Simulator</h1>
-          <p>Generate the same Frenzy post payload and embedded view used by the live publisher. The submission stays local and never reaches Reddit.</p>
+          <p>Generate the same custom-post entry used by the live publisher. Submissions stay local and never reach Reddit.</p>
         </div>
         <strong>LOCAL ONLY</strong>
       </header>
-      <div className="rounded-2xl border border-cyan-500/30 bg-slate-900 px-4 py-3 text-xs text-cyan-100">
-        <strong className="font-black uppercase tracking-wider">Real post format · Simulated submission</strong>
-        <p className="mt-1 text-slate-400">
-          Preview generation does not consume a roll or change your save. Claiming the preview uses the real Frenzy claim engine.
-        </p>
-      </div>
 
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-4 text-white">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="min-w-0 flex-1">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400">Orb rarity to publish</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={rarityInput}
-              onChange={event => setRarityInput(event.target.value)}
-              onKeyDown={event => { if (event.key === 'Enter') void createAndViewPost(); }}
-              placeholder="e.g. 1000000 or 1e100"
-              className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-mono text-white outline-none focus:border-cyan-400"
-            />
-          </label>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Post type">
+          <button
+            type="button"
+            aria-pressed={postKind === 'frenzy'}
+            onClick={() => changePostKind('frenzy')}
+            className={'rounded-lg border px-4 py-2 text-xs font-black transition ' + (postKind === 'frenzy' ? 'border-cyan-300 bg-cyan-500/20 text-cyan-100' : 'border-slate-700 bg-slate-950 text-slate-400 hover:text-white')}
+          >
+            Orb Frenzy
+          </button>
+          <button
+            type="button"
+            aria-pressed={postKind === 'rift'}
+            onClick={() => changePostKind('rift')}
+            className={'rounded-lg border px-4 py-2 text-xs font-black transition ' + (postKind === 'rift' ? 'border-violet-300 bg-violet-500/20 text-violet-100' : 'border-slate-700 bg-slate-950 text-slate-400 hover:text-white')}
+          >
+            Rift First Clear
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-cyan-500/25 bg-slate-950/70 px-4 py-3 text-xs text-cyan-100">
+          <strong className="font-black uppercase tracking-wider">
+            {postKind === 'rift' ? 'First-clear announcement · Simulated submission' : 'Frenzy reward post · Simulated submission'}
+          </strong>
+          <p className="mt-1 leading-relaxed text-slate-400">
+            {postKind === 'rift'
+              ? 'Generates a local Rift completion record and opens the actual rift custom-post entry. It does not complete a challenge or submit a real Reddit post. The iframe uses a separate local viewer profile, so you can test one-time Kudos and its rewards without allowing the post owner to Kudos themselves.'
+              : 'Generates the same Reddit submission payload as the real Frenzy publisher. Preview generation does not consume a roll or change your save; claiming the preview uses the real Frenzy claim engine.'}
+          </p>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          {postKind === 'frenzy' ? (
+            <label className="min-w-0 flex-1">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400">Orb rarity to publish</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={rarityInput}
+                onChange={event => setRarityInput(event.target.value)}
+                onKeyDown={event => { if (event.key === 'Enter') void createAndViewPost(); }}
+                placeholder="e.g. 1000000 or 1e100"
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-mono text-white outline-none focus:border-cyan-400"
+              />
+            </label>
+          ) : (
+            <label className="min-w-0 flex-1">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400">Challenge to announce</span>
+              <select
+                value={challengeId}
+                onChange={event => setChallengeId(event.target.value)}
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-violet-400"
+              >
+                {RIFT_CHALLENGES.map(challenge => (
+                  <option key={challenge.id} value={challenge.id}>{challenge.name} · First clear</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             onClick={() => void createAndViewPost()}
@@ -119,16 +196,23 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
             {loadingPost ? 'Generating preview…' : post ? 'Create new post' : 'Create and view post'}
           </button>
         </div>
+
         <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-          The selected rarity is placed into the exact title, body, stored post record, and embedded Frenzy view used by a real post.
+          {postKind === 'rift'
+            ? 'The preview uses the real first-clear post title, metadata format, rift entrypoint, and Kudos interface. It never calls Reddit submission APIs.'
+            : 'The selected rarity is placed into the exact title, body, stored post record, and embedded Frenzy view used by a real post.'}
         </p>
         {error && <p role="alert" className="mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{error}</p>}
       </section>
 
       {!post ? (
-        <div className="rounded-xl border border-slate-300 bg-white p-8 text-center">
-          <div className="text-lg font-black text-slate-800">No post preview yet</div>
-          <p className="mt-1 text-sm text-slate-500">Choose a rarity above to generate the real Frenzy post payload and embedded view.</p>
+        <div className="rounded-xl border border-slate-700 bg-slate-900 p-8 text-center">
+          <div className="text-lg font-black text-slate-100">No post preview yet</div>
+          <p className="mt-1 text-sm text-slate-400">
+            {postKind === 'rift'
+              ? 'Choose a challenge above to preview its first-clear announcement.'
+              : 'Choose a rarity above to generate the Frenzy post payload and embedded view.'}
+          </p>
         </div>
       ) : (
         <article className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-xl">
@@ -142,12 +226,14 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
             </div>
             <h2 className="mt-2 text-lg font-bold leading-snug text-slate-900">{post.title}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-wide">
-              {post.flairId
+              {post.entry === 'frenzy' && post.flairId
                 ? <span className="rounded bg-indigo-100 px-2 py-1 text-indigo-800">Frenzy flair applied</span>
-                : <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">No flair template returned by the Pages mock</span>}
+                : <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">{post.entry === 'rift' ? 'First-clear announcement' : 'No flair template returned by the Pages mock'}</span>}
               <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">Custom post entry: {post.entry}</span>
               <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">Run as: {post.runAs}</span>
-              <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">Orb: 1/{formatRarity(post.rarity, post.isInfinity)}</span>
+              {post.entry === 'frenzy'
+                ? <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">Orb: 1/{formatRarity(post.rarity, post.isInfinity)}</span>
+                : <span className="rounded bg-violet-100 px-2 py-1 text-violet-800">Kudos window: 24 hours</span>}
             </div>
           </header>
 
@@ -155,10 +241,10 @@ export const RedditPostSimulator: React.FC<RedditPostSimulatorProps> = ({ state,
             key={post.postId}
             ref={frameRef}
             src={previewUrl}
-            title="Actual Infinity Orbs Frenzy Reddit post preview"
+            title={post.entry === 'rift' ? 'Actual Infinity Orbs Rift first-clear Reddit post preview' : 'Actual Infinity Orbs Frenzy Reddit post preview'}
             loading="eager"
             className="block w-full border-0 bg-[#050b13]"
-            style={{ height: '1180px' }}
+            style={{ height: post.entry === 'rift' ? '760px' : '1180px' }}
           />
 
           <details className="border-t border-slate-200 bg-slate-50 px-4 py-3">

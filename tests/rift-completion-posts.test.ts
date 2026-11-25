@@ -77,3 +77,42 @@ test('Rift admin tools are registered in the searchable console and expose Rift-
   assert.match(debug, /debugRouter\.get\('\/rift\/status'/);
   assert.match(debug, /debugRouter\.post\('\/rift\/grant'/);
 });
+
+
+test('Pages and Devvit Reddit Post Simulators render local Rift first-clear posts without awarding live rewards', () => {
+  const pagesApi = read('src/pages/api.ts');
+  const app = read('src/server/app.ts');
+  const service = read('src/server/rift-challenges.ts');
+  const simulator = read('src/client/components/RedditPostSimulator.tsx');
+  const post = read('src/client/rift.tsx');
+  const pagesBuild = read('vite.pages.config.ts');
+
+  assert.match(pagesApi, /case '\/api\/rift-completion\/simulator\/create'/);
+  assert.match(pagesApi, /ownerId = 'simulated-rift-owner:' \+ viewerId/);
+  assert.match(pagesApi, /registerRiftCompletionPost\(/);
+  assert.match(pagesApi, /case '\/api\/rift-completion\/simulator\/kudos'/);
+  assert.match(pagesApi, /simulateRiftCompletionKudos\(body\.postId\)/);
+
+  assert.match(app, /app\.post\('\/api\/rift-completion\/simulator\/create'/);
+  assert.match(app, /app\.post\('\/api\/rift-completion\/simulator\/kudos'/);
+  assert.match(app, /simulateRiftCompletionKudos\(req\.body\?\.postId\)/);
+  assert.match(app, /app\.post\('\/api\/rift-completion\/kudos'/);
+  assert.match(app, /awardRiftCompletionKudos\(req\.body\?\.postId\)/);
+
+  assert.match(service, /RIFT_COMPLETION_SIMULATOR_KUDOS_PREFIX/);
+  assert.match(service, /export async function simulateRiftCompletionKudos/);
+  assert.match(service, /isRiftCompletionSimulatorPost\(postId\)/);
+  assert.match(service, /wouldGrantShardsToYou: RIFT_KUDOS_REWARD_SHARDS/);
+  assert.match(service, /shardsGrantedToYou: 0/);
+  assert.match(service, /simulated: true/);
+
+  assert.match(simulator, /Rift First Clear/);
+  assert.match(simulator, /\/api\/rift-completion\/simulator\/create/);
+  assert.match(simulator, /entryFile = post\.entry === 'rift' \? 'rift\.html' : 'frenzy\.html'/);
+  assert.match(simulator, /player', 'RiftPostSimulatorViewer'/);
+  assert.match(post, /previewPostId/);
+  assert.match(post, /info\.postId \|\| previewPostId \|\| context\.postId/);
+  assert.match(post, /previewPostId\s*\?\s*'\/api\/rift-completion\/simulator\/kudos'/);
+  assert.match(post, /No live rewards or saves were changed/);
+  assert.match(pagesBuild, /rift: path\.join\(clientRoot, 'rift\.html'\)/);
+});

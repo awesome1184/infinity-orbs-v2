@@ -124,9 +124,10 @@ import { auditKnownRedisStorage } from './redis-storage-audit.js';
 import * as devvitServer from '@devvit/web/server';
 import { PURCHASE_PACKS, spendShards, FEATURE_UNLOCK_LEVELS, calculateLevelFromXp, formatRarity, MASTERY_SKILLS, MAX_ORB_RARITY, nextCodexChainRarity, bestCodexChain, codexDevotionLuckPercent, type FeatureId, type MasterySkillId, type UpgradeId } from '../shared/game.js';
 import { APP_VERSION } from '../shared/version.js';
+import { getRiftChallengeDefinition } from '../shared/rift-challenges.js';
 import { globalFeaturesForRequest } from '../shared/admin-cli.js';
 import { getCombatSnapshot, getCombatMarksBalance, performCombatBeat, equipCombatItem, scrapCombatItem, forgeCombatGear, equipCombatSkill, rollCombatSkill, rankUpCombatSkillGacha, buyCombatUpgrade, setCombatOrbFocus, getCombatArenaOpponents, challengeCombatArena, setCombatAutoTactic, setCombatDungeon, equipCombatRune, sacrificeCombatRuneInto, updateCombatRuneAutoSacrificeSettings, processCombatRuneAutoSacrifice, hasCompletedCombatTutorial, markCombatTutorialSeen, buyCombatStrategyGuideRank } from './combat.js';
-import { getRiftChallengeStatus, startRiftChallenge, rollRiftChallenge, buyRiftChallengeUpgrade, buyRiftPerk, setRiftTemporalDrag, chooseRiftMutation, activateRiftEmergencyProtocol, abandonRiftChallenge, markRiftGameOpened, registerRiftCompletionPost, getRiftCompletionPostInfo, awardRiftCompletionKudos } from './rift-challenges.js';
+import { getRiftChallengeStatus, getRiftRelicForgeStatus, buyRiftRelic, setEquippedRiftRelic, startRiftChallenge, rollRiftChallenge, buyRiftChallengeUpgrade, buyRiftPerk, setRiftTemporalDrag, chooseRiftMutation, activateRiftEmergencyProtocol, abandonRiftChallenge, markRiftGameOpened, registerRiftCompletionPost, getRiftCompletionPostInfo, awardRiftCompletionKudos, simulateRiftCompletionKudos } from './rift-challenges.js';
 
 const payments = (devvitServer as typeof devvitServer & {
   payments: {
@@ -1158,6 +1159,17 @@ export function createApp() {
     }
   });
 
+  app.get('/api/rift-challenges/relics/status', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      res.json(await getRiftRelicForgeStatus());
+    } catch (error: any) {
+      const message = error?.message || 'Could not load the Rift Relic Forge.';
+      res.status(message === 'REDDIT_LOGIN_REQUIRED' ? 401 : transientContentionError(error) ? 503 : 500)
+        .json({ error: message });
+    }
+  });
+
   app.post('/api/rift-challenges/mark-opened', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
@@ -1168,20 +1180,89 @@ export function createApp() {
     }
   });
 
-  app.get('/api/rift-completion/info', async (_req, res) => {
+  app.get('/api/rift-completion/info', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      res.json(await getRiftCompletionPostInfo());
+      const postId = typeof req.query.postId === 'string' ? req.query.postId : undefined;
+      res.json(await getRiftCompletionPostInfo(postId));
     } catch (error: any) {
       const message = error?.message || 'Could not load this Rift completion post.';
       res.status(message === 'REDDIT_LOGIN_REQUIRED' ? 401 : 404).json({ error: message });
     }
   });
 
-  app.post('/api/rift-completion/kudos', async (_req, res) => {
+  app.post('/api/rift-completion/simulator/create', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      res.json(await awardRiftCompletionKudos());
+      const viewerId = String(context.userId ?? '').trim();
+      if (!viewerId) throw new Error('REDDIT_LOGIN_REQUIRED');
+      const challenge = getRiftChallengeDefinition(req.body?.challengeId);
+      if (!challenge) throw new Error('Choose a valid Rift challenge to preview.');
+      const cryptoApi = globalThis.crypto;
+      if (!cryptoApi?.getRandomValues) throw new Error('Secure preview ID generation is unavailable.');
+      const makeId = () => {
+        if (typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
+        return Array.from(cryptoApi.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('');
+      };
+      const ownerId = 'simulated-rift-owner:' + viewerId;
+      const ownerUsername = String(context.username ?? 'Redditor').trim().replace(/^u\//i, '').slice(0, 32) || 'Redditor';
+      const subredditName = String(context.subredditName ?? '').trim().replace(/^r\//i, '').slice(0, 100);
+      if (!subredditName) throw new Error('Subreddit context is unavailable for the simulated post.');
+      const createdAt = Date.now();
+      const postId = 't3_sim_rift_preview-' + makeId();
+      const runId = 'rift-post-simulator-' + makeId();
+      const title = 'u/' + ownerUsername + ' has completed the Rift ' + challenge.name + ' for the first time!';
+      const postBody = 'u/' + ownerUsername + ' has completed the rift ' + challenge.name + ' for the first time!\n\n' +
+        'Celebrate this first clear with Kudos. Each player can send Kudos once, during the first 24 hours after the post is published.\n\n' +
+        'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\n\n' +
+        'Use the buttons below to open Infinity Orbs or send Kudos. Sending Kudos will not open the game.';
+      await registerRiftCompletionPost({
+        postId,
+        runId,
+        ownerId,
+        ownerUsername,
+        challengeId: challenge.id,
+        challengeName: challenge.name,
+        subredditName,
+        createdAt,
+      });
+      res.json({
+        postId,
+        title,
+        body: postBody,
+        subredditName,
+        ownerUsername,
+        runAs: 'USER',
+        entry: 'rift',
+        flairId: null,
+        challengeId: challenge.id,
+        challengeName: challenge.name,
+        createdAt,
+        expiresAt: createdAt + 24 * 60 * 60_000,
+      });
+    } catch (error: any) {
+      const message = error?.message || 'Could not create the Rift post simulation.';
+      res.status(message === 'REDDIT_LOGIN_REQUIRED' ? 401 : 400).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-completion/simulator/kudos', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      res.json(await simulateRiftCompletionKudos(req.body?.postId));
+    } catch (error: any) {
+      const message = error?.message || 'Could not simulate Kudos.';
+      const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
+        : /24 hours|owner/i.test(message) ? 400
+        : transientContentionError(error) ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-completion/kudos', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      res.json(await awardRiftCompletionKudos(req.body?.postId));
     } catch (error: any) {
       const message = error?.message || 'Could not send Kudos.';
       const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
@@ -1263,6 +1344,46 @@ export function createApp() {
       const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
         : message.startsWith('Need ') || message.includes('already at maximum') ||
           message.includes('valid Rift perk') ? 400
+        : transientContentionError(error) ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-challenges/relic/forge', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const relicId = req.body?.relicId;
+      if (typeof relicId !== 'string' || relicId.length > 40) {
+        return res.status(400).json({ error: 'Choose a valid Rift relic.' });
+      }
+      res.json(await buyRiftRelic(relicId));
+    } catch (error: any) {
+      const message = error?.message || 'Rift Relic crafting failed.';
+      const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
+        : message.startsWith('Need ') || message.includes('not enough Combat Scrap') ||
+          message.includes('Complete your first Rift Challenge') ||
+          message.includes('active Rift run') || message.includes('maximum rank') ||
+          message.includes('valid Rift relic') ? 400
+        : transientContentionError(error) ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/rift-challenges/relic/equip', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const relicId = req.body?.relicId;
+      const equipped = req.body?.equipped;
+      if (typeof relicId !== 'string' || relicId.length > 40 || typeof equipped !== 'boolean') {
+        return res.status(400).json({ error: 'Choose a valid Rift relic and equipment action.' });
+      }
+      res.json(await setEquippedRiftRelic(relicId, equipped));
+    } catch (error: any) {
+      const message = error?.message || 'Rift Relic equipment could not be updated.';
+      const status = message === 'REDDIT_LOGIN_REQUIRED' ? 401
+        : message.includes('Complete your first Rift Challenge') ||
+          message.includes('active Rift run') || message.includes('Forge this relic') ||
+          message.includes('slots are occupied') || message.includes('valid Rift relic') ? 400
         : transientContentionError(error) ? 503 : 500;
       res.status(status).json({ error: message });
     }
