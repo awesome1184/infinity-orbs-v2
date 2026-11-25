@@ -42,6 +42,7 @@ const RIFT_ARCHIVE_KEY_PREFIX = 'io:rift-challenge:v1:';
 const RIFT_COMPLETION_POST_PREFIX = 'io:rift-completion:post:v1:';
 const RIFT_COMPLETION_RUN_PREFIX = 'io:rift-completion:run:v1:';
 const RIFT_COMPLETION_KUDOS_PREFIX = 'io:rift-completion:kudos:v1:';
+const RIFT_COMPLETION_SIMULATOR_KUDOS_PREFIX = 'io:rift-completion:sim-kudos:v1:';
 const RIFT_COMPLETION_KUDOS_POST_LOCK_PREFIX = '__rift-completion-kudos__:';
 const RIFT_KUDOS_REWARD_SHARDS = 10;
 const RIFT_KUDOS_PROGRESS_MINUTES = 1;
@@ -63,6 +64,14 @@ interface RiftCompletionPostRecord {
 
 function riftCompletionKudosReceiptKey(postId: string, userId: string): string {
   return RIFT_COMPLETION_KUDOS_PREFIX + encodeURIComponent(postId) + ':' + encodeURIComponent(userId);
+}
+
+function isRiftCompletionSimulatorPost(postId: string): boolean {
+  return postId.startsWith('t3_pages_rift_preview-') || postId.startsWith('t3_sim_rift_preview-');
+}
+
+function riftCompletionSimulatorKudosReceiptKey(postId: string, userId: string): string {
+  return RIFT_COMPLETION_SIMULATOR_KUDOS_PREFIX + encodeURIComponent(postId) + ':' + encodeURIComponent(userId);
 }
 
 async function withRiftPlayerLocks<T>(userIds: string[], fn: () => Promise<T>): Promise<T> {
@@ -466,15 +475,6 @@ export async function adminGrantRiftProgress(
   });
 }
 
-export async function ensureRiftCompletionSimulatorArchive(): Promise<void> {
-  return withPlayerMutationLock(async () => {
-    const key = archiveKey();
-    const existing = await redis.get(key);
-    if (typeof existing === 'string' && existing) return;
-    await writeArchive(createEmptyRiftChallengeArchive(Date.now()));
-  });
-}
-
 export async function registerRiftCompletionPost(
   record: Omit<RiftCompletionPostRecord, 'version'>,
 ): Promise<void> {
@@ -529,7 +529,11 @@ export async function getRiftCompletionPostInfo(postIdValue?: unknown): Promise<
   const kudosExpiresAt = record.createdAt + RIFT_KUDOS_WINDOW_MS;
   const expired = now >= kudosExpiresAt;
   const isOwner = viewerId === record.ownerId;
-  const alreadyKudosed = await redis.get(riftCompletionKudosReceiptKey(postId, viewerId)) != null;
+  const alreadyKudosed = await redis.get(
+    isRiftCompletionSimulatorPost(postId)
+      ? riftCompletionSimulatorKudosReceiptKey(postId, viewerId)
+      : riftCompletionKudosReceiptKey(postId, viewerId),
+  ) != null;
   return {
     postId,
     ownerUsername: record.ownerUsername,
@@ -542,6 +546,69 @@ export async function getRiftCompletionPostInfo(postIdValue?: unknown): Promise<
     alreadyKudosed,
     canKudos: !expired && !isOwner && !alreadyKudosed,
   };
+}
+
+export async function simulateRiftCompletionKudos(postIdValue?: unknown): Promise<{
+  alreadyKudosed: boolean;
+  shardsGrantedToYou: number;
+  shardsGrantedToOwner: number;
+  progressMinutesGranted: number;
+  simulated: true;
+  wouldGrantShardsToYou: number;
+  wouldGrantShardsToOwner: number;
+  wouldGrantProgressMinutes: number;
+}> {
+  const postId = String(postIdValue ?? context.postId ?? '').trim();
+  if (!postId || !isRiftCompletionSimulatorPost(postId)) {
+    throw new Error('This is not a simulated Rift completion post.');
+  }
+  const giverId = currentUserId();
+  const raw = await redis.get(RIFT_COMPLETION_POST_PREFIX + postId);
+  if (typeof raw !== 'string' || !raw) throw new Error('Rift completion post data was not found.');
+  let record: RiftCompletionPostRecord;
+  try { record = JSON.parse(raw) as RiftCompletionPostRecord; }
+  catch { throw new Error('Rift completion post data is corrupted.'); }
+  if (record.version !== 1 || record.postId !== postId || !record.ownerId ||
+      !Number.isSafeInteger(record.createdAt) || record.createdAt < 0) {
+    throw new Error('Rift completion post data is invalid.');
+  }
+  if (giverId === record.ownerId) throw new Error('The simulator viewer must be different from the simulated post owner.');
+  if (Date.now() >= record.createdAt + RIFT_KUDOS_WINDOW_MS) {
+    throw new Error('Kudos are only available for the first 24 hours after this post was created.');
+  }
+
+  return withRiftPlayerLocks([RIFT_COMPLETION_KUDOS_POST_LOCK_PREFIX + 'sim:' + postId + ':' + giverId], async () => {
+    const receiptKey = riftCompletionSimulatorKudosReceiptKey(postId, giverId);
+    if (await redis.get(receiptKey) != null) {
+      return {
+        alreadyKudosed: true,
+        shardsGrantedToYou: 0,
+        shardsGrantedToOwner: 0,
+        progressMinutesGranted: 0,
+        simulated: true,
+        wouldGrantShardsToYou: RIFT_KUDOS_REWARD_SHARDS,
+        wouldGrantShardsToOwner: RIFT_KUDOS_REWARD_SHARDS,
+        wouldGrantProgressMinutes: RIFT_KUDOS_PROGRESS_MINUTES,
+      };
+    }
+    const expiresAt = record.createdAt + RIFT_KUDOS_WINDOW_MS;
+    await redis.set(receiptKey, JSON.stringify({
+      postId,
+      viewerId: giverId,
+      simulated: true,
+      createdAt: Date.now(),
+    }), { expiration: new Date(expiresAt) });
+    return {
+      alreadyKudosed: false,
+      shardsGrantedToYou: 0,
+      shardsGrantedToOwner: 0,
+      progressMinutesGranted: 0,
+      simulated: true,
+      wouldGrantShardsToYou: RIFT_KUDOS_REWARD_SHARDS,
+      wouldGrantShardsToOwner: RIFT_KUDOS_REWARD_SHARDS,
+      wouldGrantProgressMinutes: RIFT_KUDOS_PROGRESS_MINUTES,
+    };
+  });
 }
 
 export async function awardRiftCompletionKudos(postIdValue?: unknown): Promise<{
