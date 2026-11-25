@@ -16,7 +16,8 @@ import {
   type RiftPerkId,
 } from '../../shared/rift-challenges.js';
 import { formatNumber, formatRarity } from '../../shared/game.js';
-import { Activity, ArrowUpRight, Zap } from 'lucide-react';
+import { RIFT_RELICS, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS, riftRelicCost, type RiftRelicId } from '../../shared/rift-relics.js';
+import { Activity, ArrowUpRight, Zap, Hammer } from 'lucide-react';
 
 async function challengeRequest<T>(path: string, method = 'GET', body?: Record<string, unknown>): Promise<T> {
   const response = await fetch(path, {
@@ -51,21 +52,23 @@ export const RiftChallengesSection: React.FC<{
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scrapBalance, setScrapBalance] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [temporalDragDraft, setTemporalDragDraft] = useState(1);
   const [blueprintDraft, setBlueprintDraft] = useState<RiftChallengeUpgradeId>('fortune');
 
   const refresh = useCallback(async () => {
-    const result = await challengeRequest<RiftChallengeSnapshot>('/api/rift-challenges');
+    const result = await challengeRequest<RiftChallengeSnapshot & { scrapBalance: number }>('/api/rift-challenges/relics/status');
     setSnapshot(result);
+    setScrapBalance(result.scrapBalance);
     return result;
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void challengeRequest<RiftChallengeSnapshot>('/api/rift-challenges')
-      .then(result => { if (!cancelled) setSnapshot(result); })
+    void challengeRequest<RiftChallengeSnapshot & { scrapBalance: number }>('/api/rift-challenges/relics/status')
+      .then(result => { if (!cancelled) { setSnapshot(result); setScrapBalance(result.scrapBalance); } })
       .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load Rift progression.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -127,6 +130,11 @@ export const RiftChallengesSection: React.FC<{
     try {
       const result = await challengeRequest<RiftChallengeSnapshot>(path, body ? 'POST' : 'GET', body);
       setSnapshot(result);
+      if (action.startsWith('forge-relic-')) {
+        const forgeStatus = await challengeRequest<RiftChallengeSnapshot & { scrapBalance: number }>('/api/rift-challenges/relics/status');
+        setScrapBalance(forgeStatus.scrapBalance);
+        setSnapshot(forgeStatus);
+      }
       setConfirmAbandon(false);
       if (action.startsWith('start-')) onEnterGame?.();
       else if (action === 'abandon') onExit?.();
@@ -169,6 +177,12 @@ export const RiftChallengesSection: React.FC<{
     'emergency-protocol',
     '/api/rift-challenges/emergency',
     { runId: run?.runId },
+  );
+  const forgeRelic = (id: RiftRelicId) => void performAction(
+    'forge-relic-' + id, '/api/rift-challenges/relic/forge', { relicId: id },
+  );
+  const equipRelic = (id: RiftRelicId, equipped: boolean) => void performAction(
+    'equip-relic-' + id, '/api/rift-challenges/relic/equip', { relicId: id, equipped },
   );
 
   if (loading) {
@@ -427,6 +441,101 @@ export const RiftChallengesSection: React.FC<{
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-amber-300/20 bg-slate-900/75 p-5 sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[.2em] text-amber-300">03 · Salvaged artifacts</div>
+            <h2 className="mt-1 flex items-center gap-2 text-xl font-black text-white"><Hammer className="h-5 w-5 text-amber-300" /> The Relic Forge</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-400">Forge permanent Rift Relics with Combat Scrap and Rift Points. Equip a loadout before a run; it remains locked until that run ends.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <div className="rounded-xl border border-amber-300/20 bg-amber-400/5 px-3 py-2 text-right">
+              <div className="text-[9px] font-black uppercase tracking-widest text-amber-200">Combat Scrap</div>
+              <div className="text-lg font-black tabular-nums text-white">{formatNumber(scrapBalance)}</div>
+            </div>
+            <div className="rounded-xl border border-violet-300/20 bg-violet-400/5 px-3 py-2 text-right">
+              <div className="text-[9px] font-black uppercase tracking-widest text-violet-200">Relic slots</div>
+              <div className="text-lg font-black tabular-nums text-white">{archive.equippedRiftRelics.length}/{archive.riftPerkLevels.timelineFork > 0 ? RIFT_RELIC_FORKED_EQUIP_SLOTS : RIFT_RELIC_EQUIP_SLOTS}</div>
+            </div>
+          </div>
+        </div>
+
+        {archive.completedChallengeIds.length === 0 && (
+          <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-100">
+            Complete your first Rift Challenge to unlock relic crafting and equipment.
+          </div>
+        )}
+        {run?.status === 'active' && (
+          <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-400/5 px-4 py-3 text-xs text-cyan-100">
+            Your current run is using its saved relic loadout. Forge and equipment changes are available again after the run ends.
+          </div>
+        )}
+        {archive.riftPerkLevels.timelineFork <= 0 && archive.completedChallengeIds.length > 0 && (
+          <div className="mt-4 rounded-xl border border-violet-300/20 bg-violet-500/5 px-4 py-3 text-xs text-violet-100">
+            Timeline Fork is available in the Rift Point shop. Purchase it to unlock a third relic slot.
+          </div>
+        )}
+        {archive.equippedRiftRelics.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300/15 bg-black/20 px-3 py-3">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Equipped loadout</span>
+            {archive.equippedRiftRelics.map(id => (
+              <span key={id} className="rounded-lg border border-amber-300/20 bg-amber-400/10 px-2.5 py-1.5 text-[10px] font-black text-amber-100">{RIFT_RELICS[id].name}</span>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {Object.values(RIFT_RELICS).map(relic => {
+            const level = archive.riftRelicLevels[relic.id] ?? 0;
+            const maxed = level >= relic.maxLevel;
+            const equipped = archive.equippedRiftRelics.includes(relic.id);
+            const slots = archive.riftPerkLevels.timelineFork > 0 ? RIFT_RELIC_FORKED_EQUIP_SLOTS : RIFT_RELIC_EQUIP_SLOTS;
+            const cost = riftRelicCost(relic.id, level);
+            const unlocked = archive.completedChallengeIds.length > 0;
+            const canForge = unlocked && !maxed && run?.status !== 'active' && busyAction === null &&
+              scrapBalance >= cost.scrap && riftProjection.points >= cost.riftPoints;
+            const canEquip = unlocked && level > 0 && run?.status !== 'active' && busyAction === null &&
+              (equipped || archive.equippedRiftRelics.length < slots);
+            return (
+              <article key={relic.id} className="flex min-w-0 flex-col rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-black text-white">{relic.name}</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{relic.description}</p>
+                  </div>
+                  <span className="shrink-0 rounded-lg bg-slate-800 px-2 py-1 text-[9px] font-black text-slate-300">Lv {level}/3</span>
+                </div>
+                <div className="mt-3 rounded-lg border border-amber-300/10 bg-amber-300/[.04] px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-100">{relic.effect}</div>
+                <div className="mt-auto pt-4">
+                  <div className="mb-2 flex items-center justify-between gap-2 text-[9px] font-bold text-slate-500">
+                    <span>{maxed ? 'Maximum rank' : 'Next rank cost'}</span>
+                    {!maxed && <span>{formatNumber(cost.scrap)} Scrap · {formatNumber(cost.riftPoints)} RP</span>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => forgeRelic(relic.id)}
+                      disabled={!canForge}
+                      className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-2 py-2.5 text-[9px] font-black text-amber-100 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      {busyAction === 'forge-relic-' + relic.id ? 'Forging…' : maxed ? 'MAX RANK' : 'FORGE'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => equipRelic(relic.id, !equipped)}
+                      disabled={!canEquip}
+                      className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-2 py-2.5 text-[9px] font-black text-cyan-100 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      {busyAction === 'equip-relic-' + relic.id ? 'Updating…' : equipped ? 'UNEQUIP' : 'EQUIP'}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
