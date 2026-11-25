@@ -27,6 +27,7 @@ import {
   type RiftChallengeMainProgress,
   type RiftChallengeRun,
 } from '../shared/rift-challenges.js';
+import { getRiftRelicEffects, riftObserverLuckMultiplier, riftRelicProgressCoinMultiplier, RIFT_RELIC_EQUIP_SLOTS, RIFT_RELIC_FORKED_EQUIP_SLOTS } from '../shared/rift-relics.js';
 
 const notifications = (notificationsModule as any).notifications;
 import { APP_VERSION } from '../shared/version.js';
@@ -4216,6 +4217,16 @@ interface ActiveRiftRunContext {
   emergencyProtocolUntilRoll: number;
   emergencyProtocolCharges: number;
   challengeCoinMultiplier: number;
+  riftRelicLuckExcessMultiplier: number;
+  riftObserverLuckMultiplier: number;
+  riftLoadedDieMultiplier: number;
+  riftFractureCascadeMultiplier: number;
+  riftFractureCascadePending: boolean;
+  riftRelicCompletionRewardMultiplier: number;
+  riftTemporalArbitrageEfficiency: number;
+  riftTemporalDragPenaltyReduction: number;
+  riftStillnessCooldownReduction: number;
+  riftRelicProgressCoinBonus: number;
   upgradeLevels: { fortune: number; speed: number; prosperity: number; critical: number };
   gameState: PlayerState;
 }
@@ -4249,6 +4260,11 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       gameState.stateRevision = 0;
     }
     const riftPerks = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
+    const relicLevels = isPlainRecord(archive.riftRelicLevels) ? archive.riftRelicLevels : {};
+    const relicSlots = safeNonNegativeInteger(riftPerks.timelineFork) > 0
+      ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+      : RIFT_RELIC_EQUIP_SLOTS;
+    const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
     if (safeNonNegativeInteger(riftPerks.automationOverride) > 0) {
       gameState.upgrades = { ...gameState.upgrades, auto: Math.max(1, gameState.upgrades?.auto ?? 0) };
       gameState.manualRolls = Math.max(3, gameState.manualRolls ?? 0);
@@ -4323,6 +4339,16 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
           safeNonNegativeInteger(run.emergencyProtocolsUsed),
       ),
       challengeCoinMultiplier: challenge.coinMultiplier,
+      riftRelicLuckExcessMultiplier: relicEffects.luckExcessMultiplier,
+      riftObserverLuckMultiplier: riftObserverLuckMultiplier(gameState.highestRarity, challenge.targetRarity, relicEffects.observerRank),
+      riftLoadedDieMultiplier: relicEffects.loadedDieMultiplier,
+      riftFractureCascadeMultiplier: relicEffects.fractureCascadeMultiplier,
+      riftFractureCascadePending: run.fractureCascadePending === true && relicEffects.fractureCascadeRank > 0,
+      riftRelicCompletionRewardMultiplier: relicEffects.completionRewardMultiplier,
+      riftTemporalArbitrageEfficiency: relicEffects.temporalArbitrageEfficiency,
+      riftTemporalDragPenaltyReduction: relicEffects.temporalDragPenaltyReduction,
+      riftStillnessCooldownReduction: relicEffects.noAutomationCooldownReduction,
+      riftRelicProgressCoinBonus: relicEffects.progressCoinBonus,
       upgradeLevels: {
         fortune: safeNonNegativeInteger(levels.fortune),
         speed: safeNonNegativeInteger(levels.speed),
@@ -4918,6 +4944,16 @@ export async function loadRaw(options: { registerActivity?: boolean; persistMigr
       emergencyProtocolCharges: activeRiftRun.emergencyProtocolCharges,
       riftConditioningCompletions: activeRiftRun.riftConditioningCompletions,
       challengeCoinMultiplier: activeRiftRun.challengeCoinMultiplier,
+      riftRelicLuckExcessMultiplier: activeRiftRun.riftRelicLuckExcessMultiplier,
+      riftObserverLuckMultiplier: activeRiftRun.riftObserverLuckMultiplier,
+      riftLoadedDieMultiplier: activeRiftRun.riftLoadedDieMultiplier,
+      riftFractureCascadeMultiplier: activeRiftRun.riftFractureCascadeMultiplier,
+      riftFractureCascadePending: activeRiftRun.riftFractureCascadePending,
+      riftRelicCompletionRewardMultiplier: activeRiftRun.riftRelicCompletionRewardMultiplier,
+      riftTemporalArbitrageEfficiency: activeRiftRun.riftTemporalArbitrageEfficiency,
+      riftTemporalDragPenaltyReduction: activeRiftRun.riftTemporalDragPenaltyReduction,
+      riftStillnessCooldownReduction: activeRiftRun.riftStillnessCooldownReduction,
+      riftRelicProgressCoinBonus: activeRiftRun.riftRelicProgressCoinBonus,
       upgradeLevels: { ...activeRiftRun.upgradeLevels },
     };
   }
