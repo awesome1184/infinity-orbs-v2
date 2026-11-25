@@ -174,7 +174,7 @@ test('server uses weighted sample counts for Luck, player totals, XP, Coins, and
   assert.match(apply, /const rarityBounds = getRarityBounds\(rarities\)/);
   assert.doesNotMatch(apply, /Math\.(?:min|max)\(\.\.\.rarities\)/);
   assert.ok(apply.includes('const sampleScale = sampleWeight * averageGroupMultiplier'));
-  assert.ok(apply.includes('effectiveLuck * sampleScale * sampleScale'));
+  assert.ok(apply.includes('riftSampleLuck * sampleScale * sampleScale'));
   assert.match(apply, /const isCompressedGroup = sampleWeight > 1/);
   assert.match(apply, /source === 'offline'[\s\S]{0,100}MAX_SIMULATED_OFFLINE_ROLLS_PER_BATCH/);
   assert.match(apply, /forcedRarity == null,[\s\S]{0,100}maxSimulatedRolls/);
