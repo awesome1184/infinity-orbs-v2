@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - deploy/rift-pages-20261125
     paths:
       - ".github/workflows/github-pages.yml"
       - "package.json"
