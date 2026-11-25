@@ -4265,6 +4265,11 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       ? RIFT_RELIC_FORKED_EQUIP_SLOTS
       : RIFT_RELIC_EQUIP_SLOTS;
     const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
+    const dragValue = normalizeRiftTemporalDragMultiplier(run.temporalDragMultiplier);
+    const dragCompression = Math.min(0.8, safeNonNegativeInteger(riftPerks.temporalCompression) * 0.04);
+    const effectiveDrag = 1 + (dragValue - 1) * (1 - dragCompression) *
+      (1 - relicEffects.temporalDragPenaltyReduction) *
+      (1 - relicEffects.noAutomationCooldownReduction);
     if (safeNonNegativeInteger(riftPerks.automationOverride) > 0) {
       gameState.upgrades = { ...gameState.upgrades, auto: Math.max(1, gameState.upgrades?.auto ?? 0) };
       gameState.manualRolls = Math.max(3, gameState.manualRolls ?? 0);
@@ -4292,7 +4297,7 @@ async function readActiveRiftRun(userId: string): Promise<ActiveRiftRunContext |
       runId,
       challengeId: challenge.id,
       targetRarity: challenge.targetRarity,
-      baseCooldownMs: challenge.baseCooldownMs,
+      baseCooldownMs: Math.max(500, Math.round(challenge.baseCooldownMs * effectiveDrag)),
       riftLuckPerkLevel: safeNonNegativeInteger(riftPerks.riftLuck),
       riftSpeedPerkLevel: safeNonNegativeInteger(riftPerks.riftSpeed),
       temporalDragMultiplier: normalizeRiftTemporalDragMultiplier(run.temporalDragMultiplier),
@@ -4509,6 +4514,12 @@ async function saveActiveRiftPlayerState(
       }
 
       const riftPerkLevels = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
+      const relicLevels = isPlainRecord(archive.riftRelicLevels) ? archive.riftRelicLevels : {};
+      const relicSlots = safeNonNegativeInteger(riftPerkLevels.timelineFork) > 0
+        ? RIFT_RELIC_FORKED_EQUIP_SLOTS
+        : RIFT_RELIC_EQUIP_SLOTS;
+      const relicEffects = getRiftRelicEffects(run.equippedRelics, relicLevels, relicSlots);
+      const previousBestRarity = Math.max(2, Number(run.bestRarity) || 2);
       const interest = accrueRiftDimensionalInterest(
         state.coins,
         state.lifetimeCoins ?? state.coins,
@@ -4525,9 +4536,13 @@ async function saveActiveRiftPlayerState(
       run.coins = storedState.coins;
       run.totalRolls = storedState.totalRolls;
       const riftBestRarity = Math.max(2, Number(storedState.highestRarity) || 2);
+      if (run.fractureCascadePending === true) run.fractureCascadePending = false;
+      if (relicEffects.fractureCascadeRank > 0 && riftBestRarity > previousBestRarity) {
+        run.fractureCascadePending = true;
+      }
       run.bestRarity = riftBestRarity;
       run.updatedAt = now;
-      archive.version = 3;
+      archive.version = 4;
       advanceStoredRiftProgress(archive, now);
 
       const mutationLevels = isPlainRecord(archive.riftPerkLevels) ? archive.riftPerkLevels : {};
@@ -4592,7 +4607,7 @@ async function saveActiveRiftPlayerState(
           challenge.targetRarity,
           safeNonNegativeInteger(riftPerkLevels.overkill),
         );
-        const reward = Math.min(Number.MAX_SAFE_INTEGER, Math.round(baseReward * rewardMultiplier));
+        const reward = Math.min(Number.MAX_SAFE_INTEGER, Math.round(baseReward * rewardMultiplier * relicEffects.completionRewardMultiplier));
         archive.riftPoints = Math.min(Number.MAX_SAFE_INTEGER, safeNonNegativeInteger(archive.riftPoints) + reward);
         archive.totalRiftPointsEarned = Math.min(Number.MAX_SAFE_INTEGER, safeNonNegativeInteger(archive.totalRiftPointsEarned) + reward);
         const bestByChallenge = isPlainRecord(archive.bestRarityByChallenge) ? archive.bestRarityByChallenge : {};
