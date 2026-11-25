@@ -228,6 +228,7 @@ async function handleApiRequest(url: URL, method: string, body: JsonRecord): Pro
           'Kudos gives you +10 Shards, gives the Rift champion +10 Shards, and adds 1 minute of progress to their Rift bar.\n\n' +
           'Use the buttons below to open Infinity Orbs or send Kudos. Sending Kudos will not open the game.';
 
+        await riftChallenges.ensureRiftCompletionSimulatorArchive();
         await riftChallenges.registerRiftCompletionPost({
           postId,
           runId,
