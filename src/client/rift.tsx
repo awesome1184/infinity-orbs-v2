@@ -24,6 +24,10 @@ interface KudosResult {
   shardsGrantedToYou: number;
   shardsGrantedToOwner: number;
   progressMinutesGranted: number;
+  simulated?: boolean;
+  wouldGrantShardsToYou?: number;
+  wouldGrantShardsToOwner?: number;
+  wouldGrantProgressMinutes?: number;
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -76,7 +80,10 @@ function RiftCompletionPost() {
     setError('');
     setNotice('');
     try {
-      const result = await readJson<KudosResult>(await fetch('/api/rift-completion/kudos', {
+      const kudosEndpoint = previewPostId
+        ? '/api/rift-completion/simulator/kudos'
+        : '/api/rift-completion/kudos';
+      const result = await readJson<KudosResult>(await fetch(kudosEndpoint, {
         method: 'POST',
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
@@ -85,8 +92,15 @@ function RiftCompletionPost() {
       setReward(result);
       setInfo(current => current ? { ...current, alreadyKudosed: true, canKudos: false } : current);
       setNotice(result.alreadyKudosed
-        ? 'You have already sent Kudos for this first clear.'
-        : 'Kudos delivered. Both Shard rewards and the Rift progress bonus have been applied.');
+        ? (result.simulated
+          ? 'This local preview viewer has already sent simulated Kudos for this post.'
+          : 'You have already sent Kudos for this first clear.')
+        : result.simulated
+          ? 'Simulation complete. This would grant +' + (result.wouldGrantShardsToYou ?? 10) +
+            ' Shards to you, +' + (result.wouldGrantShardsToOwner ?? 10) +
+            ' Shards to the Rift champion, and +' + (result.wouldGrantProgressMinutes ?? 1) +
+            ' minute of Rift progress. No live rewards or saves were changed.'
+          : 'Kudos delivered. Both Shard rewards and the Rift progress bonus have been applied.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not send Kudos.');
     } finally {
