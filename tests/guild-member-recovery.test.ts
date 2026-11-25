@@ -23,10 +23,8 @@ test('Guild parsing repairs only recoverable member metadata before strict valid
 
   const normalizer = social.slice(normalizeStart, normalizeEnd);
   assert.match(normalizer, /member\.username = trimmed \|\|/);
-  assert.match(normalizer, /member\.contribution = capSafeGuildCounter\(member\.contribution\)/);
-  assert.match(normalizer, /typeof member\.contribution !== 'number'/);
-  assert.match(normalizer, /!Number\.isSafeInteger\(member\.contribution\)/);
-  assert.match(normalizer, /member\.contribution < 0/);
+  assert.match(normalizer, /member\.contribution = normalizeGuildValueProgress\(member\.contribution\)/);
+  assert.match(normalizer, /!isGuildValueProgress\(member\.contribution\)/);
   assert.match(normalizer, /member\.trusted = member\.role === 'owner'/);
   assert.match(normalizer, /delete member\.joinedAt/);
   assert.match(normalizer, /delete member\.lastLoginAt/);
@@ -36,16 +34,18 @@ test('Guild parsing repairs only recoverable member metadata before strict valid
   assert.match(parser, /\(\(member as any\)\.userId == null \|\| typeof \(member as any\)\.userId === 'string'\)/);
 });
 
-test('legacy Guild contribution writer cannot create unsafe member counters', () => {
+test('Guild contribution writer preserves large Collection Value and bounds discrete counters', () => {
   const social = source('src/server/social.ts');
   const start = social.indexOf('export async function contribute(');
   const end = social.indexOf('export async function prepareGuildRollEffects(', start);
   assert.ok(start >= 0 && end > start, 'legacy contribution writer boundary must exist');
   const body = social.slice(start, end);
-  assert.match(body, /const safeValue = capSafeGuildCounter\(value\)/);
-  assert.match(body, /member\.contribution = capSafeGuildCounter\(member\.contribution \+ safeValue\)/);
+  assert.match(body, /const safeValue = capGuildValue\(value\)/);
+  assert.match(body, /member\.contribution = addGuildValueProgress\(member\.contribution, safeValue\)/);
+  assert.match(body, /task\.type === 'value'\) task\.progress = addGuildValueProgress\(task\.progress, safeValue\)/);
   assert.doesNotMatch(body, /member\.contribution \+= value/);
-  assert.match(body, /guild\.boss\.contributors\[username\(\)\] = capSafeGuildCounter/);
+  assert.match(body, /guild\.tokens = capSafeGuildCounter\(\(guild\.tokens \?\? 0\) \+ reward\)/);
+  assert.doesNotMatch(body, /guild\.boss|guildXpReward|guildXpRank|guild\.level|guild\.xp|taxRate/);
 });
 
 
@@ -56,13 +56,17 @@ test('dev-only Guild recovery persists repaired snapshots without overwriting co
   assert.ok(start >= 0 && end > start, 'Guild loader boundaries must exist');
   const loader = social.slice(start, end);
 
-  assert.match(loader, /parsedSnapshot = parseStoredJson<unknown>\(raw\)/);
+  assert.match(loader, /const storedRaw = await redis\.get\(GUILDS_KEY\)/);
+  assert.match(loader, /parsedSnapshot = parseStoredJson<unknown>\(decodedRaw\)/);
   assert.match(loader, /isGuildPlaytestRecoveryEnabled\(\)/);
   assert.match(loader, /Array\.isArray\(parsedSnapshot\)/);
   assert.match(loader, /const txn = await redis\.watch\(GUILDS_KEY\)/);
-  assert.match(loader, /if \(latestRaw !== raw\)/);
-  assert.match(loader, /await txn\.set\(GUILDS_KEY, recoveredRaw\)/);
+  assert.match(loader, /const latestStoredRaw = await redis\.get\(GUILDS_KEY\)/);
+  assert.match(loader, /if \(latestStoredRaw !== storedRaw\)/);
+  assert.match(loader, /createRedisLargeValueWritePlan\(GUILDS_KEY, recoveredRaw\)/);
+  assert.match(loader, /await txn\.set\(GUILDS_KEY, writePlan\.storedValue\)/);
+  assert.match(loader, /retireRedisLargeValue\(GUILDS_KEY, latestStoredRaw\)/);
   assert.match(loader, /Guild Recovery.*Could not persist the dev-only repaired snapshot/);
-  assert.ok(loader.indexOf('isGuildPlaytestRecoveryEnabled()') < loader.indexOf('await txn.set(GUILDS_KEY, recoveredRaw)'),
+  assert.ok(loader.indexOf('isGuildPlaytestRecoveryEnabled()') < loader.indexOf('await txn.set(GUILDS_KEY, writePlan.storedValue)'),
     'only the development subreddit can persist recovered Guild data');
 });

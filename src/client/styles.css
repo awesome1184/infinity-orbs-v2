@@ -84,8 +84,8 @@ body.io-inline-post { margin: 0; }
 @keyframes float-gentle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 @keyframes star-breathe { 0%, 100% { opacity: .34; transform: scale(.96); } 50% { opacity: .8; transform: scale(1.03); } }
 @keyframes orb-breathe { 0%, 100% { box-shadow: 0 0 38px rgba(102, 207, 195, .23), 0 0 110px rgba(73, 118, 168, .12), inset 0 0 38px rgba(255, 255, 255, .14); } 50% { box-shadow: 0 0 54px rgba(102, 207, 195, .36), 0 0 132px rgba(73, 118, 168, .19), inset 0 0 52px rgba(255, 255, 255, .19); } }
-.animate-orbit-ring { animation: orbit-cw 36s linear infinite; }
-.animate-orbit-counter { animation: orbit-ccw 36s linear infinite; }
+.animate-orbit-ring { animation: orbit-cw 18s linear infinite; }
+.animate-orbit-counter { animation: orbit-ccw 18s linear infinite; }
 .animate-float-slow { animation: float-gentle 4s ease-in-out infinite; }
 
 /* A quieter frame for the whole game: small controls, a calm header, and one strong play surface. */
@@ -206,7 +206,7 @@ body.io-inline-post { margin: 0; }
 
 /* Roll screen */
 .roll-layout { display: grid; grid-template-columns: minmax(0, 1fr) 272px; align-items: start; gap: 18px; max-width: 1180px; margin: 0 auto; }
-.roll-main { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 16px; }
+.roll-main { display: flex; width: 100%; max-width: 760px; min-width: 0; flex-direction: column; align-items: center; gap: 16px; margin-inline: auto; }
 .roll-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 2px 3px 5px; }
 .roll-kicker { color: var(--teal); font-size: 9px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
 .roll-title { margin: 7px 0 3px; color: #f1f1e8; font-family: Georgia, "Times New Roman", serif; font-size: clamp(25px, 3vw, 35px); font-weight: 500; letter-spacing: -.025em; line-height: 1.06; }
@@ -1484,6 +1484,59 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
   background: rgba(112, 46, 125, .09);
 }
 
+.io-notification-prompt {
+  position: relative;
+  border-color: rgba(116, 221, 202, .27);
+  box-shadow:
+    0 22px 80px rgba(0, 0, 0, .46),
+    0 0 50px rgba(73, 239, 199, .075),
+    inset 0 1px rgba(255, 255, 255, .04);
+  animation: io-post-rise .32s cubic-bezier(.16, .78, .28, 1) both;
+}
+
+.io-notification-prompt-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #9debdc;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.io-notification-prompt-note {
+  margin-top: 18px;
+  padding: 13px 15px;
+  border: 1px solid rgba(116, 221, 202, .18);
+  border-radius: 15px;
+  background: linear-gradient(140deg, rgba(34, 104, 96, .14), rgba(10, 25, 30, .28));
+}
+
+.io-notification-prompt .io-modal-actions {
+  margin-top: 17px;
+}
+
+.io-notification-prompt .io-modal-actions .io-public-button {
+  min-height: 46px;
+}
+
+.io-notification-backdrop {
+  animation: io-notification-backdrop-in .18s ease-out both;
+}
+
+@keyframes io-notification-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .io-notification-backdrop,
+  .io-notification-prompt {
+    animation: none;
+  }
+}
+
 @keyframes io-frenzy-number-roll {
   0% {
     transform: translateY(.42em);
@@ -1879,7 +1932,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-combat-combatant{display:flex;flex-direction:column;align-items:center;gap:7px}.io-combat-sprite{width:94px;height:94px;display:grid;place-items:center;border:1px solid #5a4d61;border-radius:25px 12px 23px 12px;background:rgba(19,16,23,.84);box-shadow:0 13px 24px rgba(0,0,0,.25);font-size:51px;font-weight:950}
 .io-combat-hero .io-combat-sprite{color:var(--cl);border-color:rgba(201,255,50,.5);text-shadow:0 0 23px rgba(201,255,50,.26);transform:rotate(-3deg)}.io-combat-foe .io-combat-sprite{border-color:rgba(219,109,67,.65);text-shadow:0 0 20px rgba(219,109,67,.25);transform:rotate(3deg)}
 .io-combat-name{display:flex;align-items:center;gap:7px;font:900 10px ui-monospace,monospace;letter-spacing:.06em;text-align:center}.io-combat-name span{color:var(--cl);font-size:9px}
-.io-combat-hp{width:min(100%,230px);height:8px;background:#0f0d12;border:1px solid #4a414e;border-radius:3px;overflow:hidden}.io-combat-hp span{display:block;height:100%;background:var(--cl);transition:width .2s ease-out}.io-combat-hp.is-enemy span{background:var(--cc)}
+.io-combat-hp{position:relative;width:min(100%,230px);height:8px;background:#0f0d12;border:1px solid #4a414e;border-radius:3px;overflow:hidden}.io-combat-hp>span{position:absolute;top:0;display:block;height:100%;border-radius:2px;transition:width .2s ease-out,left .2s ease-out}.io-combat-hp>.io-combat-hp-fill{left:0;background:linear-gradient(90deg,#3b9d77,#75d8a8);box-shadow:0 0 7px rgba(74,222,128,.18)}.io-combat-hp>.io-combat-hp-overhealth{background:linear-gradient(90deg,#d6a628,#f4d04c);box-shadow:0 0 7px rgba(244,208,76,.3)}.io-combat-hp>.io-combat-hp-shield{background:linear-gradient(90deg,#2678d8,#58a6ff);box-shadow:0 0 7px rgba(88,166,255,.34)}.io-combat-hp.is-enemy>span{left:0!important;background:var(--cc);box-shadow:none}.io-combat-hp-overhealth-label{color:#f4d04c}.io-combat-hp-shield-label{color:#58a6ff}
 .io-combat-combatant small{font:10px ui-monospace,monospace;color:#c4bbc6}.io-combat-versus{color:#8e828f;font:950 11px ui-monospace,monospace;text-align:center;transform:rotate(-7deg)}
 .io-combat-stage-foot{justify-content:center;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(241,234,219,.08)}.io-combat-stage-foot span{display:inline-flex;align-items:center;gap:5px;padding:0 10px}.io-combat-stage-foot span:first-child{color:var(--cl)}
 .io-combat-control-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:14px 0}.io-combat-command-group,.io-combat-run-controls{display:flex;flex-wrap:wrap;gap:7px}
@@ -1990,7 +2043,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-combat-orb-panel.has-orb{border-color:#6f5790;background:radial-gradient(ellipse at 10% 50%,rgba(176,110,255,.22),transparent 30%),linear-gradient(125deg,#251a32,#19151e)}
 .io-combat-orb-art{display:grid;place-items:center;width:66px;height:66px;border-radius:50%;border:1px solid #9f7ad0;background:radial-gradient(circle at 33% 28%,#f4d8ff 0,#ac74ee 20%,#50376e 50%,#17121e 75%);box-shadow:0 0 24px rgba(176,110,255,.2),inset 0 0 12px rgba(255,255,255,.17);color:#fff;font-size:28px;text-shadow:0 0 10px #fff;animation:io-orb-breathe 3s ease-in-out infinite}
 .io-combat-orb-copy{min-width:0}.io-combat-orb-copy h2{font-size:17px;line-height:1.3;font-weight:950;margin:4px 0}.io-combat-orb-copy p{margin:0;color:#b7a8c2;font-size:11px;line-height:1.5}
-.io-combat-orb-damage{display:flex;flex-direction:column;align-items:flex-end;gap:3px;border-left:1px solid #46344f;padding-left:16px;white-space:nowrap}.io-combat-orb-damage span{font:800 8px ui-monospace,monospace;letter-spacing:.1em;color:#a693b6}.io-combat-orb-damage strong{font-size:23px;line-height:1.1;font-weight:950;color:#e5c7ff}.io-combat-orb-damage small{font-size:9px;color:#95889f}
+.io-combat-orb-luck-note{display:block;margin-top:3px;color:#d1b9e7;font-size:10px}.io-combat-orb-damage{display:grid;grid-template-columns:repeat(2,minmax(88px,1fr));gap:10px;border-left:1px solid #46344f;padding-left:16px;min-width:0}.io-combat-orb-damage-metric{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:0}.io-combat-orb-damage span{font:800 8px ui-monospace,monospace;letter-spacing:.1em;color:#a693b6}.io-combat-orb-damage strong{font-size:23px;line-height:1.1;font-weight:950;color:#e5c7ff}.io-combat-orb-damage small{font-size:9px;line-height:1.3;color:#95889f;white-space:normal;text-align:right}
 .io-combat-turn-tracker{margin:12px 0 14px;padding:14px;border:1px solid #39313f;border-radius:12px;background:#19151e}
 .io-combat-turn-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.io-combat-turn-head h2{font-size:15px;font-weight:950;margin:4px 0 0}.io-combat-turn-head>strong{font:900 10px ui-monospace,monospace;color:#d8f7a1;border:1px solid rgba(201,255,50,.26);background:rgba(201,255,50,.06);padding:7px 9px;border-radius:6px}
 .io-combat-speed-bars{display:grid;gap:9px}.io-combat-speed-row{display:grid;grid-template-columns:minmax(155px,1.15fr) minmax(75px,2fr) 64px;align-items:center;gap:9px}.io-combat-speed-row>span{display:flex;align-items:center;justify-content:space-between;gap:7px;font:850 9px ui-monospace,monospace;color:#dbd0e1}.io-combat-speed-row>span b{font-size:8px;color:#96899f;white-space:nowrap}.io-combat-speed-row>strong{text-align:right;font:850 8px ui-monospace,monospace;color:#c5b4d7;white-space:nowrap}
@@ -2005,7 +2058,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-combat-gear-tooltip>.io-combat-eyebrow{display:block;font-size:7px;color:#bd9ae0}.io-combat-gear-tooltip>strong{display:block;margin-top:6px;font-size:14px;color:#f0e3fb}.io-combat-gear-tooltip>p{margin:5px 0;color:#b1a4bc;font-size:9px;line-height:1.45}.io-combat-gear-tooltip>div{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}.io-combat-gear-tooltip>div span{padding:4px 5px;border-radius:4px;background:rgba(201,255,50,.07);color:#d7fba1;font:800 8px ui-monospace,monospace}.io-combat-gear-tooltip section{padding-top:8px;border-top:1px solid #47364f}.io-combat-gear-tooltip section b{font-size:9px;color:#f0c77b}.io-combat-gear-tooltip section p{margin:4px 0 0;color:#c7b9d1;font-size:9px;line-height:1.5}
 .io-combat-equipped-lines{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.io-combat-equipment-slot-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.io-combat-equipped-card{min-width:0}.io-combat-equipped-card>strong{overflow-wrap:anywhere}.io-combat-major-inline{color:#f0c77b!important;font-size:9px!important;line-height:1.45}.io-combat-forge-slots{display:flex;gap:8px;flex-wrap:wrap}.io-combat-forge-slots .io-combat-button{flex:1 0 145px}
 @keyframes io-orb-breathe{0%,100%{box-shadow:0 0 20px rgba(176,110,255,.17),inset 0 0 12px rgba(255,255,255,.17)}50%{box-shadow:0 0 30px rgba(176,110,255,.35),inset 0 0 17px rgba(255,255,255,.23)}}
-@media(max-width:700px){.io-combat-orb-panel{grid-template-columns:54px minmax(0,1fr);gap:10px;padding:11px}.io-combat-orb-art{width:50px;height:50px;font-size:22px}.io-combat-orb-damage{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between;border-left:0;border-top:1px solid #46344f;padding:9px 0 0}.io-combat-speed-row{grid-template-columns:minmax(110px,1fr) minmax(45px,1.1fr) 54px;gap:6px}.io-combat-speed-row>span{flex-direction:column;align-items:flex-start;gap:3px;font-size:8px}.io-combat-equipped-lines{grid-template-columns:1fr}.io-combat-equipment-slot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.io-combat-orb-panel{grid-template-columns:54px minmax(0,1fr);gap:10px;padding:11px}.io-combat-orb-art{width:50px;height:50px;font-size:22px}.io-combat-orb-damage{grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;border-left:0;border-top:1px solid #46344f;padding:9px 0 0}.io-combat-orb-damage-metric{align-items:flex-start}.io-combat-orb-damage small{text-align:left}.io-combat-speed-row{grid-template-columns:minmax(110px,1fr) minmax(45px,1.1fr) 54px;gap:6px}.io-combat-speed-row>span{flex-direction:column;align-items:flex-start;gap:3px;font-size:8px}.io-combat-equipped-lines{grid-template-columns:1fr}.io-combat-equipment-slot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.io-combat-turn-head{align-items:flex-start;flex-direction:column}.io-combat-turn-head>strong{max-width:100%}.io-combat-equipment-slot-grid{grid-template-columns:1fr}.io-combat-speed-row{grid-template-columns:92px minmax(35px,1fr) 50px}.io-combat-orb-copy h2{font-size:14px}}
 @media(prefers-reduced-motion:reduce){.io-combat-orb-art{animation:none}}
 
@@ -2163,7 +2216,8 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-runes-icon-art{display:grid;place-items:center;color:#e9d5ff}
 .io-runes-icon small{color:#cbd5e1;font:800 9px ui-monospace,monospace}
 .io-runes-icon.is-equipped{background:linear-gradient(145deg,rgba(109,40,217,.35),rgba(2,6,23,.96));box-shadow:inset 0 0 0 1px rgba(196,181,253,.18),0 0 12px rgba(139,92,246,.17)}
-.io-runes-icon.io-rarity-common{border-color:#4a414f}.io-runes-icon.io-rarity-uncommon{border-color:#588a71}.io-runes-icon.io-rarity-rare{border-color:#5882b6}.io-runes-icon.io-rarity-epic{border-color:#9d70c7}.io-runes-icon.io-rarity-legendary{border-color:#d4a83b}.io-runes-icon.io-rarity-mythic{border-color:#dc9d48}.io-runes-icon.io-rarity-cosmic{border-color:#e879f9;box-shadow:0 0 12px rgba(232,121,249,.23)}
+.io-runes-icon.io-rarity-common{border-color:#4a414f}.io-runes-icon.io-rarity-uncommon{border-color:#588a71}.io-runes-icon.io-rarity-rare{border-color:#5882b6}.io-runes-icon.io-rarity-epic{border-color:#9d70c7}.io-runes-icon.io-rarity-legendary{border-color:#d4a83b}.io-runes-icon.io-rarity-mythic{border-color:#dc9d48}.io-runes-icon.io-rarity-cosmic{border-color:#e879f9;box-shadow:0 0 12px rgba(232,121,249,.23)}.io-runes-icon.io-rarity-astral{border-color:#38bdf8;box-shadow:0 0 13px rgba(56,189,248,.25)}.io-runes-icon.io-rarity-celestial{border-color:#facc15;box-shadow:0 0 15px rgba(250,204,21,.28)}.io-runes-icon.io-rarity-transcendent{border-color:#f8fafc;box-shadow:0 0 17px rgba(248,250,252,.35)}
+.io-runes-tooltip-rarity.io-rarity-astral{color:#7dd3fc}.io-runes-tooltip-rarity.io-rarity-celestial{color:#fde047}.io-runes-tooltip-rarity.io-rarity-transcendent{color:#fff; text-shadow:0 0 10px rgba(255,255,255,.45)}
 .io-runes-equipped-mark{position:absolute;top:3px;right:3px;display:grid;place-items:center;color:#bbf7d0}
 .io-runes-tooltip{display:none;position:absolute;z-index:80;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);width:min(300px,calc(100vw - 28px));max-height:min(420px,calc(100vh - 32px));overflow:auto;padding:.8rem;border:1px solid rgba(167,139,250,.42);border-radius:.75rem;background:#0b0b14;box-shadow:0 16px 42px rgba(0,0,0,.65);text-align:left}
 .io-runes-icon-wrap:hover .io-runes-tooltip,.io-runes-icon-wrap:focus-within .io-runes-tooltip{display:block}
@@ -2201,8 +2255,8 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-combat-skill-icon:disabled{opacity:.43;cursor:not-allowed}
 .io-combat-skill-icon:hover,.io-combat-skill-icon:focus-visible{transform:translateY(-2px);box-shadow:0 0 0 2px rgba(201,255,50,.15);outline:none}
 .io-combat-skill-icon.io-rarity-common{border-color:#4a414f}.io-combat-skill-icon.io-rarity-uncommon{border-color:#588a71}.io-combat-skill-icon.io-rarity-rare{border-color:#5882b6}.io-combat-skill-icon.io-rarity-epic{border-color:#9d70c7}.io-combat-skill-icon.io-rarity-mythic{border-color:#dc9d48}
-.io-combat-skill-tooltip{display:none;position:absolute;z-index:80;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);width:min(300px,calc(100vw - 28px));max-height:min(420px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid #65536c;border-radius:10px;background:#0e0b12;box-shadow:0 16px 42px rgba(0,0,0,.65);text-align:left}
-.io-combat-skill-icon-wrap:hover .io-combat-skill-tooltip,.io-combat-skill-icon-wrap:focus-within .io-combat-skill-tooltip{display:block}
+.io-combat-skill-tooltip{display:none;position:absolute;z-index:100;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%);width:min(300px,calc(100vw - 28px));max-height:min(420px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid #65536c;border-radius:10px;background:#0e0b12;box-shadow:0 16px 42px rgba(0,0,0,.65);text-align:left}
+.io-combat-skill-icon-wrap:hover .io-combat-skill-tooltip,.io-combat-skill-icon-wrap.is-inspected .io-combat-skill-tooltip{display:block}
 .io-combat-skill-icon-wrap.is-inspected .io-combat-skill-tooltip{display:block}
 .io-combat-skill-search{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin:.45rem 0 .7rem;padding:.55rem .65rem;border:1px solid rgba(148,163,184,.16);border-radius:.65rem;background:rgba(15,23,42,.45)}.io-combat-skill-search label{color:#cbd5e1;font-size:.7rem;font-weight:900;white-space:nowrap}.io-combat-skill-search input{flex:1 1 180px;min-width:0;padding:.5rem .6rem;border:1px solid rgba(148,163,184,.25);border-radius:.5rem;background:#080d17;color:#f8fafc;font-size:.72rem;outline:none}.io-combat-skill-search input:focus-visible{border-color:#a78bfa;box-shadow:0 0 0 2px rgba(167,139,250,.2)}.io-combat-skill-search>span{color:#94a3b8;font-size:.65rem;font-weight:800}
 .io-combat-skill-icon-wrap:nth-child(6n) .io-combat-skill-tooltip,.io-combat-skill-icon-wrap:nth-child(6n - 1) .io-combat-skill-tooltip{left:auto;right:0;transform:none}
@@ -2225,7 +2279,7 @@ main select { color: #dfe8df; background: #111c22; border-color: var(--line); }
 .io-combat-gear-icon.io-rarity-common{border-color:#4a414f}.io-combat-gear-icon.io-rarity-uncommon{border-color:#588a71}.io-combat-gear-icon.io-rarity-rare{border-color:#5882b6}.io-combat-gear-icon.io-rarity-epic{border-color:#9d70c7}.io-combat-gear-icon.io-rarity-mythic{border-color:#dc9d48}
 .io-combat-gear-equipped{position:absolute;top:2px;right:4px;color:#d5ff85;font-size:11px;font-weight:950}
 .io-combat-gear-icon-wrap .io-combat-gear-tooltip{display:none;z-index:90;padding:12px;border:1px solid #514358;border-radius:10px;background:#0e0b12;box-shadow:0 16px 42px rgba(0,0,0,.7);text-align:left}
-.io-combat-gear-icon-wrap .io-combat-gear-tooltip.is-open,.io-combat-gear-icon-wrap:hover .io-combat-gear-tooltip,.io-combat-gear-icon-wrap:focus-within .io-combat-gear-tooltip{display:block}
+.io-combat-gear-icon-wrap .io-combat-gear-tooltip.is-open{display:block;pointer-events:auto;opacity:1;visibility:visible;transform:translateY(0)}
 .io-combat-gear-icon-wrap .io-combat-gear-tooltip>strong{display:block;margin:5px 0;font-size:13px;overflow-wrap:anywhere}
 .io-combat-gear-tooltip-stats{display:flex;flex-wrap:wrap;gap:5px}
 .io-combat-gear-tooltip-stats>span{font-size:9px}
@@ -2519,3 +2573,357 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
   margin-top: 12px;
 }
 #root.io-inline-post .io-frenzy-success-card .io-public-note-link { margin-top: 9px; }
+
+
+
+.io-combat-gacha-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.io-combat-gacha-actions > button { min-width: 0; }
+.io-combat-skill-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.io-combat-skill-results .io-combat-skill-result {
+  min-width: 0;
+  animation: io-gacha-result-in .28s ease both;
+}
+@keyframes io-gacha-result-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Arena results now get a PvE-style combat stage as well as a turn-by-turn log. */
+.io-combat-arena-showdown {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  margin: 16px 0;
+  perspective: 700px;
+}
+.io-combat-arena-side {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+  padding: 13px;
+  overflow: hidden;
+  border: 1px solid rgba(196, 174, 219, .27);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(48, 32, 57, .76), rgba(16, 14, 24, .92));
+  animation: io-arena-combatant-in .42s cubic-bezier(.2,.75,.2,1) both;
+}
+.io-combat-arena-side.is-player {
+  border-color: rgba(255, 172, 137, .4);
+  background: linear-gradient(145deg, rgba(87, 47, 37, .52), rgba(18, 14, 22, .94));
+}
+.io-combat-arena-side.is-opponent {
+  border-color: rgba(119, 203, 255, .38);
+  background: linear-gradient(145deg, rgba(27, 63, 89, .52), rgba(12, 16, 25, .94));
+  animation-delay: .08s;
+}
+.io-combat-arena-avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(255, 213, 171, .35);
+  border-radius: 12px;
+  color: #ffd3ad;
+  background: radial-gradient(circle at 28% 20%, rgba(255,255,255,.23), rgba(149,72,55,.28) 53%, rgba(15,15,23,.96));
+  box-shadow: 0 0 22px rgba(255, 155, 111, .12), inset 0 1px rgba(255,255,255,.15);
+}
+.io-combat-arena-side.is-opponent .io-combat-arena-avatar {
+  color: #a6e2ff;
+  border-color: rgba(137, 211, 255, .35);
+  background: radial-gradient(circle at 28% 20%, rgba(255,255,255,.23), rgba(47,111,160,.32) 53%, rgba(15,15,23,.96));
+  box-shadow: 0 0 22px rgba(91, 186, 245, .12), inset 0 1px rgba(255,255,255,.15);
+}
+.io-combat-arena-combatant { display: grid; min-width: 0; gap: 3px; align-content: center; }
+.io-combat-arena-combatant small { color: #bba7ce; font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.io-combat-arena-combatant strong { overflow-wrap: anywhere; color: #f5effa; font-size: 13px; }
+.io-combat-arena-combatant span { color: #adb2bf; font-size: 9px; font-variant-numeric: tabular-nums; }
+.io-combat-arena-side.is-player .io-combat-arena-status { color: #ffb79a; }
+.io-combat-arena-side.is-opponent .io-combat-arena-status { color: #9bdbff; }
+.io-combat-arena-status {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: .14em;
+}
+.io-combat-arena-vs { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #f6d88e; }
+.io-combat-arena-vs span { font: 950 11px ui-monospace, monospace; letter-spacing: .2em; text-shadow: 0 0 15px rgba(255, 205, 112, .5); }
+.io-combat-arena-vs i { font-size: 28px; font-style: normal; animation: io-arena-clash .8s cubic-bezier(.2,.7,.2,1) both; filter: drop-shadow(0 0 14px rgba(255, 206, 116, .35)); }
+.io-combat-arena-turn { animation: io-arena-turn-in .24s ease both; }
+@keyframes io-arena-combatant-in {
+  from { opacity: 0; transform: translateY(10px) rotateY(-4deg) scale(.98); }
+  to { opacity: 1; transform: translateY(0) rotateY(0) scale(1); }
+}
+@keyframes io-arena-clash {
+  0% { opacity: 0; transform: scale(.45) rotate(-35deg); }
+  55% { opacity: 1; transform: scale(1.2) rotate(8deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+@keyframes io-arena-turn-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 540px) {
+  .io-combat-gacha-actions { grid-template-columns: 1fr; }
+  .io-combat-arena-showdown { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .io-combat-arena-vs { flex-direction: row; }
+  .io-combat-arena-vs i { font-size: 22px; }
+  .io-combat-arena-side { grid-template-columns: 36px minmax(0, 1fr); padding: 10px; }
+  .io-combat-arena-avatar { width: 36px; height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-combat-skill-results .io-combat-skill-result,
+  .io-combat-arena-side,
+  .io-combat-arena-vs i,
+  .io-combat-arena-turn { animation: none !important; }
+}
+
+
+/* Gear inspector is rendered into document.body so scroll/overflow containers cannot clip it. */
+.io-combat-gear-tooltip.is-open{display:block;pointer-events:auto;opacity:1;visibility:visible;transform:translateY(0)}
+.io-combat-tooltip-close{display:block;margin:9px 0 0 auto;padding:5px 8px;border:1px solid #514358;border-radius:5px;background:#1b1522;color:#cfc0db;font:800 9px ui-monospace,monospace;cursor:pointer}
+.io-combat-tooltip-close:hover{border-color:#b99ada;color:#f0deff}
+
+
+/* Skill Gacha/Forge polish: make Scrap legible and confirm crafting in-place. */
+.io-combat-stat-strip .io-combat-scrap-balance{
+  border-color:rgba(198,154,234,.48);
+  background:radial-gradient(ellipse at 100% 0,rgba(174,119,225,.16),transparent 62%),linear-gradient(145deg,#282033,#1b171f 75%);
+  box-shadow:inset 0 1px rgba(244,226,255,.035),0 0 16px rgba(174,119,225,.06);
+}
+.io-combat-stat-strip .io-combat-scrap-balance>span{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  color:#d8b7f3;
+}
+.io-combat-stat-strip .io-combat-scrap-balance>span svg{flex:none;color:#d8b7f3}
+.io-combat-stat-strip .io-combat-scrap-balance>strong{
+  color:#f3e3ff;
+  font-size:clamp(20px,2.2vw,25px);
+  overflow-wrap:anywhere;
+  text-shadow:0 0 13px rgba(196,151,232,.18);
+}
+.io-combat-stat-strip .io-combat-scrap-balance>small{color:#bda0d3;font-size:9px;line-height:1.25}
+.io-combat-forge-success{
+  position:relative;
+  margin:0 0 14px;
+  border-color:rgba(132,216,130,.62);
+  background:radial-gradient(ellipse at 0 0,rgba(124,220,127,.12),transparent 54%),linear-gradient(145deg,rgba(24,39,31,.94),rgba(26,22,31,.94));
+  box-shadow:0 0 26px rgba(110,230,120,.11),inset 0 1px rgba(220,255,216,.04);
+  animation:io-forge-success-in .32s cubic-bezier(.2,.8,.2,1) both;
+}
+.io-combat-forge-success-head{display:flex;align-items:center;gap:12px;min-width:0}
+.io-combat-forge-success-mark{width:42px;height:42px;display:grid;place-items:center;flex:0 0 auto;border:1px solid rgba(148,229,142,.6);border-radius:12px;background:rgba(113,210,111,.14);color:#a6f49e;box-shadow:0 0 17px rgba(114,220,115,.12)}
+.io-combat-forge-success-copy{flex:1;min-width:0}
+.io-combat-forge-success-copy>.io-combat-eyebrow{color:#a6f49e}
+.io-combat-forge-success-copy h2{margin:4px 0 3px;font-size:clamp(16px,2.4vw,22px);line-height:1.25;font-weight:950;overflow-wrap:anywhere;color:#f4fff1}
+.io-combat-forge-success-copy p{margin:0;color:#bdd4b9;font-size:10px;line-height:1.5}
+.io-combat-forge-dismiss{width:28px;height:28px;flex:0 0 auto;border:1px solid rgba(180,225,174,.24);border-radius:7px;color:#c7dec4;font-size:22px;line-height:1}
+.io-combat-forge-result-stats{display:flex;flex-wrap:wrap;gap:6px;margin-top:15px}
+.io-combat-forge-result-stats span{padding:5px 7px;border:1px solid rgba(140,212,128,.24);border-radius:6px;background:rgba(126,206,110,.09);color:#d7f2d1;font:850 9px ui-monospace,monospace}
+.io-combat-forge-result-stats span.is-zero{border-color:#3a323f;background:rgba(255,255,255,.018);color:#827887}
+.io-combat-forge-result-stats span.is-active{box-shadow:inset 0 0 10px rgba(114,220,115,.04)}
+.io-combat-forge-item-effect{margin:12px 0 0;color:#c0c8bd;font-size:11px;line-height:1.55}
+.io-combat-forge-success .io-combat-major-ability{margin-top:12px}
+.io-combat-forge-scrap-summary{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:11px;border-top:1px solid rgba(157,203,148,.2);color:#aabca5;font:850 9px ui-monospace,monospace}
+.io-combat-forge-scrap-summary strong{color:#e0ffd9}
+@keyframes io-forge-success-in{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(prefers-reduced-motion:reduce){.io-combat-forge-success{animation:none}}
+
+
+/* Accessibility and compact-screen finishing pass (2.0.20). */
+.io-ui :is(.font-mono, [data-numeric="true"]),
+.io-public-rarity,
+.io-share-preview-stats b {
+  font-variant-numeric: tabular-nums;
+}
+
+.io-ui .app-main :is(.break-words, .break-all),
+.io-share-preview :is(h4, p, strong) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .io-ui .app-header {
+    padding-inline: 12px;
+  }
+
+  .io-ui .app-main {
+    padding-inline: 12px;
+  }
+
+  .io-ui .nav-tab {
+    min-height: 40px;
+  }
+
+  .io-ui .app-main :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 16px;
+  }
+
+  .io-modal-backdrop {
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .io-ui *,
+  .io-public *,
+  .io-post-reveal,
+  .io-post-cta,
+  .io-immersive-play-cta,
+  .io-public-glow,
+  .io-public-grid,
+  .io-share-orb,
+  .io-public-orb-ring {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .io-ui :is(button, a, input, select, textarea):focus-visible,
+  .io-modal-backdrop :is(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 3px;
+  }
+}
+
+
+.io-join-subreddit-prompt {
+  border-color: rgba(83, 196, 235, .34);
+  box-shadow: 0 22px 80px rgba(0, 0, 0, .48), 0 0 36px rgba(38, 161, 211, .1), inset 0 1px rgba(255, 255, 255, .05);
+}
+.io-join-subreddit-kicker { display: flex; align-items: center; gap: 8px; color: #7de7ff; font-size: 10px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.io-join-subreddit-reward { margin-top: 18px; padding: 15px; border: 1px solid rgba(83, 196, 235, .28); border-radius: 16px; background: linear-gradient(140deg, rgba(13, 83, 112, .24), rgba(15, 23, 42, .68)); }
+
+
+/* Keep the main inline game card flush with the bottom edge of the Reddit preview.
+   This final override follows the mobile inline padding rules above. */
+#root.io-inline-post > .io-public:not(.io-public-compact) {
+  padding-bottom: 0 !important;
+  align-items: stretch;
+}
+#root.io-inline-post > .io-public:not(.io-public-compact) > .io-public-frame {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  margin-bottom: 0;
+}
+#root.io-inline-post .io-launch-card {
+  margin-bottom: 0;
+}
+
+
+/* Resource gains travel outward from the Orb instead of covering it with a reward card. */
+.roll-floating-rewards { position: absolute; z-index: 40; inset: 0; overflow: visible; pointer-events: none; }
+.roll-floating-stat {
+  position: absolute;
+  display: block;
+  width: max-content;
+  max-width: 180px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.15;
+  font-weight: 950;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0,0,0,.95), 0 0 14px currentColor;
+  transform: translate(-50%, -50%);
+  animation: io-roll-floating-stat 1050ms cubic-bezier(.17,.72,.2,1) both;
+}
+.roll-floating-stat-coins { color: #f7c96f; }
+.roll-floating-stat-xp { color: #c5a8ff; }
+.roll-floating-stat-shards { color: #7ce7e1; }
+.roll-floating-stat-value { color: #82d8ff; }
+@keyframes io-roll-floating-stat {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.9); }
+  12% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(-50% + var(--roll-float-x)), calc(-50% + var(--roll-float-y)), 0) scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roll-floating-stat { animation: none; opacity: 0; }
+}
+
+/* Exceptional rarity titles and Orbs receive a restrained color-cycle treatment. */
+.io-rarity-color-cycle {
+  animation: io-rarity-color-cycle 4.5s linear infinite;
+}
+@keyframes io-rarity-color-cycle {
+  0% { filter: hue-rotate(0deg) saturate(1.05); }
+  50% { filter: hue-rotate(180deg) saturate(1.2); }
+  100% { filter: hue-rotate(360deg) saturate(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-rarity-color-cycle { animation: none; }
+}
+
+
+/* Restored reward particles and visible equipment actions. */
+/* Desktop combat equip actions do not depend on hover tooltips. */
+.io-combat-skill-icon-wrap { flex-direction: column; align-items: center; gap: .4rem; }
+.io-combat-skill-equip-button { display: none; width: 100%; max-width: 90px; min-height: 29px; padding: 5px 6px; font-size: 9px; white-space: normal; line-height: 1.2; }
+@media (min-width: 761px) { .io-combat-skill-equip-button { display: inline-flex; } }
+.io-runes-icon-wrap { display: flex; flex-direction: column; align-items: center; gap: .38rem; }
+.io-runes-equip-button { width: 100%; max-width: 76px; min-height: 28px; padding: .35rem .4rem; font-size: .62rem; }
+.io-runes-equip-button.is-equipped { color: #d9f99d; border-color: rgba(190,242,100,.32); background: rgba(132,204,22,.1); }
+.io-ui .io-main-orb.is-revealing { scale: 1.05; border-color: rgba(255,255,255,.78); box-shadow: 0 0 0 2px rgba(255,255,255,.32), 0 0 28px rgba(173,216,255,.48), inset 0 0 22px rgba(255,255,255,.22), 0 14px 42px rgba(0,0,0,.38); }
+.io-ui .io-main-orb.is-shaking { animation: io-orb-shake 450ms ease-in-out both; }
+@keyframes io-orb-shake {
+  0%,100% { translate: 0 0; }
+  18% { translate: var(--shake-x-a) var(--shake-y-a); }
+  36% { translate: var(--shake-x-b) var(--shake-y-b); }
+  54% { translate: var(--shake-x-c) var(--shake-y-c); }
+  72% { translate: var(--shake-x-d) var(--shake-y-d); }
+  90% { translate: var(--shake-x-e) 0; }
+}
+
+.roll-floating-rewards { position: absolute; z-index: 40; inset: 0; overflow: visible; pointer-events: none; }
+.roll-floating-stat {
+  position: absolute;
+  display: block;
+  width: max-content;
+  max-width: 180px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.15;
+  font-weight: 950;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0,0,0,.95), 0 0 14px currentColor;
+  transform: translate(-50%, -50%);
+  animation: io-roll-floating-stat 1050ms cubic-bezier(.17,.72,.2,1) both;
+}
+.roll-floating-stat-coins { color: #f7c96f; }
+.roll-floating-stat-xp { color: #c5a8ff; }
+.roll-floating-stat-shards { color: #7ce7e1; }
+.roll-floating-stat-value { color: #82d8ff; }
+@keyframes io-roll-floating-stat {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.9); }
+  12% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(-50% + var(--roll-float-x)), calc(-50% + var(--roll-float-y)), 0) scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roll-floating-stat { animation: none; opacity: 0; }
+}

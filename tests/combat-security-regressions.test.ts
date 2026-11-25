@@ -76,38 +76,46 @@ test('server rejects early beats without advancing sequence or overwriting state
   });
 });
 
-test('Guard remains active through a slow enemy wind-up and mitigates its next attack', async () => {
+test('Guard is applied before a slower enemy attack and mitigates that attack', async () => {
   await withPlayer('combat-guard-regression-player', async key => {
     const initial = await getCombatSnapshot();
     const state = initial.state;
     state.dungeonId = 'undercrypt';
-    state.depth = 4; // Ironbound has 80 Speed and takes two beats to act.
+    state.depth = 4; // Ironbound has low Speed; each beat resolves exactly one scheduled actor.
     state.bestDepth = 4;
     state.dungeonBestDepths.undercrypt = 4;
     state.equipment.weapon = null;
     state.enemyHp = getEnemyForDungeonDepth('undercrypt', 4).maxHp;
     state.sequence = 0;
-    state.combatBeats = 0;
-    state.playerActionsResolved = 2; // Leave exactly one scheduled player action for Guard; avoid defeating the enemy during its wind-up.
-    state.enemyActionsResolved = 0;
+    state.combatBeats = 1;
+    state.playerSpeedBeats = 1;
+    // Both actors are ready: ties resolve for the player, then the enemy acts on the following beat.
+    state.playerSpeedCharge = 1;
+    state.enemySpeedCharge = 1;
+    state.playerActionsResolved = 1;
+    state.enemyActionsResolved = 1;
     state.guardBeats = 0;
     state.lastAcceptedBeatAtMs = 0;
     await redis.set(key, JSON.stringify(state));
 
-    const first = await performCombatBeat(1, 'guard');
-    assert.equal(first.actions.some(action => action.actor === 'enemy' && action.kind === 'attack'), false);
-    assert.equal(first.state.guardBeats, 1, 'Guard must not expire when the enemy has no action ready');
+    const guarded = await performCombatBeat(1, 'guard');
+    assert.equal(
+      guarded.actions.some(action => action.actor === 'enemy' && action.kind === 'attack'),
+      false,
+      'a whole-number beat resolves only the scheduled player action',
+    );
+    assert.equal(guarded.state.guardBeats, 1, 'Guard persists until the enemy receives its turn');
 
-    const saved = JSON.parse((await redis.get(key))!) as { lastAcceptedBeatAtMs: number; playerActionsResolved: number };
-    saved.lastAcceptedBeatAtMs = Date.now() - COMBAT_BEAT_INTERVAL_MS - 1; // Advance the persisted cooldown clock past the full 30-second cadence.
-    saved.playerActionsResolved = 6; // Isolate the enemy action in this beat.
-    await redis.set(key, JSON.stringify({ ...first.state, ...saved }));
-
-    const second = await performCombatBeat(2, 'strike');
-    const incoming = second.actions.find(action => action.actor === 'enemy' && action.kind === 'attack');
-    assert.ok(incoming, 'the slow enemy should attack on the second beat');
-    assert.ok((incoming.damage ?? Number.POSITIVE_INFINITY) < getEnemyForDungeonDepth('undercrypt', 4).damage);
-    assert.equal(second.state.guardBeats, 0, 'Guard is consumed after mitigating a real enemy attack');
+    // Skip only the wall-clock cooldown so this regression tests the scheduled turn order.
+    await redis.set(key, JSON.stringify({...guarded.state,lastAcceptedBeatAtMs:0}));
+    const attacked = await performCombatBeat(2, 'strike');
+    const incoming = attacked.actions.find(action => action.actor === 'enemy' && action.kind === 'attack');
+    assert.ok(incoming, 'the enemy resolves its scheduled turn on the following beat');
+    assert.ok(
+      (incoming.damage ?? Number.POSITIVE_INFINITY) < getEnemyForDungeonDepth('undercrypt', 4).damage,
+      'Guard must soften the incoming attack when the enemy turn arrives',
+    );
+    assert.equal(attacked.state.guardBeats, 0, 'Guard is consumed only after mitigating a real enemy attack');
   });
 });
 
@@ -152,10 +160,15 @@ test('an intentionally empty gear inventory stays empty after normalization',asy
   });
 });
 
-test('explicitly unequipped starter gear is not silently re-equipped on reload',async()=>{
+test('explicitly unequipped legacy gear is not silently re-equipped on reload',async()=>{
   await withPlayer('combat-unequipped-gear-regression-player',async key=>{
     const initial=await getCombatSnapshot();
     const state=initial.state;
+    // Simulate an existing save that owns its old starter pieces but intentionally unequips them.
+    state.inventory=[
+      {id:'starter-weapon',name:'Delver Knife',slot:'weapon',quality:35,sourceFloor:0,power:8,effect:'Adds +4 damage. Critical chance +4 percentage points.',trait:'keen',damageBonus:4,speedBonus:0,maxHealthBonus:0,armorBonus:0,critChanceBonus:0},
+      {id:'starter-armor',name:'Worn Leathers',slot:'armor',quality:28,sourceFloor:0,power:5,effect:'Adds +40 max HP and reduces incoming damage by 4%.',trait:'bulwark',damageBonus:0,speedBonus:0,maxHealthBonus:40,armorBonus:0,critChanceBonus:0},
+    ];
     state.equipment.weapon=null;
     state.equipment.armor=null;
     await redis.set(key,JSON.stringify(state));
@@ -207,6 +220,8 @@ test('death clears pending kill rewards and run-bound modifiers',async()=>{
     state.combatBeats=1;
     state.playerActionsResolved=100;
     state.enemyActionsResolved=0;
+    state.playerSpeedCharge=0;
+    state.enemySpeedCharge=1; // Arrange the enemy's attack now; this test targets death-state cleanup.
     state.guardBeats=0;
     state.lastAcceptedBeatAtMs=0;
     state.skillRuntime.nextKillMarkBonus=123;

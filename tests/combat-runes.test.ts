@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import {
   COMBAT_RUNE_EFFECT_MULTIPLIER_CAP,
   COMBAT_RUNE_RARITIES,
+  COMBAT_RUNE_RARITY_ROLL_THRESHOLDS,
+  combatRuneRarityFromRoll,
   DEFAULT_COMBAT_RUNE_AUTO_SACRIFICE_SETTINGS,
+  shouldAutoSacrificeRune,
   combatRuneRarityAtOrBelow,
   combatRuneBonuses,
   combatRuneMajorAbilityEffects,
+  combatRuneMajorAbilityMultiplier,
   combatRuneMajorAbilityStrengthPct,
   combatRuneMajorAbilitySummary,
   createCombatState,
@@ -26,15 +30,44 @@ const runes:CombatRune[]=[
   {id:'prism-1',name:'Radiant Prism Rune',rarity:'Rare',stat:'shardChancePct',value:.08,level:100,sourceDepth:20,sourceDungeon:'undercrypt'},
   {id:'insight-1',name:'Runed Insight Rune',rarity:'Epic',stat:'xpGainPct',value:4.2,sourceDepth:30,sourceDungeon:'glass-labyrinth'},
 ];
-test('Rune Auto Sacrifice threshold is inclusive, ordered by rarity, and disabled by default',()=>{
-  assert.deepEqual(COMBAT_RUNE_RARITIES,['Common','Uncommon','Rare','Epic','Legendary','Mythic','Cosmic']);
-  assert.deepEqual(DEFAULT_COMBAT_RUNE_AUTO_SACRIFICE_SETTINGS,{enabled:false,maxRarity:'Common'});
-  assert.deepEqual(createCombatState().runeAutoSacrifice,{enabled:false,maxRarity:'Common'});
+test('Rune Auto Sacrifice defaults to Rare threshold and protects special effects',()=>{
+  assert.deepEqual(COMBAT_RUNE_RARITIES,['Common','Uncommon','Rare','Epic','Legendary','Mythic','Cosmic','Astral','Celestial','Transcendent']);
+  assert.deepEqual(DEFAULT_COMBAT_RUNE_AUTO_SACRIFICE_SETTINGS,{enabled:false,maxRarity:'Rare',targetRuneId:null,preserveSpecialEffects:true});
+  assert.deepEqual(createCombatState().runeAutoSacrifice,{enabled:false,maxRarity:'Rare',targetRuneId:null,preserveSpecialEffects:true});
   assert.equal(combatRuneRarityAtOrBelow('Common','Common'),true);
   assert.equal(combatRuneRarityAtOrBelow('Rare','Rare'),true);
   assert.equal(combatRuneRarityAtOrBelow('Uncommon','Rare'),true);
   assert.equal(combatRuneRarityAtOrBelow('Epic','Rare'),false);
   assert.equal(combatRuneRarityAtOrBelow('Cosmic','Mythic'),false);
+  assert.equal(combatRuneRarityAtOrBelow('Astral','Cosmic'),false);
+  assert.equal(combatRuneRarityAtOrBelow('Celestial','Astral'),false);
+  assert.equal(combatRuneRarityAtOrBelow('Transcendent','Celestial'),false);
+});
+test('Rune drop table adds three tiers at exact 10× rarer odds without reducing existing rare-tier odds',()=>{
+  assert.equal(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Transcendent, .0000005);
+  const expectMass = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-12, 'expected ' + expected + ', got ' + actual);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Celestial - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Transcendent, .000005);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Astral - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Celestial, .00005);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Cosmic - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Astral, .0005);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Mythic - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Cosmic, .002);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Legendary - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Mythic, .0075);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Epic - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Legendary, .025);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Rare - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Epic, .085);
+  expectMass(COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Uncommon - COMBAT_RUNE_RARITY_ROLL_THRESHOLDS.Rare, .23);
+  assert.equal(combatRuneRarityFromRoll(0), 'Transcendent');
+  assert.equal(combatRuneRarityFromRoll(.0000005), 'Celestial');
+  assert.equal(combatRuneRarityFromRoll(.0000055), 'Astral');
+  assert.equal(combatRuneRarityFromRoll(.0000555), 'Cosmic');
+  assert.equal(combatRuneRarityFromRoll(.0005555), 'Mythic');
+  assert.equal(combatRuneRarityFromRoll(.0025555), 'Legendary');
+  assert.equal(combatRuneRarityFromRoll(1), 'Common');
+});
+test('Auto Sacrifice preserves Major Ability Runes unless preservation is disabled',()=>{
+  const special:CombatRune={...runes[1]!,majorAbility:{id:'memory-well',name:'Memory Well',valuePct:10,description:'Improves XP gain.'}};
+  assert.equal(shouldAutoSacrificeRune(runes[1]!, 'Rare', true),true);
+  assert.equal(shouldAutoSacrificeRune(special, 'Rare', true),false);
+  assert.equal(shouldAutoSacrificeRune(special, 'Rare', false),true);
+  assert.equal(shouldAutoSacrificeRune(runes[3]!, 'Rare', false),false);
 });
 test('Rune bonuses only count Runes in the equipped loadout',()=>{
   assert.deepEqual(combatRuneBonuses(runes,['fate-1','insight-1']),{luckPct:1.4,coinGainPct:0,shardChancePct:0,xpGainPct:4.2});
@@ -55,42 +88,80 @@ test('all eleven trigger-based Rune Major Abilities scale and expose distinct me
   ];
   const equipped=abilityRunes.map(rune=>rune.id);
   const effects=combatRuneMajorAbilityEffects(abilityRunes,equipped);
-  assert.equal(effects.echoChamberPct,10);
-  assert.equal(effects.paradoxEnginePct,12);
-  assert.equal(effects.eventHorizonPct,15);
-  assert.equal(effects.shardConstellationPct,20);
+  assert.equal(effects.echoChamberPct,8.5);
+  assert.equal(effects.paradoxEnginePct,6);
+  assert.equal(effects.eventHorizonPct,12.75);
+  assert.equal(effects.shardConstellationPct,17);
   assert.equal(effects.temporalLoopPct,8);
-  assert.equal(effects.prismaticForkPct,18);
-  assert.equal(effects.criticalConvergencePct,16);
-  assert.equal(effects.rarityLadderPct,14);
-  assert.equal(effects.stellarDividendPct,22);
-  assert.equal(effects.shardJackpotPct,25);
+  assert.ok(Math.abs(effects.prismaticForkPct-15.3)<1e-12);
+  assert.equal(effects.criticalConvergencePct,13.6);
+  assert.equal(effects.rarityLadderPct,7);
+  assert.equal(effects.stellarDividendPct,18.7);
+  assert.equal(effects.shardJackpotPct,21.25);
   assert.equal(effects.milestoneEnginePct,20);
   assert.ok(effects.echoChamberMaxChain>=1);
   assert.ok(effects.paradoxEngineBonusRolls>=1);
   assert.ok(effects.eventHorizonBonusRolls>=1);
-  assert.ok(effects.shardConstellationBonusShards>=1);
+  assert.equal(effects.shardConstellationBonusShards,1);
+  assert.ok(effects.shardConstellationBonusRolls<=2);
   assert.ok(effects.temporalLoopMomentumPerRoll>1);
   assert.ok(effects.criticalConvergenceBonusRolls>=1);
   assert.ok(effects.rarityLadderBonusRolls>=1);
   assert.ok(effects.stellarDividendBonusRolls>=1);
-  assert.ok(effects.shardJackpotExtraMultiplier>0);
-  assert.ok(effects.milestoneEngineBonusRolls>=1);
-  assert.ok(effects.milestoneEngineBonusShards>=1);
-  assert.ok(combatRuneMajorAbilityStrengthPct(abilityRunes[0]!.majorAbility!,256)>combatRuneMajorAbilityStrengthPct(abilityRunes[0]!.majorAbility!,1));
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[0]!.majorAbility!,20),/echo|chain/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[1]!.majorAbility!,20),/multi-roll|extra roll/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[2]!.majorAbility!,20),/record|rarity floor/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[3]!.majorAbility!,20),/Shards|bonus roll/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[4]!.majorAbility!,20),/Momentum|bonus roll/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[5]!.majorAbility!,20),/fork|rarity floor/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[6]!.majorAbility!,20),/critical|bonus roll/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[7]!.majorAbility!,20),/rising rarities/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[8]!.majorAbility!,20),/lifetime rolls/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[9]!.majorAbility!,20),/Shard payout/i);
-  assert.match(combatRuneMajorAbilitySummary(abilityRunes[10]!.majorAbility!,20),/power of ten/i);
+  assert.equal(effects.shardJackpotExtraMultiplier,1,'Jackpot can only double a single-Shard payout');
+  assert.ok(effects.milestoneEngineBonusRolls>=1 && effects.milestoneEngineBonusRolls<=2);
+  assert.equal(effects.milestoneEngineBonusShards,1);
+  assert.ok(combatRuneMajorAbilityStrengthPct(abilityRunes[0]!.majorAbility!,256,abilityRunes[0]!.rarity)>combatRuneMajorAbilityStrengthPct(abilityRunes[0]!.majorAbility!,1,abilityRunes[0]!.rarity));
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[0]!.majorAbility!,20,abilityRunes[0]!.rarity),/echo|chain/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[1]!.majorAbility!,20,abilityRunes[1]!.rarity),/multi-roll|extra roll/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[2]!.majorAbility!,20,abilityRunes[2]!.rarity),/record|rarity floor/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[3]!.majorAbility!,20,abilityRunes[3]!.rarity),/Shards|bonus roll/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[4]!.majorAbility!,20,abilityRunes[4]!.rarity),/Momentum|bonus roll/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[5]!.majorAbility!,20,abilityRunes[5]!.rarity),/fork|rarity floor/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[6]!.majorAbility!,20,abilityRunes[6]!.rarity),/critical|bonus roll/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[7]!.majorAbility!,20,abilityRunes[7]!.rarity),/rising rarities/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[8]!.majorAbility!,20,abilityRunes[8]!.rarity),/lifetime rolls/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[9]!.majorAbility!,20,abilityRunes[9]!.rarity),/Shard payout/i);
+  assert.match(combatRuneMajorAbilitySummary(abilityRunes[10]!.majorAbility!,20,abilityRunes[10]!.rarity),/power of ten/i);
   assert.equal(combatRuneMajorAbilityEffects(abilityRunes,equipped.slice(0,2)).eventHorizonPct,0,'unequipped Major Abilities must not be active');
 });
+test('Rune rarity multipliers strengthen real Major Ability power and its displayed summary',()=>{
+  const fateAbility={id:'fateweaver',name:'Fateweaver',valuePct:20,description:'Adds effective Luck.'} as const;
+  const echoAbility={id:'echo-chamber',name:'Echo Chamber',valuePct:20,description:'Echoes rolls.'} as const;
+  const expectedPower=[10,14,17,20,24,29,36,42,48,56];
+  const expectedMultipliers=[.5,.7,.85,1,1.2,1.45,1.8,2.1,2.4,2.8];
+  assert.deepEqual(
+    COMBAT_RUNE_RARITIES.map(rarity=>combatRuneMajorAbilityMultiplier(rarity)),
+    expectedMultipliers,
+  );
+  assert.deepEqual(
+    COMBAT_RUNE_RARITIES.map(rarity=>combatRuneMajorAbilityStrengthPct(fateAbility,1,rarity)),
+    expectedPower,
+  );
+  for(let index=0;index<COMBAT_RUNE_RARITIES.length;index++){
+    const rarity=COMBAT_RUNE_RARITIES[index]!;
+    const rune:CombatRune={
+      id:'rarity-fate-'+rarity,name:rarity+' Fate Rune',rarity,stat:'luckPct',value:.6,
+      level:1,sourceDepth:0,sourceDungeon:'undercrypt',majorAbility:fateAbility,
+    };
+    assert.equal(
+      combatRuneBonuses([rune],[rune.id]).luckPct,
+      .6+expectedPower[index]!,
+      rarity+' Fateweaver must use the rarity multiplier in the actual Luck bonus',
+    );
+    const triggerRune:CombatRune={...rune,id:'rarity-echo-'+rarity,majorAbility:echoAbility};
+    assert.equal(
+      combatRuneMajorAbilityEffects([triggerRune],[triggerRune.id]).echoChamberPct,
+      expectedPower[index],
+      rarity+' Echo Chamber must use the rarity multiplier in its active proc chance',
+    );
+    assert.ok(
+      combatRuneMajorAbilitySummary(fateAbility,1,rarity).includes('+'+expectedPower[index]+'% effective Luck'),
+      rarity+' tooltip must show the same rarity-scaled starting power',
+    );
+  }
+});
+
 test('Rune slot milestones are earned through Delver levels and depth',()=>{
   assert.equal(combatRuneSlotsUnlocked(1,1),2);
   assert.equal(combatRuneSlotsUnlocked(10,1),3);
@@ -99,6 +170,9 @@ test('Rune slot milestones are earned through Delver levels and depth',()=>{
 });
 test('Rune base value scales with rarity and depth while retaining shard precision',()=>{
   assert.ok(combatRuneValueFor('Cosmic','luckPct',50)>combatRuneValueFor('Common','luckPct',0));
+  assert.ok(combatRuneValueFor('Astral','luckPct',50)>combatRuneValueFor('Cosmic','luckPct',50));
+  assert.ok(combatRuneValueFor('Celestial','luckPct',50)>combatRuneValueFor('Astral','luckPct',50));
+  assert.ok(combatRuneValueFor('Transcendent','luckPct',50)>combatRuneValueFor('Celestial','luckPct',50));
   assert.ok(combatRuneValueFor('Epic','shardChancePct',30)>0);
 });
 test('Rune Luck percentages map directly to strong rarity multipliers',()=>{
@@ -133,9 +207,15 @@ test('Shard Rune chance is exactly unaffected by Rune level',()=>{
 test('Rune sacrifice XP increases with rarity, donor level, and source depth',()=>{
   const common=combatRuneSacrificeExperience({rarity:'Common',level:1,sourceDepth:0});
   const cosmic=combatRuneSacrificeExperience({rarity:'Cosmic',level:1,sourceDepth:0});
+  const astral=combatRuneSacrificeExperience({rarity:'Astral',level:1,sourceDepth:0});
+  const celestial=combatRuneSacrificeExperience({rarity:'Celestial',level:1,sourceDepth:0});
+  const transcendent=combatRuneSacrificeExperience({rarity:'Transcendent',level:1,sourceDepth:0});
   const deepCosmic=combatRuneSacrificeExperience({rarity:'Cosmic',level:1,sourceDepth:1000});
   const rankedCosmic=combatRuneSacrificeExperience({rarity:'Cosmic',level:10,sourceDepth:0});
   assert.ok(cosmic>common);
+  assert.ok(astral>cosmic);
+  assert.ok(celestial>astral);
+  assert.ok(transcendent>celestial);
   assert.ok(deepCosmic>cosmic);
   assert.ok(rankedCosmic>cosmic);
 });

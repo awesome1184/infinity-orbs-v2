@@ -7,6 +7,7 @@ import {
   Gift,
   Coins,
   Award,
+  Gem,
 } from 'lucide-react';
 import type { PlayerState } from '../../shared/game.js';
 import { formatNumber, todayKey } from '../../shared/game.js';
@@ -83,10 +84,10 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="io-page-shell io-page-quests max-w-4xl mx-auto space-y-6">
       {claimError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{claimError}</div>}
       {/* Daily Streak */}
-      <div className="bg-gradient-to-r from-slate-900 via-emerald-950/15 to-slate-900 border border-emerald-500/20 rounded-3xl p-5 sm:p-6 shadow-xl">
+      <div className="io-page-hero bg-gradient-to-r from-slate-900 via-emerald-950/15 to-slate-900 border border-emerald-500/20 rounded-3xl p-5 sm:p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-300">
@@ -118,7 +119,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
             <span>{alreadyClaimedStreak ? 'Claimed Today' : 'Claim Daily Reward'}</span>
           </button>
         </div>
-        <div className="mt-3 text-[11px] text-slate-400" role="status" aria-live="polite">{alreadyClaimedStreak ? `Today's Day ${((streakCount - 1) % 7) + 1} reward is claimed. The preview now shows tomorrow's reward.` : `Next claim preview: Day ${streakRewardDay} of 7.`}</div>
+        <div className="mt-3 text-[11px] text-slate-400" role="status" aria-live="polite">{alreadyClaimedStreak ? `Today's reward is claimed. The preview below shows the next reward.` : `Next claim preview: Day ${streakRewardDay} of 7.`}</div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
           {(() => {
             const day = streakRewardDay;
@@ -130,12 +131,12 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
               <div key="shards" className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
                 <span className="block text-[10px] uppercase font-black text-cyan-300/70">Shards</span>
                 <span className="text-lg font-black text-white">+{fmt(reward.shards)}</span>
-                <span className="block text-[9px] text-cyan-400/70">Daily reward, outside roll cap</span>
+                <span className="block text-[9px] text-cyan-400/70">Free reward; does not use the roll-earned Shard cap</span>
               </div>,
               <div key="rolls" className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
                 <span className="block text-[10px] uppercase font-black text-purple-300/70">Free Rolls</span>
                 <span className="text-lg font-black text-white">+{day * 5}</span>
-                <span className="block text-[9px] text-slate-500">Manual Free Rolls bypass normal cooldown; Frenzy and Chain Patcher take priority</span>
+                <span className="block text-[9px] text-slate-500">Manual Free Rolls skip normal cooldown. Frenzy and Chain Patcher are used first.</span>
               </div>,
               <div key="community" className="rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-3">
                 <span className="block text-[10px] uppercase font-black text-fuchsia-300/70">Community Tier</span>
@@ -155,7 +156,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
               {fmt(safeCommunityProgress)} / {fmt(safeCommunityGoal)}
             </div>
           </div>
-          <div role="progressbar" aria-label="Daily Streak Community Goal" aria-valuemin={0} aria-valuemax={100} aria-valuenow={communityProgressPct} className="mt-2 h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
+          <div role="progressbar" aria-label="Daily Streak Community Goal" aria-valuemin={0} aria-valuemax={100} aria-valuenow={communityProgressPct} aria-valuetext={`${fmt(safeCommunityProgress)} of ${fmt(safeCommunityGoal)}`} className="mt-2 h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
             <div className="h-full bg-emerald-400 transition-all" style={{ width: communityProgressPct + "%" }} />
           </div>
           <div className="mt-3 flex flex-wrap gap-3 text-[10px] font-bold">
@@ -189,7 +190,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
             return (
               <div
                 key={q.id}
-                className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3"
+                className={`bg-slate-900/80 border rounded-2xl p-4 flex flex-col justify-between space-y-3 ${isComplete && !q.claimed ? "border-emerald-500/50 shadow-lg shadow-emerald-950/20" : "border-slate-800"}`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
@@ -206,9 +207,9 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
                     </div>
                     <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 shrink-0">
                       <Coins className="w-3.5 h-3.5 text-amber-400" />
-                      <span>+{q.rewardCoins}</span>
+                      <span>+{fmt(q.rewardCoins)}</span>
                       {q.rewardShards && (
-                        <span className="text-cyan-400">+{q.rewardShards} 💎</span>
+                        <span className="inline-flex items-center gap-1 text-cyan-400">+{fmt(q.rewardShards)} <Gem className="h-3 w-3" aria-hidden="true" /></span>
                       )}
                     </div>
                   </div>
@@ -241,6 +242,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
                     <button
                       type="button"
                       aria-busy={busy || claimPending}
+                      aria-label={isComplete ? `Claim reward for daily quest: ${q.title}` : `${q.title}, ${fmt(progress)} of ${fmt(target)} complete`}
                       onClick={() => {
                         sound.playClick();
                         void runClaim(() => onClaimQuest('daily', q.id));
@@ -286,21 +288,24 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
             return (
               <div
                 key={q.id}
-                className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3"
+                className={`bg-slate-900/80 border rounded-2xl p-4 flex flex-col justify-between space-y-3 ${isComplete && !q.claimed ? "border-cyan-500/50 shadow-lg shadow-cyan-950/20" : "border-slate-800"}`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h4 className="text-sm font-bold text-white">{q.title}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-white">{q.title}</h4>
+                        {!isUnlocked && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">Locked</span>}
+                      </div>
                       <p className="text-xs text-slate-400 mt-0.5">{q.desc}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-bold shrink-0">
                       <span className="text-amber-400">+{fmt(q.rewardCoins)} 🪙</span>
                       {q.rewardShards && (
-                        <span className="text-cyan-400">+{q.rewardShards} 💎</span>
+                        <span className="inline-flex items-center gap-1 text-cyan-400">+{fmt(q.rewardShards)} <Gem className="h-3 w-3" aria-hidden="true" /></span>
                       )}
                       {q.rewardTokens && (
-                        <span className="text-purple-400">+{q.rewardTokens} 🛡️</span>
+                        <span className="inline-flex items-center gap-1 text-purple-400">+{fmt(q.rewardTokens)} <Award className="h-3 w-3" aria-hidden="true" /></span>
                       )}
                     </div>
                   </div>
@@ -333,6 +338,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
                     <button
                       type="button"
                       aria-busy={busy || claimPending}
+                      aria-label={isComplete ? `Claim reward for weekly quest: ${q.title}` : `${q.title}, ${fmt(progress)} of ${fmt(target)} complete`}
                       onClick={() => {
                         sound.playClick();
                         void runClaim(() => onClaimQuest('weekly', q.id));
@@ -344,7 +350,7 @@ export const QuestsAndStreaks: React.FC<QuestsAndStreaksProps> = ({
                           : 'bg-slate-950 text-slate-500 border border-slate-800 cursor-not-allowed'
                       }`}
                     >
-                      <span>{isComplete ? 'Claim Reward' : 'In Progress'}</span>
+                      <span>{!isUnlocked ? 'Locked' : isComplete ? 'Claim Reward' : 'In Progress'}</span>
                     </button>
                   )}
                 </div>

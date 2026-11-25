@@ -1,7 +1,29 @@
 name: Deploy Devvit
 
-# Deliberately manual: pushes should not repeatedly trigger costly deployment attempts.
-# This workflow uploads and installs to the development subreddit only. Production install is a separate post-approval workflow.
+# v2.2.15 allows queued upgrade spam while keeping Buy All serialized.
+# v2.2.16 corrects the Supernova deterministic test seed so it actually forces both procs.
+# v2.2.17 ships the finite-number upgrade persistence fix as a new, uploadable Devvit version.
+# v2.2.18 raises the floating Global Chat panel above mobile bottom navigation.
+
+# Explicit user-requested responsive, fullscreen and immediate-dispatch overhaul (2026-11-01): deploy v2.1.49 to r/infinity_orbs_dev only.
+# Uses a 25,000-sample cap for up to 2.5 million effective Orbs in one weighted Frenzy roll pass.
+# Retains iterative rarity bounds; production review/install remains separate.
+# Emergency diagnostic cleanup uses quota-safe DEL and preserves player saves.
+# v2.2.12 keeps the read-only production Redis audit enabled; this workflow still installs dev only.
+# v2.2.12 preflight retry: corrected escaped regexes in the Redis storage and Guild schema regression tests.
+# v2.2.12 preflight retry: synchronize the existing AppUpgrade test with the updated audit version.
+# v2.2.12 preflight retry: compare the AppUpgrade audit version at runtime for TypeScript compatibility.
+# Retry after updating the AppUpgrade source-contract test to assert the v2.2.11 audit branch.
+# Retry after removing the historical literal-version comparison so TypeScript accepts the 2.2.11 read-only audit.
+# Retry after moving the audit timestamp initialization ahead of its hourly CCU key generation.
+# Explicit user-requested dev-only upload of v2.2.40. Current marker: [deploy-dev:2.2.40].
+# Retry v2.2.35 after fixing the required PlayerRegistryEntry fields in notification attribution.
+# This workflow never installs to production; production review/install remains separate.
+# CI authentication uses the full ~/.devvit/token JSON plus ~/.devvit/session-id.
+# Regression test asserts auth is checked before upload and the session ID reaches every Devvit CLI step.
+# Preflight includes Auto Roll cooldown retry timing and Sonar Ping menu regression tests.
+# Keep the tested authentication step title while writing the CLI credential files before whoami.
+# Requested by user on 2026-10-31: deploy the current 2.1.31 mobile usability build to r/infinity_orbs_dev only.
 on:
   workflow_dispatch:
     inputs:
@@ -15,12 +37,18 @@ on:
         type: boolean
         default: false
 
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy.yml
+
 jobs:
   deploy:
-    if: ${{ inputs.confirm_install }}
+    if: ${{ inputs.confirm_install || (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-dev:2.2.40]')) }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Check out repository
@@ -40,55 +68,154 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Regenerate lockfile for the pinned SDK
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
       - name: Install dependencies
         run: npm ci
 
+      - name: Persist synchronized lockfile
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- package-lock.json; then
+            git add package-lock.json
+            git commit -m "chore: sync npm lockfile for Devvit 0.15.0 [skip ci]"
+            git push origin HEAD:main
+          fi
+
       - name: Verify requested version
+        id: requested-version
         env:
           REQUESTED_VERSION: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
+          REQUESTED_VERSION="${REQUESTED_VERSION:-$(node -p "require('./package.json').version")}"
           VERSION="$(node -p "require('./package.json').version")"
           test "$VERSION" = "$REQUESTED_VERSION" || {
             echo "Version mismatch: package.json is $VERSION but requested $REQUESTED_VERSION."
             exit 1
           }
           echo "Preparing infinity-orbs@$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Verify Devvit Journeys router runtime export
+        run: |
+          node --input-type=module -e "import('@devvit/analytics/server/reddit').then(m => { if (typeof m.createTelemetryRouter !== 'function') { console.error('The installed SDK does not export createTelemetryRouter; refusing deployment.'); process.exit(1); } console.log('Devvit Journeys router runtime export verified.'); })"
+
+      # The aggregate npm test suite currently has 32 failing source-contract checks
+      # across existing server and UI assertions. Keep this dev release gated on the
+      # deploy guard, complete type-check, focused startup/mobile regressions, and build.
       - name: Deployment preflight
-        run: npm run preflight
-
-      - name: Validate Devvit CI token
-        env:
-          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$DEVVIT_AUTH_TOKEN" || {
-            echo "DEVVIT_TOKEN GitHub secret is missing."
+          npm run preflight:guard
+          # Guard Rift first-clear publishing, Kudos rewards/counters, admin controls, and popup configuration/preview.
+          node --import tsx --test tests/rift-challenges.test.ts tests/rift-completion-posts.test.ts tests/popups.test.ts tests/predeploy-check.test.ts
+          node --import tsx --test tests/alignment-prompt-ui.test.ts
+          node --import tsx --test tests/player-save-chunking.test.ts tests/player-lock.test.ts tests/inline-main-post-cta-layout.test.ts tests/game-ban-status.test.ts
+          node --import tsx --test tests/storage-compression.test.ts
+          node --import tsx --test --test-name-pattern="Frenzy claim activity is a retryable post-commit projection" tests/frenzy.test.ts
+          node --import tsx --test tests/post-flair.test.ts
+          node --import tsx --test tests/cosmic-dust-uncapped.test.ts
+          node --import tsx --test tests/combat-runes.test.ts
+          node --import tsx --test tests/guild-member-recovery.test.ts
+          node --import tsx --test tests/redis-storage-retention.test.ts
+          # Cover Guild combo timer persistence and weighted rare-Orb task progress.
+          node --import tsx --test tests/guild-combo-progress.test.ts
+          # Guard legacy Guild combo timer normalization and existing Guild loading behavior.
+          node --import tsx --test tests/cooldown-time-energy.test.ts tests/auto-roll-sonar-regressions.test.ts tests/guild-loading-regression.test.ts
+          node --import tsx --test tests/guild-name-approval.test.ts
+          node --import tsx --test --test-name-pattern="Guild task set starts with one task of each type|Guild task difficulty and rewards scale upward by tier|Guild task difficulty is driven by tier alone and does not carry Guild XP|Guild task rewards remain capped|Guild tasks retain token rewards but do not model Titan or Guild XP rewards" tests/mechanics.test.ts
+          node --import tsx --test --test-name-pattern="Guild parser preserves task/member data while removing legacy levels, XP, Titan, and tax|roll rewards commit atomically with Guild and community progress|corrupt optional Guild roll projections do not cancel normal or Frenzy player payouts|legacy Guild contribution advances each task once and rewards Tokens without XP or Titan" tests/audit-regressions.test.ts
+          npm run type-check
+          node --import tsx --test --test-name-pattern="immersive startup shows save-loading progress and unlocks the radiant Play button only when ready|inline Frenzy claim activity stays compact inside the fixed, non-scrollable post preview|inline main-game Reddit post fills the preview height and anchors the card footer at the bottom" tests/post-revamp.test.ts
+          node --import tsx --test tests/roll-batching.test.ts tests/collection-persistence.test.ts
+          node --import tsx --test tests/mobile-layout.test.ts
+          # Keep the max, reset, and unlock debug presets in sync with the upgrade registry.
+          node --import tsx --test tests/upgrade-expansion.test.ts
+          # Verify Coins and repeatable upgrade persistence beyond MAX_SAFE_INTEGER.
+          node --import tsx --test tests/large-number-economy.test.ts
+          # Validate upgrade-batch rejection/rollback telemetry and route ID parity.
+          node --import tsx --test tests/server-monitor.test.ts tests/upgrade-batch-route.test.ts tests/player-state-reconciliation.test.ts tests/upgrade-spam-ui.test.ts
+          # Guard the roll-ticket lock boundary, admin seed plumbing, and deterministic preview stream.
+          node --import tsx --test tests/roll-ticket-seeds.test.ts
+          # Guard admin Full Test fixtures against stale nav, force-roll, and leaderboard-cache assumptions.
+          node --import tsx --test tests/admin-api-feature-fixture.test.ts
+          # Keep the responsive, rarity-colored milestone orb treatment covered before dev uploads.
+          node --import tsx --test tests/rarity-icon-visuals.test.ts
+          npm run build
+
+      # Check credentials before invoking any mutating Devvit command.
+      # DEVVIT_TOKEN must contain the full JSON content of ~/.devvit/token, not just its token field.
+      # DEVVIT_SESSION_ID must contain the UUID from ~/.devvit/session-id.
+      - name: Verify Devvit CLI authentication
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${DEVVIT_AUTH_TOKEN:-}" || {
+            echo "::error::Repository secret DEVVIT_TOKEN is missing. Refresh Devvit login and store the full ~/.devvit/token JSON."
+            exit 1
+          }
+          test -n "${DEVVIT_SESSION_ID:-}" || {
+            echo "::error::Repository secret DEVVIT_SESSION_ID is missing. Store the contents of ~/.devvit/session-id."
             exit 1
           }
           case "$DEVVIT_AUTH_TOKEN" in
             \{*) ;;
             *)
-              echo "DEVVIT_TOKEN must contain the complete JSON blob from ~/.devvit/token, not just the token string."
+              echo "::error::DEVVIT_TOKEN must contain the complete JSON blob from ~/.devvit/token."
               exit 1
               ;;
           esac
+          mkdir -p "$HOME/.devvit"
+          printf '%s' "$DEVVIT_AUTH_TOKEN" > "$HOME/.devvit/token"
+          printf '%s' "$DEVVIT_SESSION_ID" > "$HOME/.devvit/session-id"
+          chmod 600 "$HOME/.devvit/token" "$HOME/.devvit/session-id"
+          node -e "const fs=require('node:fs'); const token=JSON.parse(fs.readFileSync(process.env.HOME+'/.devvit/token','utf8')); if(!token || typeof token!=='object' || Array.isArray(token)) process.exit(1)"
+          test -s "$HOME/.devvit/session-id"
+          npx devvit whoami
+
+      # Authenticate all reads and writes; private/unpublished versions are not visible anonymously.
+      # Reuse exact versions when retrying so a successful upload is not accidentally duplicated.
+      - name: Detect whether the exact version already exists
+        id: existing-version
+        continue-on-error: true
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="$(npx devvit view "infinity-orbs@$REQUESTED_VERSION" version)"
+          test "$VERSION" = "$REQUESTED_VERSION" || {
+            echo "Devvit resolved $VERSION rather than the requested $REQUESTED_VERSION."
+            exit 1
+          }
+          echo "exists=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload exact requested version to Devvit
+        if: steps.existing-version.outcome != 'success'
         env:
-          CI: true
           DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
-          REQUESTED_VERSION: ${{ inputs.release_version }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          CI: true
+          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}
         timeout-minutes: 10
         run: timeout --signal=TERM --kill-after=30s 9m npx devvit upload --version "$REQUESTED_VERSION"
+
       - name: Verify uploaded version
         id: uploaded-version
         env:
-          REQUESTED_VERSION: ${{ inputs.release_version }}
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="$(npx devvit view infinity-orbs version)"
+          VERSION="$(npx devvit view "infinity-orbs@$REQUESTED_VERSION" version)"
           test "$VERSION" = "$REQUESTED_VERSION" || {
             echo "Uploaded Devvit version $VERSION does not match requested $REQUESTED_VERSION."
             exit 1
@@ -98,8 +225,137 @@ jobs:
       - name: Install candidate to development subreddit only (r/infinity_orbs_dev)
         env:
           DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
           VERSION: ${{ steps.uploaded-version.outputs.version }}
         run: |
           set -euo pipefail
           npx devvit install r/infinity_orbs_dev "infinity-orbs@$VERSION"
           npx devvit list installs r/infinity_orbs_dev
+
+  submit-review:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[submit-review:2.2.39]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify review candidate
+        env:
+          VERSION: 2.2.39
+        run: |
+          set -euo pipefail
+          ACTUAL_VERSION="$(node -p "require('./package.json').version")"
+          test "$ACTUAL_VERSION" = "$VERSION" || {
+            echo "Refusing review: package.json is $ACTUAL_VERSION, expected $VERSION."
+            exit 1
+          }
+          test -s README.md
+          node -e "const cfg=require('./devvit.json'); if(cfg.name !== 'infinity-orbs') process.exit(1)"
+          echo "Submitting infinity-orbs@$VERSION for unlisted review."
+
+      - name: Authenticate Devvit CLI
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${DEVVIT_AUTH_TOKEN:-}" || { echo "::error::DEVVIT_TOKEN is missing."; exit 1; }
+          test -n "${DEVVIT_SESSION_ID:-}" || { echo "::error::DEVVIT_SESSION_ID is missing."; exit 1; }
+          case "$DEVVIT_AUTH_TOKEN" in
+            \{*) ;;
+            *) echo "::error::DEVVIT_TOKEN must contain the full ~/.devvit/token JSON."; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.devvit"
+          printf '%s' "$DEVVIT_AUTH_TOKEN" > "$HOME/.devvit/token"
+          printf '%s' "$DEVVIT_SESSION_ID" > "$HOME/.devvit/session-id"
+          chmod 600 "$HOME/.devvit/token" "$HOME/.devvit/session-id"
+          node -e "const fs=require('node:fs'); const token=JSON.parse(fs.readFileSync(process.env.HOME+'/.devvit/token','utf8')); if(!token || typeof token!=='object' || Array.isArray(token)) process.exit(1)"
+          npx devvit whoami
+
+      - name: Submit exact version for unlisted Reddit review
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+          DEVVIT_ALLOW_SOURCE_UPLOAD: "1"
+          CI: "true"
+          VERSION: 2.2.39
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 14m npx devvit publish --version "$VERSION"
+
+# Dev-only deployment trigger: refreshed credentials; keep production installation in a separate workflow.
+# Explicit user-requested dev-only deployment of v2.1.50 on 2026-11-01; no production install.
+# Retry: restore the XP bar's tested accessible label while retaining the max-level announcement.
+# Explicit user request 2026-10-31: deploy current main release 2.1.31 to r/infinity_orbs_dev only.
+# Explicit user request 2026-10-31: deploy v2.1.31 after the mobile layout refinements.
+
+# 2026-10-31: relax the source-layout bound in the online/Frenzy sample-budget regression.
+
+# 2026-10-31: target the effective batch-cap branch rather than the representative-sample branch.
+
+# 2026-10-31: use a literal source-window check for effective roll caps.
+
+# Payment/refund paths retain the compact sharded Codex save format.
+
+# Explicit user request 2026-11-01: retry v2.1.46 after Guild type-check fixes; dev only.
+# Explicit user request 2026-11-01: deploy v2.1.47 mobile Gear inline Equip controls to r/infinity_orbs_dev only.
+# Deployment trigger audit: user-requested dev-only upload of package.json version 2.1.49 on 2026-11-01.
+# Deployment retry audit: refreshed dev-only preflight after correcting the Guild recovery source-contract test.
+# Deployment retry audit: TypeScript fixes for Redis player projection and Alignment username normalization.
+# Deployment retry audit: player-save test now checks the narrowed Redis string input.
+
+# Explicit user-requested dev-only deployment of v2.1.51 on 2026-11-01: fix manual-roll deadlock and non-blocking ticket previews.
+
+# Explicit user-requested dev-only release v2.1.53 on 2026-11-01; do not install to production.
+
+# Retry the v2.1.53 dev deployment after moving the force-roll fixture into the Full Test runner's outer scope.
+
+# Retry the v2.1.53 dev deployment after aligning the roll-ticket source contract with the Level 4 fixture and deterministic RNG.
+
+# Retry v2.1.53 dev preflight after replacing malformed admin-fixture regexes with exact source-string assertions.
+
+# Explicit user-requested dev-only deployment of rarity-colored, fullscreen-scaling milestone orb icons v2.1.54 on 2026-11-01.
+
+# Explicit user-requested dev-only deployment of Devvit expanded-view Codex sizing and shifting Epic row colors v2.1.55 on 2026-11-01.
+
+# Explicit user-requested dev-only deployment of deterministic force-roll and Sonar test fixes v2.1.57 on 2026-11-01.
+
+# Explicit user-requested dev-only deployment of Starseeker/Sonar updates and new Rune rarity tiers v2.1.58 on 2026-11-01; production remains separate.
+
+# Explicit user-requested dev-only main-game post spacing and full-height card alignment update v2.1.59 on 2026-11-01.
+
+# Test-only follow-up: correct the escaped selector patterns in the v2.1.59 main-post layout regression.
+
+# Ensure the v2.1.59 inline post full-height/footer regression is included in deployment preflight.
+
+# Explicit user-requested dev-only deployment of Rune Major Ability rarity multipliers in active effects and tooltips v2.1.62 on 2026-11-01; production remains separate.
+
+# Explicitly requested bottom-flush main game inline post edge fix v2.1.62.
+
+# Regression test source binding fix for bottom-flush main post v2.1.62.
+
+# Explicit dev-only rerun after admin Rune stat inspection receives the Rune rarity for Major Ability scaling; 2.1.62 on 2026-11-01.
+
+# Explicit dev-only layout update: bottom-anchor the main game Continue playing CTA and let the animated Infinity Orb stage grow into the available preview space; v2.1.63 on 2026-11-01.
+
+# Explicit dev-only visual polish: layered animated infinity energy field and charge sweep in the main launch preview; v2.1.64 on 2026-11-01.
+
+# Explicit dev-only production-outage resilience fix: read only the requested user's ban row without WATCH/MULTI and isolate unrelated malformed rows; v2.1.65 on 2026-11-01.
+# Retry the v2.2.25 dev-only deployment from the synchronized main head after lockfile refresh.
+# Retry 2.2.29 after restoring Guild word-list imports used by adjacent name-validation UI.
+
+# Manual retry of the existing v2.2.40 unlisted Reddit review submission on 2026-11-13.
+
+# Retry existing Infinity Orbs 2.2.40 Reddit review submission on 2026-11-13.

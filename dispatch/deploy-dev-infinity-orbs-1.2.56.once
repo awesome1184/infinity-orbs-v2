@@ -1,0 +1,4 @@
+One-time deployment marker for infinity-orbs@1.2.56 to r/infinity_orbs_dev.
+Validated main release commit: 76ca559ad98d31e43fa71d81dda59c02054e1ba2 (full source checks, tests, and production build passed).
+Includes queued combat skills, corrected Speed cadence with player charge carried across enemies, reduced Scrap rewards, stable gear tooltips, and mutual exclusion between Combat and main-game Auto Roll.
+Deployment workflow must run full Node 24 preflight, upload and verify infinity-orbs@1.2.56, then install to r/infinity_orbs_dev only.

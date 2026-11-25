@@ -53,8 +53,21 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
   };
 
   return (
-    <div className="io-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="io-share-dialog-title" aria-busy={busy} className="io-modal-card bg-slate-900 text-slate-100 relative w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
+    <div
+      className="io-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      onMouseDown={event => {
+        if (!busy && event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={event => {
+        if (event.key === 'Escape' && !busy) onClose();
+      }}
+    >
+      <div role="dialog" aria-modal="true"
+        aria-labelledby="io-share-dialog-title"
+        aria-describedby="io-share-dialog-description io-share-status"
+        aria-busy={busy}
+        className="io-modal-card bg-slate-900 text-slate-100 relative w-full max-w-xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain"
+      >
         <button type="button" onClick={onClose} disabled={busy} className="io-modal-close disabled:opacity-40 disabled:cursor-not-allowed" aria-label="Close share dialog" title={busy?'Wait for Reddit to confirm the post before closing':'Close share dialog'}>
           <X className="w-4 h-4" />
         </button>
@@ -70,8 +83,11 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
           </div>
         </div>
 
-        <p className="io-modal-intro">
-          Turn this discovery into a playable community post with the same presentation as the game.
+        <p id="io-share-dialog-description" className="io-modal-intro">
+          Preview your discovery, then choose Post to Reddit to create a community post. Nothing is posted until you confirm.
+        </p>
+        <p id="io-share-status" className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {busy ? 'Posting your Orb to Reddit. Keep this dialog open until the request finishes.' : successPostId ? 'Your Orb post was created successfully.' : ''}
         </p>
 
         {errorMessage && (
@@ -83,11 +99,11 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
           </p>
         )}
 
-        <div className="io-share-preview">
+        <div className="io-share-preview" role="group" aria-label="Preview of the Reddit discovery post">
           <div className="io-share-preview-head">
             <div>
               <span>r/infinityorbs</span>
-              <small>posted by u/you · just now</small>
+              <small>Preview by u/you · just now</small>
             </div>
             <span
               className="io-public-tier"
@@ -105,6 +121,8 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
 
           <div className="io-share-preview-orb">
             <div
+              role="img"
+              aria-label={`${info.name}, ${info.tier} Orb, odds one in ${formatRarity(rarity, isInfinity)}`}
               className="io-public-orb io-share-preview-orb-mark"
               style={{
                 background: info.bgGradient,
@@ -112,7 +130,7 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
                 boxShadow: `0 0 30px ${info.color}22, inset 0 1px rgba(255,255,255,.3)`,
               }}
             >
-              <span className="io-public-orb-ring" />
+              <span className="io-public-orb-ring" aria-hidden="true" />
               <span className="io-public-orb-tier">{info.tier}</span>
               <strong>1/{formatRarity(rarity, isInfinity)}</strong>
               <small>{info.name}</small>
@@ -129,15 +147,15 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
             <span><b>{formatNumber(state.collectionValue)}</b> collection value</span>
           </div>
 
-          <div className="io-share-preview-actions">
+          <div className="io-share-preview-actions" role="group" aria-label="Reddit voting and comments preview">
             <span><ArrowBigUp className="w-4 h-4" /> Vote</span>
             <span><MessageSquare className="w-4 h-4" /> Comments</span>
           </div>
         </div>
 
         {successPostId ? (
-          <div className="io-modal-success">
-            <CheckCircle2 className="w-5 h-5" />
+          <div className="io-modal-success" role="status" aria-live="polite" aria-atomic="true">
+            <CheckCircle2 className="w-5 h-5" aria-hidden="true" />
             <div>
               <strong>Shared to r/infinityorbs</strong>
               <span>The discovery post is ready for other players.</span>
@@ -146,7 +164,7 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
         ) : (
           <div className="io-modal-actions">
             <button type="button" onClick={onClose} disabled={busy} className="io-public-button io-public-button-secondary disabled:opacity-40">Cancel</button>
-            <button onClick={handleShare} disabled={busy} className="io-public-button io-public-button-primary">
+            <button type="button" onClick={handleShare} disabled={busy} aria-busy={busy} aria-label={busy ? 'Posting discovery to Reddit' : 'Post discovery to Reddit'} className="io-public-button io-public-button-primary">
               <Share2 className="w-4 h-4" />
               {busy ? 'Posting…' : 'Post to Reddit'}
               {!busy && <ArrowRight className="w-4 h-4" />}
@@ -155,7 +173,7 @@ export const RedditShareModal: React.FC<RedditShareModalProps> = ({
         )}
 
         {successPostId && (
-          <button type="button" onClick={onClose} className="io-public-button io-public-button-secondary io-modal-close-button">
+          <button type="button" onClick={onClose} className="io-public-button io-public-button-secondary io-modal-close-button" aria-label="Close share confirmation">
             Close
           </button>
         )}

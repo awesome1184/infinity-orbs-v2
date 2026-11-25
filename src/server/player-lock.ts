@@ -2,7 +2,8 @@ import { context, redis } from './devvit-mock.js';
 
 const PLAYER_MUTATION_LOCK_PREFIX = 'io:player-mutation-lock:';
 const PLAYER_MUTATION_LOCK_TTL_MS = 90_000;
-const PLAYER_MUTATION_LOCK_ATTEMPTS = 360;
+// Cross-runtime callers wait up to 10 seconds before the HTTP client safely retries admission.
+const PLAYER_MUTATION_LOCK_ATTEMPTS = 400;
 const PLAYER_MUTATION_LOCK_RETRY_MS = 25;
 
 export interface PlayerMutationLockTransaction {
@@ -203,7 +204,7 @@ export function createPlayerMutationLockRuntime(
         await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       }
 
-      throw new Error('Player state is busy. Please retry.');
+      throw new Error('PLAYER_MUTATION_QUEUED');
     } finally {
       release();
 

@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { ArrowRight, BookOpen, Orbit, Share2, Trophy } from 'lucide-react';
 import { getOrbInfo, formatNumber, formatRarity, MAX_ORB_RARITY } from '../shared/game.js';
-import { recordPostImpression, type ImpressionPostType } from './impressions.js';
+import { recordPostImpression, recordMainGamePostConversion, type ImpressionPostType } from './impressions.js';
 import './styles.css';
+import './post-revamp.css';
 
 type SharedOrbPostData = {
   type?: string;
@@ -28,10 +29,12 @@ function PlayGameButton({
   label = 'Play Infinity Orbs',
   className = 'io-public-button io-public-button-primary',
   leadingIcon,
+  trackMainGameConversion = false,
 }: {
   label?: string;
   className?: string;
   leadingIcon?: ReactNode;
+  trackMainGameConversion?: boolean;
 }) {
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
@@ -39,6 +42,9 @@ function PlayGameButton({
     if (opening) return;
     setOpening(true);
     setError('');
+    const trackConversion = () => {
+      if (trackMainGameConversion) recordMainGamePostConversion(context.postId);
+    };
     const failed = () => {
       setError("Reddit couldn't open the game from this preview. Try reloading the post and opening it again.");
       setOpening(false);
@@ -46,14 +52,16 @@ function PlayGameButton({
     try {
       // This API must be invoked synchronously inside the trusted click turn.
       const request = requestExpandedMode(e.nativeEvent, 'game');
+      trackConversion();
       void Promise.resolve(request).catch(failed);
     } catch {
+      trackConversion();
       failed();
     }
   };
   return (
     <>
-      <button type="button" className={className} onClick={openGame} disabled={opening} aria-busy={opening}>
+      <button type="button" className={`${className} io-post-cta`} onClick={openGame} disabled={opening} aria-busy={opening}>
         {opening ? 'Opening Infinity Orbs…' : <>{leadingIcon}{label}<ArrowRight className="w-4 h-4" /></>}
       </button>
       {error && <p className="io-public-inline-error" role="alert" aria-live="assertive">{error}</p>}
@@ -80,7 +88,7 @@ function PublicShell({ children, compact = false }: { children: ReactNode; compa
   );
 }
 
-function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
+function SharedOrbPost({ data, playedBefore }: { data: SharedOrbPostData; playedBefore: boolean | null }) {
   const rarity = Number.isInteger(data.rarity) && Number(data.rarity) > 0 && Number(data.rarity) <= MAX_ORB_RARITY
     ? Number(data.rarity)
     : 0;
@@ -99,7 +107,7 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
 
   return (
     <PublicShell compact>
-      <section className="io-public-card io-share-card">
+      <section className="io-public-card io-share-card io-post-reveal">
         <div className="io-public-eyebrow">
           <Share2 className="w-3.5 h-3.5" />
           Community discovery
@@ -108,7 +116,7 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
         <div className="io-share-heading">
           <div>
             <h1><span>u/{username}</span> found an Orb</h1>
-            <p>One roll. One discovery. Logged to the Codex.</p>
+            <p>{playedBefore === true ? 'Your Codex is saved. Roll again and chase something rarer.' : playedBefore === false ? 'One roll. One discovery. Logged to the Codex.' : 'A rare find could be one roll away.'}</p>
           </div>
           <div
             className="io-public-tier"
@@ -128,10 +136,15 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
             style={{
               background: info.bgGradient,
               borderColor: `${info.color}66`,
-              boxShadow: `0 0 34px ${info.color}22, inset 0 1px rgba(255,255,255,.32)`,
+              boxShadow: `0 0 16px ${info.color}18, inset 0 1px rgba(255,255,255,.22)`,
             }}
             aria-label={`1/${formatRarity(rarity, isInfinity)} ${info.tier} Orb`}
           >
+            <span className="io-public-orb-ring io-public-orb-ring-secondary" aria-hidden="true" />
+            <span className="io-public-orb-ring io-public-orb-ring-tertiary" aria-hidden="true" />
+            <span className="io-share-orb-spark io-share-orb-spark-a" aria-hidden="true" />
+            <span className="io-share-orb-spark io-share-orb-spark-b" aria-hidden="true" />
+            <span className="io-share-orb-spark io-share-orb-spark-c" aria-hidden="true" />
             <span className="io-public-orb-ring" />
             <span className="io-public-orb-tier">{info.tier}</span>
             <strong>1/{formatRarity(rarity, isInfinity)}</strong>
@@ -160,11 +173,14 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
           </div>
         </div>
 
-        <div className="io-public-actions">
+        <div className="io-public-actions io-post-conversion">
+          <div className="io-cta-caption"><span aria-hidden="true" /> {playedBefore === true ? 'YOUR NEXT DISCOVERY IS WAITING' : playedBefore === false ? 'YOUR CODEX STARTS WITH ONE ROLL' : 'ONE TAP TO YOUR NEXT ORB'}</div>
           <PlayGameButton
             className="io-public-button io-public-button-primary"
             leadingIcon={<Orbit className="w-4 h-4" />}
+            label={playedBefore === true ? 'Find a rarer Orb' : playedBefore === false ? 'Play Infinity Orbs' : 'Open Infinity Orbs'}
           />
+          <p className="io-cta-footnote">Free to play. Tap in and chase your own impossible Orb.</p>
         </div>
       </section>
     </PublicShell>
@@ -172,6 +188,15 @@ function SharedOrbPost({ data }: { data: SharedOrbPostData }) {
 }
 
 function Splash() {
+  const [playedBefore, setPlayedBefore] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/player/experience', { cache: 'no-store' })
+      .then(response => response.ok ? response.json() as Promise<{ playedBefore?: unknown }> : null)
+      .then(result => { if (active && typeof result?.playedBefore === 'boolean') setPlayedBefore(result.playedBefore); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   const postData = (context.postData ?? {}) as SharedOrbPostData;
   const impressionPostType: ImpressionPostType = postData.type === 'shared-orb' ? 'orb-share' : 'main-game';
   const impressionRecordedRef = useRef(false);
@@ -179,7 +204,7 @@ function Splash() {
   useEffect(() => {
     if (impressionRecordedRef.current) return;
     impressionRecordedRef.current = true;
-    void recordPostImpression(impressionPostType);
+    void recordPostImpression(impressionPostType, context.postId);
   }, [impressionPostType]);
 
   if (postData.type === 'shared-orb') {
@@ -188,16 +213,16 @@ function Splash() {
       Number(postData.rarity) > 0 &&
       Number(postData.rarity) <= MAX_ORB_RARITY
     ) {
-      return <SharedOrbPost data={postData} />;
+      return <SharedOrbPost data={postData} playedBefore={playedBefore} />;
     }
     // Bad metadata should not masquerade as a normal main-game post.
     return (
       <PublicShell compact>
-        <section className="io-public-card io-share-card">
+        <section className="io-public-card io-share-card io-post-reveal">
           <div className="io-public-eyebrow">Community discovery</div>
           <h1>Orb preview unavailable</h1>
           <p>This shared Orb has missing or outdated post data. You can still open Infinity Orbs and keep rolling.</p>
-          <PlayGameButton />
+          <PlayGameButton label={playedBefore === true ? 'Continue playing' : playedBefore === false ? 'Play Infinity Orbs' : 'Open Infinity Orbs'} />
         </section>
       </PublicShell>
     );
@@ -205,15 +230,32 @@ function Splash() {
 
   return (
     <PublicShell>
-      <section className="io-public-card io-launch-card">
+      <section className="io-public-card io-launch-card io-post-reveal">
         <div className="io-launch-kicker">A REDDIT-NATIVE RNG GAME</div>
 
         <div className="io-launch-title-row">
           <div>
-            <h1>Find the next impossible Orb.</h1>
-            <p>Roll for rarity, spend Coins on upgrades, and build a Codex of increasingly absurd discoveries.</p>
+            <h1>{playedBefore === true ? 'Your next impossible Orb is waiting.' : 'Find the next impossible Orb.'}</h1>
+            <p>{playedBefore === true ? 'Pick up where you left off: chase a rarer Orb, beat your best, and keep your Codex growing.' : 'Roll for rarity, spend Coins on upgrades, and build a Codex of increasingly absurd discoveries.'}</p>
           </div>
           <div className="io-launch-mark" aria-hidden="true">
+            <span>∞</span>
+          </div>
+        </div>
+
+        <div className="io-launch-orb-stage" aria-hidden="true">
+          <div className="io-launch-orb-aura" />
+          <span className="io-launch-orb-vortex io-launch-orb-vortex-a" />
+          <span className="io-launch-orb-vortex io-launch-orb-vortex-b" />
+          <span className="io-launch-orb-ring io-launch-orb-ring-a" />
+          <span className="io-launch-orb-ring io-launch-orb-ring-b" />
+          <span className="io-launch-orb-ring io-launch-orb-ring-c" />
+          <span className="io-launch-orb-spark io-launch-orb-spark-a" />
+          <span className="io-launch-orb-spark io-launch-orb-spark-b" />
+          <span className="io-launch-orb-spark io-launch-orb-spark-c" />
+          <span className="io-launch-orb-spark io-launch-orb-spark-d" />
+          <div className="io-launch-orb-sphere">
+            <span className="io-launch-orb-sphere-shine" />
             <span>∞</span>
           </div>
         </div>
@@ -245,14 +287,18 @@ function Splash() {
           </div>
         </div>
 
-        <PlayGameButton className="io-public-button io-public-button-primary io-launch-button" />
-
         <div className="io-launch-footer">
           <span>Persistent Reddit save</span>
           <span>·</span>
           <span>Server-authoritative rolls</span>
           <span>·</span>
           <span>v{context.appVersion ?? 'unknown'}</span>
+        </div>
+
+        <div className="io-post-conversion io-main-cta">
+          <div className="io-cta-caption"><span aria-hidden="true" /> {playedBefore === true ? 'YOUR NEXT RECORD IS ONE TAP AWAY' : playedBefore === false ? 'YOUR FIRST ORB IS ONE TAP AWAY' : 'YOUR NEXT ORB IS ONE TAP AWAY'}</div>
+          <PlayGameButton className="io-public-button io-public-button-primary io-launch-button" label={playedBefore === true ? 'Continue playing' : playedBefore === false ? 'Play Infinity Orbs' : 'Open Infinity Orbs'} trackMainGameConversion />
+          <p className="io-cta-footnote">{playedBefore === true ? 'Your Codex and upgrades are saved on Reddit' : 'Free to play · No download · Your progress saves on Reddit'}</p>
         </div>
       </section>
     </PublicShell>

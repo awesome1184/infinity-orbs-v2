@@ -1,0 +1,901 @@
+/* Rift-only visual identity. The normal game never inherits these overrides. */
+.io-ui.io-rift-active {
+  --ink: #090511;
+  --ink-raised: #130b20;
+  --ink-soft: #211333;
+  --line: rgba(190, 153, 255, .16);
+  --line-bright: rgba(208, 180, 255, .27);
+  --paper: #f4edff;
+  --muted: #b4a2cc;
+  --teal: #bd8cff;
+  --io-bg: #090511;
+  --io-panel: rgba(20, 11, 34, .95);
+  --io-panel-deep: rgba(11, 6, 21, .97);
+  --io-border: rgba(190, 153, 255, .16);
+  --io-text: #f4edff;
+  --io-muted: #b4a2cc;
+  --io-subtle: #ad9abe;
+  --io-accent: #bd8cff;
+  --io-focus: #d7baff;
+  --io-surface: #180e28;
+  --io-surface-raised: #241438;
+  --io-line: rgba(190, 153, 255, .16);
+  --io-line-bright: rgba(208, 180, 255, .27);
+  color: var(--io-text);
+  position: relative;
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(139, 75, 221, .23), transparent 48%),
+    radial-gradient(ellipse at 92% 48%, rgba(103, 52, 178, .16), transparent 48%),
+    radial-gradient(ellipse at 50% 100%, rgba(74, 34, 126, .20), transparent 52%),
+    linear-gradient(155deg, #090511 0%, #10091c 52%, #0b0715 100%) !important;
+  isolation: isolate;
+}
+
+body:has(.io-ui.io-rift-active) {
+  background: #090511 !important;
+}
+
+/* Preserve the normal GUI stacking order above the isolated Rift backdrop. */
+.io-ui.io-rift-active .app-header {
+  z-index: 60;
+}
+
+.io-ui.io-rift-active .app-nav {
+  z-index: 50;
+}
+
+/* The portal sits behind ordinary content without creating a stacking context
+   around every direct child of the app shell. */
+.io-rift-atmosphere {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: .98;
+  contain: strict;
+  background:
+    radial-gradient(ellipse at 50% 48%, rgba(117, 69, 194, .22), transparent 56%),
+    radial-gradient(ellipse at 4% 84%, rgba(95, 43, 158, .19), transparent 43%),
+    radial-gradient(ellipse at 96% 10%, rgba(151, 89, 226, .18), transparent 42%),
+    radial-gradient(ellipse at 72% 78%, rgba(51, 91, 173, .11), transparent 47%),
+    linear-gradient(160deg, #080410 0%, #10091e 48%, #070510 100%);
+}
+
+.io-rift-atmosphere::before,
+.io-rift-atmosphere::after {
+  position: absolute;
+  inset: -24vmax;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.io-rift-atmosphere::before {
+  background:
+    conic-gradient(
+      from 12deg at 50% 50%,
+      transparent 0deg 12deg,
+      rgba(167, 105, 255, .15) 28deg,
+      transparent 48deg 78deg,
+      rgba(112, 65, 203, .19) 94deg,
+      transparent 118deg 151deg,
+      rgba(220, 180, 255, .12) 166deg,
+      transparent 190deg 222deg,
+      rgba(133, 78, 226, .17) 239deg,
+      transparent 262deg 292deg,
+      rgba(192, 142, 255, .13) 309deg,
+      transparent 332deg 360deg
+    ),
+    repeating-conic-gradient(
+      from 7deg at 50% 50%,
+      transparent 0deg 17deg,
+      rgba(185, 137, 255, .035) 18deg 18.7deg,
+      transparent 20deg 36deg
+    );
+  filter: blur(28px);
+  mask-image: radial-gradient(ellipse at center, transparent 8%, #000 22%, #000 64%, transparent 82%);
+  transform-origin: 50% 50%;
+  animation: io-rift-vortex-spin 92s linear infinite;
+}
+
+.io-rift-atmosphere::after {
+  inset: -12vmax;
+  background:
+    radial-gradient(circle at 15% 24%, rgba(223, 195, 255, .42) 0 1px, transparent 2px),
+    radial-gradient(circle at 74% 16%, rgba(199, 154, 255, .38) 0 1px, transparent 2px),
+    radial-gradient(circle at 32% 72%, rgba(220, 190, 255, .30) 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 68%, rgba(185, 130, 255, .42) 0 1px, transparent 2px),
+    radial-gradient(circle at 57% 89%, rgba(214, 183, 255, .32) 0 1px, transparent 2px),
+    conic-gradient(
+      from 196deg at 50% 50%,
+      transparent 0deg 58deg,
+      rgba(153, 94, 231, .10) 92deg,
+      transparent 126deg 238deg,
+      rgba(208, 160, 255, .09) 274deg,
+      transparent 309deg
+    );
+  filter: blur(8px);
+  mask-image: radial-gradient(ellipse at center, transparent 12%, #000 32%, #000 70%, transparent 85%);
+  opacity: .72;
+  animation: io-rift-vortex-counter 118s linear infinite, io-rift-vortex-drift 32s ease-in-out infinite alternate;
+}
+
+.io-rift-vortex {
+  position: absolute;
+  top: 43%;
+  left: 50%;
+  width: min(108vmin, 1380px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: .76;
+  transform: translate(-50%, -50%);
+  background:
+    radial-gradient(circle at center, rgba(10, 5, 20, .08) 0 17%, rgba(118, 65, 194, .10) 27%, transparent 48%),
+    radial-gradient(circle at 50% 50%, transparent 0 36%, rgba(161, 104, 244, .055) 43%, transparent 58%);
+  filter: drop-shadow(0 0 45px rgba(131, 74, 210, .10));
+  will-change: transform;
+}
+
+.io-rift-vortex__ring {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+}
+
+.io-rift-vortex__ring--outer {
+  inset: 4%;
+  border: 1px solid rgba(187, 140, 255, .16);
+  box-shadow: 0 0 24px rgba(145, 85, 226, .08), inset 0 0 24px rgba(145, 85, 226, .04);
+  background: conic-gradient(from 30deg, transparent 0deg 42deg, rgba(197, 151, 255, .68) 51deg, transparent 63deg 176deg, rgba(138, 82, 222, .52) 193deg, transparent 209deg 302deg, rgba(221, 193, 255, .5) 317deg, transparent 332deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - .5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - .5px));
+  animation: io-rift-ring-clockwise 68s linear infinite;
+}
+
+.io-rift-vortex__ring--middle {
+  inset: 15%;
+  border: 1px dashed rgba(195, 151, 255, .24);
+  box-shadow: 0 0 22px rgba(147, 91, 229, .10);
+  animation: io-rift-ring-counter 46s linear infinite;
+}
+
+.io-rift-vortex__ring--inner {
+  inset: 27%;
+  background: conic-gradient(from 225deg, transparent 0deg 34deg, rgba(218, 184, 255, .48) 45deg, transparent 59deg 152deg, rgba(149, 99, 226, .48) 169deg, transparent 188deg 270deg, rgba(201, 157, 255, .38) 286deg, transparent 303deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+  filter: blur(.5px);
+  animation: io-rift-ring-clockwise 34s linear infinite reverse;
+}
+
+.io-rift-vortex__ring--outer::after,
+.io-rift-vortex__ring--middle::after,
+.io-rift-vortex__ring--inner::after {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  content: "";
+  background: #e0c6ff;
+  box-shadow: 0 0 9px 3px rgba(189, 133, 255, .78), 0 0 26px 8px rgba(149, 91, 232, .44);
+  transform: translate(-50%, -50%);
+}
+
+.io-rift-vortex__ring--middle::after {
+  width: 5px;
+  height: 5px;
+  background: #bd94ff;
+  box-shadow: 0 0 8px 3px rgba(178, 122, 255, .72), 0 0 22px 7px rgba(139, 81, 219, .40);
+}
+
+.io-rift-vortex__ring--inner::after {
+  width: 4px;
+  height: 4px;
+  background: #f1deff;
+  box-shadow: 0 0 8px 3px rgba(218, 186, 255, .8), 0 0 18px 6px rgba(157, 103, 229, .46);
+}
+
+.io-rift-vortex__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(207, 169, 255, .24);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 47%, rgba(4, 2, 10, .96) 0 24%, rgba(30, 13, 51, .84) 35%, rgba(141, 83, 216, .25) 55%, transparent 73%);
+  box-shadow: 0 0 28px rgba(147, 86, 226, .20), 0 0 90px 18px rgba(115, 59, 190, .13), inset 0 0 32px rgba(194, 139, 255, .12);
+  transform: translate(-50%, -50%);
+  animation: io-rift-core-pulse 8s ease-in-out infinite;
+}
+
+.io-rift-energy-stream {
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  width: 42vw;
+  min-width: 230px;
+  max-width: 720px;
+  height: 145vh;
+  opacity: .5;
+  background: linear-gradient(180deg, transparent 0%, rgba(145, 89, 224, .025) 30%, rgba(203, 161, 255, .12) 49%, rgba(138, 82, 213, .025) 67%, transparent 100%);
+  filter: blur(22px);
+  transform: translateX(-50%) rotate(34deg);
+  animation: io-rift-stream-drift 24s ease-in-out infinite alternate;
+}
+
+.io-rift-energy-stream--two {
+  width: 28vw;
+  opacity: .32;
+  transform: translateX(-50%) rotate(-42deg);
+  animation-duration: 31s;
+  animation-direction: alternate-reverse;
+}
+
+.io-rift-particles {
+  position: absolute;
+  inset: -8%;
+  opacity: .44;
+  background-image:
+    radial-gradient(circle, rgba(229, 208, 255, .78) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgba(184, 132, 255, .64) 0 1px, transparent 2px),
+    radial-gradient(circle, rgba(214, 183, 255, .50) 0 1.5px, transparent 2.8px);
+  background-position: 12px 24px, 80px 110px, 175px 55px;
+  background-size: 173px 191px, 241px 223px, 313px 287px;
+  mask-image: radial-gradient(ellipse at center, #000 18%, transparent 80%);
+  animation: io-rift-particles-drift 42s linear infinite;
+}
+
+@keyframes io-rift-vortex-spin {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes io-rift-vortex-counter {
+  from { transform: rotate(360deg) scale(1.02); }
+  to { transform: rotate(0deg) scale(1.02); }
+}
+
+@keyframes io-rift-vortex-drift {
+  from { translate: -1.2% 1%; }
+  to { translate: 1.2% -1%; }
+}
+
+@keyframes io-rift-ring-clockwise {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+
+@keyframes io-rift-ring-counter {
+  from { rotate: 360deg; }
+  to { rotate: 0deg; }
+}
+
+@keyframes io-rift-core-pulse {
+  0%, 100% { filter: brightness(.88); box-shadow: 0 0 28px rgba(147, 86, 226, .17), 0 0 70px 14px rgba(115, 59, 190, .10), inset 0 0 32px rgba(194, 139, 255, .09); }
+  50% { filter: brightness(1.18); box-shadow: 0 0 38px rgba(177, 125, 255, .30), 0 0 105px 22px rgba(129, 72, 206, .19), inset 0 0 42px rgba(220, 190, 255, .18); }
+}
+
+@keyframes io-rift-stream-drift {
+  from { translate: -12vw -2vh; rotate: -8deg; }
+  to { translate: 12vw 2vh; rotate: 8deg; }
+}
+
+@keyframes io-rift-particles-drift {
+  from { background-position: 12px 24px, 80px 110px, 175px 55px; }
+  to { background-position: 185px 215px, -161px 333px, 488px -232px; }
+}
+
+/* Recolor the shared frame, navigation, and roll surface. */
+.io-ui.io-rift-active .app-header {
+  border-bottom-color: rgba(190, 153, 255, .18);
+  background: rgba(12, 6, 23, .94);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .28), 0 1px rgba(198, 158, 255, .05);
+}
+
+.io-ui.io-rift-active .brand-mark {
+  border-color: rgba(190, 143, 255, .52);
+  color: #f0ddff;
+  background: linear-gradient(145deg, rgba(130, 73, 194, .56), rgba(28, 15, 49, .96));
+  box-shadow: inset 0 1px rgba(255,255,255,.18), 0 0 28px rgba(164, 102, 255, .22);
+}
+
+.io-ui.io-rift-active .brand-mark::before,
+.io-ui.io-rift-active .brand-mark::after {
+  border-color: rgba(230, 208, 255, .66);
+}
+
+.io-ui.io-rift-active .brand-title { color: #f4eaff; }
+.io-ui.io-rift-active .brand-subtitle { color: #b69bd9; }
+
+.io-ui.io-rift-active .app-nav {
+  border-bottom-color: rgba(190, 153, 255, .13);
+  background: rgba(15, 8, 28, .94);
+}
+
+.io-ui.io-rift-active .nav-tab:hover {
+  color: #f4eaff;
+  background: rgba(137, 88, 195, .16);
+}
+
+.io-ui.io-rift-active .nav-tab.is-active {
+  border-color: rgba(190, 143, 255, .36);
+  color: #f0ddff;
+  background: linear-gradient(135deg, rgba(113, 64, 168, .38), rgba(74, 43, 120, .40));
+  box-shadow: inset 0 1px rgba(255,255,255,.07), 0 0 18px rgba(140, 86, 218, .10);
+}
+
+.io-ui.io-rift-active .nav-tab.is-active svg,
+.io-ui.io-rift-active .io-nav-icon { color: #c49aff; }
+
+.io-ui.io-rift-active .resource-chip {
+  border-color: rgba(190, 153, 255, .17);
+  color: #eee3ff;
+  background: rgba(28, 17, 44, .86);
+}
+
+.io-ui.io-rift-active .resource-item,
+.io-ui.io-rift-active .resource-value { color: #eee3ff; }
+
+.io-ui.io-rift-active .resource-item svg,
+.io-ui.io-rift-active .resource-shards svg,
+.io-ui.io-rift-active .resource-marks svg { color: #c49aff; }
+
+.io-ui.io-rift-active .header-icon-button { color: #bda8d9; }
+.io-ui.io-rift-active .header-icon-button:hover {
+  border-color: rgba(190, 153, 255, .2);
+  color: #f4eaff;
+  background: rgba(115, 72, 164, .22);
+}
+
+.io-ui.io-rift-active .offline-button {
+  border-color: rgba(190, 143, 255, .42) !important;
+  color: #f4eaff !important;
+  background: #59358a !important;
+  box-shadow: 0 5px 20px rgba(117, 65, 179, .22) !important;
+}
+
+.io-ui.io-rift-active .roll-stage {
+  border-color: rgba(190, 153, 255, .25);
+  background:
+    radial-gradient(ellipse at 50% 43%, rgba(142, 77, 218, .24), transparent 42%),
+    radial-gradient(ellipse at 50% 110%, rgba(84, 47, 143, .34), transparent 62%),
+    linear-gradient(150deg, rgba(25, 14, 40, .98), rgba(11, 7, 20, .98));
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .35), 0 0 32px rgba(125, 74, 202, .09), inset 0 1px rgba(255,255,255,.055);
+}
+
+.io-ui.io-rift-active .roll-stage::before {
+  background-image:
+    linear-gradient(rgba(192, 153, 255, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192, 153, 255, .055) 1px, transparent 1px);
+}
+
+.io-ui.io-rift-active .roll-stage::after {
+  border-color: rgba(172, 125, 245, .22);
+  box-shadow: 0 0 0 22px rgba(145, 91, 219, .045), 0 0 0 54px rgba(145, 91, 219, .028);
+}
+
+.io-ui.io-rift-active .roll-cooldown {
+  border-color: rgba(190, 153, 255, .19);
+  background: rgba(12, 7, 22, .72);
+}
+
+.io-ui.io-rift-active .roll-cooldown .bg-gradient-to-r {
+  background-image: linear-gradient(90deg, #b78af7, #8051cf) !important;
+}
+
+.io-ui.io-rift-active .roll-button {
+  border-color: rgba(220, 192, 255, .54) !important;
+  color: #160b25 !important;
+  background: linear-gradient(105deg, #d9baff 0%, #b68af4 52%, #9b70e5 100%) !important;
+  box-shadow: 0 9px 30px rgba(153, 98, 226, .27), inset 0 1px rgba(255,255,255,.58) !important;
+}
+
+.io-ui.io-rift-active .roll-button:hover {
+  box-shadow: 0 13px 36px rgba(153, 98, 226, .38), inset 0 1px rgba(255,255,255,.58) !important;
+}
+
+.io-ui.io-rift-active .roll-button.is-waiting,
+.io-ui.io-rift-active .roll-button:disabled {
+  border-color: rgba(190, 153, 255, .14) !important;
+  color: #aa9abb !important;
+  background: linear-gradient(110deg, #21152f, #2c1d40) !important;
+  box-shadow: none !important;
+}
+
+.io-ui.io-rift-active .field-card {
+  border-color: rgba(190, 153, 255, .17);
+  background: linear-gradient(150deg, rgba(29, 17, 46, .92), rgba(15, 8, 26, .95));
+}
+
+.io-ui.io-rift-active .field-progress > span {
+  background: linear-gradient(90deg, #b88af4, #8656d0);
+  box-shadow: 0 0 12px rgba(168, 113, 236, .34);
+}
+
+.io-ui.io-rift-active .latest-orb-mark {
+  border-color: rgba(210, 181, 255, .38);
+  color: #f5eaff;
+  background: radial-gradient(circle at 34% 26%, rgba(230,205,255,.7), rgba(132,83,190,.72) 42%, rgba(26,15,42,.96) 77%);
+  box-shadow: 0 0 22px rgba(168, 113, 236, .23), inset 0 1px rgba(255,255,255,.28);
+}
+
+.io-ui.io-rift-active .field-progress,
+.io-ui.io-rift-active .roll-cooldown .w-48 {
+  background-color: rgba(190, 153, 255, .13);
+}
+
+/* Existing component utility classes use several accent families. During a
+   Rift run, cool blue/cyan/teal accents all converge on the Rift's purple. */
+.io-ui.io-rift-active [class*="text-cyan-"],
+.io-ui.io-rift-active [class*="text-sky-"],
+.io-ui.io-rift-active [class*="text-blue-"],
+.io-ui.io-rift-active [class*="text-indigo-"],
+.io-ui.io-rift-active [class*="text-teal-"] {
+  color: #c9a7ff !important;
+}
+
+.io-ui.io-rift-active [class*="border-cyan-"],
+.io-ui.io-rift-active [class*="border-sky-"],
+.io-ui.io-rift-active [class*="border-blue-"],
+.io-ui.io-rift-active [class*="border-indigo-"],
+.io-ui.io-rift-active [class*="border-teal-"] {
+  border-color: rgba(190, 143, 255, .34) !important;
+}
+
+.io-ui.io-rift-active [class*="bg-cyan-"],
+.io-ui.io-rift-active [class*="bg-sky-"],
+.io-ui.io-rift-active [class*="bg-blue-"],
+.io-ui.io-rift-active [class*="bg-indigo-"],
+.io-ui.io-rift-active [class*="bg-teal-"] {
+  background-color: rgba(127, 76, 190, .18) !important;
+}
+
+.io-ui.io-rift-active [class*="from-cyan-"],
+.io-ui.io-rift-active [class*="from-sky-"],
+.io-ui.io-rift-active [class*="from-blue-"],
+.io-ui.io-rift-active [class*="from-indigo-"],
+.io-ui.io-rift-active [class*="from-teal-"] {
+  background-image: linear-gradient(110deg, #a978e7, #7145b4) !important;
+}
+
+.io-ui.io-rift-active main [class*="bg-slate-950"] {
+  background-color: rgba(12, 7, 21, .86) !important;
+}
+
+.io-ui.io-rift-active main [class*="bg-slate-900"] {
+  background-color: rgba(25, 15, 39, .88) !important;
+}
+
+.io-ui.io-rift-active main [class*="border-slate-800"],
+.io-ui.io-rift-active main [class*="border-slate-700"] {
+  border-color: rgba(190, 153, 255, .17) !important;
+}
+
+.io-ui.io-rift-active main select {
+  color: #eee3ff;
+  background: #1a1029;
+  border-color: rgba(190, 153, 255, .24);
+}
+
+.io-ui.io-rift-active ::selection {
+  color: #170b26;
+  background: #d6b9ff;
+}
+
+
+@media (max-width: 680px) {
+  .io-rift-vortex {
+    top: 44%;
+    width: 125vmin;
+    opacity: .68;
+  }
+  .io-rift-vortex__ring--middle { inset: 17%; }
+  .io-rift-vortex__ring--inner { inset: 30%; }
+  .io-rift-energy-stream { opacity: .38; }
+  .io-rift-particles { opacity: .3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .io-rift-atmosphere::before,
+  .io-rift-atmosphere::after,
+  .io-rift-vortex__ring,
+  .io-rift-vortex__core,
+  .io-rift-energy-stream,
+  .io-rift-particles {
+    animation: none !important;
+  }
+}
+
+
+
+/* Deeper Rift scenery: distant star layers, slow nebulae, and broad spiral arms. */
+.io-rift-deepfield {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 46%, rgba(25, 12, 43, .08), rgba(4, 3, 10, .82) 76%),
+    radial-gradient(ellipse at 14% 22%, rgba(64, 35, 109, .18), transparent 48%),
+    radial-gradient(ellipse at 84% 73%, rgba(35, 65, 125, .14), transparent 50%);
+}
+
+.io-rift-nebula {
+  position: absolute;
+  z-index: 1;
+  width: 78vmax;
+  height: 54vmax;
+  min-width: 480px;
+  min-height: 360px;
+  border-radius: 50%;
+  filter: blur(52px);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.io-rift-nebula--violet {
+  top: -20%;
+  left: -28%;
+  opacity: .46;
+  background:
+    radial-gradient(ellipse at 40% 48%, rgba(142, 75, 221, .34) 0%, rgba(104, 54, 169, .16) 37%, transparent 72%),
+    radial-gradient(ellipse at 72% 55%, rgba(198, 139, 255, .13) 0%, transparent 56%);
+  animation: io-rift-nebula-drift 38s ease-in-out infinite alternate;
+}
+
+.io-rift-nebula--blue {
+  right: -30%;
+  bottom: -28%;
+  width: 70vmax;
+  height: 56vmax;
+  opacity: .36;
+  background:
+    radial-gradient(ellipse at 48% 43%, rgba(76, 92, 190, .25) 0%, rgba(87, 47, 148, .16) 42%, transparent 72%),
+    radial-gradient(ellipse at 32% 62%, rgba(176, 105, 232, .16) 0%, transparent 56%);
+  animation: io-rift-nebula-drift 49s ease-in-out infinite alternate-reverse;
+}
+
+.io-rift-nebula--core {
+  top: 27%;
+  left: 34%;
+  width: 42vmax;
+  height: 35vmax;
+  opacity: .24;
+  background: radial-gradient(ellipse at center, rgba(177, 125, 243, .28), rgba(91, 48, 151, .10) 43%, transparent 74%);
+  animation: io-rift-nebula-breathe 17s ease-in-out infinite;
+}
+
+.io-rift-starfield {
+  position: absolute;
+  z-index: 2;
+  inset: -12%;
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse at center, #000 20%, #000 68%, transparent 94%);
+  will-change: background-position, opacity;
+}
+
+.io-rift-starfield--far {
+  opacity: .48;
+  background-image:
+    radial-gradient(circle, rgba(238, 223, 255, .78) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(170, 142, 235, .55) 0 .8px, transparent 1.4px),
+    radial-gradient(circle, rgba(134, 166, 255, .48) 0 1px, transparent 1.7px);
+  background-size: 137px 151px, 211px 197px, 269px 251px;
+  background-position: 11px 19px, 71px 93px, 159px 43px;
+  animation: io-rift-star-drift 118s linear infinite;
+}
+
+.io-rift-starfield--near {
+  opacity: .28;
+  background-image:
+    radial-gradient(circle, rgba(255, 244, 255, .9) 0 1.4px, transparent 2.2px),
+    radial-gradient(circle, rgba(204, 174, 255, .7) 0 1.1px, transparent 2px);
+  background-size: 317px 293px, 401px 359px;
+  background-position: 37px 58px, 192px 121px;
+  animation: io-rift-star-drift 76s linear infinite reverse;
+}
+
+.io-rift-spiral-arms {
+  position: absolute;
+  z-index: 3;
+  inset: -26vmax;
+  pointer-events: none;
+  opacity: .48;
+  background:
+    repeating-conic-gradient(
+      from 8deg at 50% 50%,
+      transparent 0deg 18deg,
+      rgba(165, 113, 239, .10) 22deg,
+      rgba(211, 171, 255, .16) 25deg,
+      transparent 31deg 58deg
+    ),
+    conic-gradient(
+      from 172deg at 50% 50%,
+      transparent 0deg 52deg,
+      rgba(135, 95, 224, .13) 78deg,
+      transparent 108deg 220deg,
+      rgba(199, 157, 255, .12) 247deg,
+      transparent 281deg
+    );
+  filter: blur(24px);
+  mask-image: radial-gradient(ellipse at center, transparent 12%, #000 29%, #000 67%, transparent 88%);
+  transform-origin: center;
+  animation: io-rift-spiral-turn 164s linear infinite;
+}
+
+@keyframes io-rift-nebula-drift {
+  from { transform: translate3d(-3.5vw, -2vh, 0) scale(.98); }
+  to { transform: translate3d(4vw, 2.8vh, 0) scale(1.05); }
+}
+
+@keyframes io-rift-nebula-breathe {
+  0%, 100% { transform: scale(.96); opacity: .17; }
+  50% { transform: scale(1.07); opacity: .32; }
+}
+
+@keyframes io-rift-star-drift {
+  from { background-position: 11px 19px, 71px 93px, 159px 43px; }
+  to { background-position: 311px 319px, -241px 293px, 429px -257px; }
+}
+
+@keyframes io-rift-spiral-turn {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1); }
+}
+
+/* The challenge clear is a staged reveal, not another rarity popup. */
+.io-rift-completion-charge .io-main-orb {
+  animation:
+    io-rift-challenge-shake 115ms linear infinite,
+    io-rift-challenge-charge-glow 1.55s ease-in-out infinite;
+  box-shadow:
+    0 0 24px 4px rgba(197, 153, 255, .46),
+    0 0 68px 18px rgba(155, 97, 235, .25),
+    inset 0 0 34px rgba(231, 212, 255, .24) !important;
+}
+
+.io-rift-completion-charge .io-main-orb > .relative.z-10 {
+  opacity: 0;
+}
+
+.io-rift-completion-orb-charge {
+  border-color: rgba(238, 221, 255, .95) !important;
+}
+
+.io-rift-completion-emissions {
+  position: absolute;
+  z-index: 15;
+  top: 50%;
+  left: 50%;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.io-rift-completion-emissions span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f2e5ff;
+  box-shadow: 0 0 8px 3px rgba(231, 204, 255, .9), 0 0 24px 8px rgba(169, 111, 244, .66);
+  opacity: 0;
+  animation: io-rift-light-emission 1.35s cubic-bezier(.14, .62, .22, 1) infinite;
+  animation-delay: var(--io-rift-light-delay, 0ms);
+}
+
+@keyframes io-rift-challenge-shake {
+  0% { transform: translate3d(-2px, 1px, 0) rotate(-1deg) scale(1); }
+  25% { transform: translate3d(2px, -1px, 0) rotate(1deg) scale(1.015); }
+  50% { transform: translate3d(-3px, -1px, 0) rotate(-1.3deg) scale(.99); }
+  75% { transform: translate3d(2px, 2px, 0) rotate(.8deg) scale(1.012); }
+  100% { transform: translate3d(-2px, 1px, 0) rotate(-1deg) scale(1); }
+}
+
+@keyframes io-rift-challenge-charge-glow {
+  0%, 100% { filter: brightness(.88) saturate(.9); }
+  50% { filter: brightness(1.45) saturate(1.3); }
+}
+
+@keyframes io-rift-light-emission {
+  0% { opacity: 0; transform: rotate(var(--io-rift-light-angle)) translateY(-18px) scale(.25); }
+  13% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--io-rift-light-angle)) translateY(-154px) scale(.55); }
+}
+
+.io-rift-completion-rush {
+  position: absolute;
+  z-index: 18;
+  inset: -18%;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at center, rgba(255, 249, 255, .86) 0%, rgba(214, 182, 255, .5) 7%, rgba(158, 103, 238, .21) 23%, transparent 59%),
+    repeating-conic-gradient(from 5deg at 50% 50%, transparent 0deg 7deg, rgba(235, 216, 255, .15) 8deg 8.5deg, transparent 10deg 18deg);
+  mask-image: radial-gradient(circle at center, #000 0 8%, transparent 70%);
+  animation: io-rift-completion-rush 760ms cubic-bezier(.12, .75, .18, 1) both;
+}
+
+.io-rift-completion-rush::after {
+  position: absolute;
+  inset: 42%;
+  border: 1px solid rgba(244, 228, 255, .85);
+  border-radius: 50%;
+  content: "";
+  box-shadow: 0 0 35px 12px rgba(183, 129, 255, .62);
+  animation: io-rift-completion-ring 760ms ease-out both;
+}
+
+.io-rift-completion-orb-reveal {
+  animation: io-rift-completion-orb-pop 760ms cubic-bezier(.12, .82, .22, 1) both;
+  box-shadow:
+    0 0 22px 5px rgba(239, 221, 255, .72),
+    0 0 80px 24px rgba(169, 112, 243, .48),
+    inset 0 0 28px rgba(255, 255, 255, .32) !important;
+}
+
+@keyframes io-rift-completion-rush {
+  0% { opacity: 0; transform: scale(.12) rotate(-12deg); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.55) rotate(12deg); }
+}
+
+@keyframes io-rift-completion-ring {
+  0% { inset: 42%; opacity: 1; border-width: 3px; }
+  100% { inset: -12%; opacity: 0; border-width: 0; }
+}
+
+@keyframes io-rift-completion-orb-pop {
+  0% { transform: scale(.45); filter: brightness(2.2) saturate(1.4); }
+  38% { transform: scale(1.16); filter: brightness(1.45); }
+  68% { transform: scale(.96); filter: brightness(1.08); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* Completion dialog styling remains available after the Rift save closes. */
+.io-rift-completion-backdrop {
+  background: rgba(5, 2, 12, .84);
+  backdrop-filter: blur(12px);
+  animation: io-rift-completion-backdrop-in 220ms ease-out both;
+}
+
+.io-rift-completion-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(205, 169, 255, .45);
+  border-radius: 28px;
+  padding: 30px;
+  color: #f5edff;
+  background:
+    radial-gradient(ellipse at 50% -12%, rgba(164, 105, 239, .27), transparent 62%),
+    linear-gradient(150deg, rgba(31, 17, 50, .98), rgba(9, 5, 17, .99));
+  box-shadow: 0 28px 100px rgba(0, 0, 0, .72), 0 0 56px rgba(141, 86, 218, .22), inset 0 1px rgba(255, 255, 255, .08);
+  animation: io-rift-completion-card-in 420ms cubic-bezier(.16, .82, .24, 1) both;
+}
+
+.io-rift-completion-card::before {
+  position: absolute;
+  top: -65%;
+  left: -25%;
+  width: 150%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(197, 158, 255, .12);
+  border-radius: 50%;
+  box-shadow: 0 0 0 18px rgba(177, 124, 246, .035), 0 0 0 48px rgba(177, 124, 246, .025);
+  content: "";
+  pointer-events: none;
+}
+
+.io-rift-completion-kicker {
+  position: relative;
+  color: #d4b5ff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+.io-rift-completion-card h2 {
+  position: relative;
+  margin-top: 10px;
+  font-size: clamp(28px, 6vw, 38px);
+  line-height: 1.05;
+  font-weight: 950;
+  letter-spacing: -.04em;
+}
+
+.io-rift-completion-description {
+  position: relative;
+  margin-top: 12px;
+  color: #c0b2d1;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.io-rift-completion-orb-result {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
+  border: 1px solid rgba(200, 166, 255, .18);
+  border-radius: 14px;
+  padding: 13px 15px;
+  background: rgba(6, 3, 12, .46);
+}
+
+.io-rift-completion-orb-result span {
+  color: #aa99be;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.io-rift-completion-orb-result strong {
+  color: #f0deff;
+  font: 800 17px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.io-rift-completion-continue {
+  position: relative;
+  width: 100%;
+  margin-top: 22px;
+  border: 1px solid rgba(231, 211, 255, .5);
+  border-radius: 13px;
+  padding: 12px 16px;
+  color: #190c2a;
+  background: linear-gradient(100deg, #e4cfff, #bb91f5 58%, #9f72e3);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 26px rgba(154, 103, 224, .24), inset 0 1px rgba(255, 255, 255, .64);
+}
+
+.io-rift-completion-continue:hover {
+  filter: brightness(1.08);
+}
+
+@keyframes io-rift-completion-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes io-rift-completion-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 680px) {
+  .io-rift-nebula { filter: blur(36px); }
+  .io-rift-nebula--violet { left: -52%; }
+  .io-rift-nebula--blue { right: -50%; }
+  .io-rift-nebula--core { left: 22%; width: 58vmax; }
+  .io-rift-starfield--near { opacity: .22; }
+  .io-rift-spiral-arms { opacity: .34; }
+  .io-rift-completion-card { padding: 25px 22px; border-radius: 23px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .io-rift-nebula,
+  .io-rift-starfield,
+  .io-rift-spiral-arms,
+  .io-rift-completion-charge .io-main-orb,
+  .io-rift-completion-emissions span,
+  .io-rift-completion-rush,
+  .io-rift-completion-rush::after,
+  .io-rift-completion-orb-reveal,
+  .io-rift-completion-backdrop,
+  .io-rift-completion-card {
+    animation: none !important;
+  }
+}

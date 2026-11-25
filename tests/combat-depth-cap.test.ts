@@ -20,6 +20,29 @@ test('defeating the deepest supported enemy keeps current and best depth capped'
   state.playerActionsResolved = 0;
   state.enemyActionsResolved = 0;
 
+  // This regression covers terminal-depth persistence, not late-game balance.
+  // Give the fixture enough valid Speed gear to land its lethal test hit before
+  // the depth-scaled boss acts; do not weaken real speed-based action ordering.
+  for (const slot of ['boots', 'gloves'] as const) {
+    const id = 'depth-cap-speed-' + slot;
+    state.inventory.push({
+      id,
+      name: 'Depth Cap Speed Test Gear',
+      slot,
+      quality: 100,
+      sourceFloor: 49_999,
+      power: 1_000_000,
+      effect: 'Test-only Speed gear.',
+      trait: 'keen',
+      damageBonus: 0,
+      speedBonus: 1_000_000,
+      maxHealthBonus: 0,
+      armorBonus: 0,
+      critChanceBonus: 0,
+    });
+    state.equipment[slot] = id;
+  }
+
   try {
     await redis.set(key, JSON.stringify(state));
     const result = await performCombatBeat(1, 'strike');

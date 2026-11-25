@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<meta name="description" content="Play Infinity Orbs in your browser, including Rift Challenges.">
+<title>Infinity Orbs</title>
+<style>
+:root{color-scheme:dark;--bg:#080d19;--panel:#101a2b;--panel2:#0c1423;--line:#263650;--muted:#8495b2;--text:#f4f7ff;--blue:#6395ff;--cyan:#51d7ed;--violet:#aa8cff;--gold:#f2c56a;--green:#55d7a2;--red:#fa718b;--radius:18px}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 17% -12%,#243a70 0,transparent 37%),radial-gradient(ellipse at 92% 8%,#35265f 0,transparent 29%),var(--bg);color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button{font:inherit;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.4}
+a{color:#a7d4ff;text-decoration:none}a:hover{text-decoration:underline}
+.shell{max-width:1400px;margin:auto;padding:22px 24px 48px}
+.topbar{height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:20px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-orb{position:relative;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 32% 27%,#fff 0 4%,#9beaff 9%,#548cff 34%,#34266f 70%,#10182f 100%);box-shadow:0 0 20px #4b9dff70, inset -7px -7px 13px #090c25;flex:none}
+.brand-title{font-size:14px;font-weight:950;letter-spacing:.16em;text-transform:uppercase}
+.brand-sub{color:#8193b2;font-size:10px;letter-spacing:.08em}
+.top-actions{display:flex;align-items:center;gap:9px}
+.save-pill{display:flex;align-items:center;gap:7px;border:1px solid #4cba9566;background:#12372f55;color:#91e9c8;border-radius:999px;padding:7px 11px;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}
+.save-dot{width:6px;height:6px;border-radius:50%;background:#58d7a2;box-shadow:0 0 10px #58d7a2}
+.icon-button{border:1px solid #2d3c56;background:#111c30;color:#adbed8;border-radius:10px;padding:8px 11px;font-size:11px;font-weight:800}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin-bottom:16px}
+.stat{min-width:0;border:1px solid #273651;background:linear-gradient(140deg,#111d31,#0d1525);border-radius:14px;padding:11px 13px}
+.stat-label{display:block;color:#8294b2;font-size:9px;font-weight:900;letter-spacing:.13em;text-transform:uppercase}
+.stat-value{display:block;margin-top:3px;font-size:20px;font-weight:950;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-value.gold{color:var(--gold)}.stat-value.blue{color:#91b8ff}.stat-value.green{color:#70e4b4}
+.app-grid{display:grid;grid-template-columns:204px minmax(0,1fr);gap:15px;align-items:start}
+.sidebar{position:sticky;top:16px;border:1px solid #263650;background:#0d1627d9;border-radius:18px;padding:10px}
+.nav-label{padding:9px 10px 7px;color:#6f819e;font-size:9px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
+.nav-btn{width:100%;display:flex;align-items:center;gap:11px;text-align:left;border:1px solid transparent;border-radius:11px;padding:11px 12px;background:transparent;color:#a9b7cf;font-size:12px;font-weight:800;transition:.15s}
+.nav-btn:hover{background:#17243a;color:#eff6ff}
+.nav-btn.active{background:linear-gradient(100deg,#21406a,#252b54);border-color:#6d9fff55;color:#fff;box-shadow:inset 3px 0 #67b9ff}
+.nav-icon{width:20px;text-align:center;font-size:17px}
+.nav-count{margin-left:auto;font-size:9px;padding:3px 6px;border-radius:7px;background:#23344c;color:#a6bad7}
+.sidebar-note{margin:14px 5px 5px;padding:11px;border-top:1px solid #263650;color:#7183a0;font-size:10px;line-height:1.5}
+.content{min-width:0}
+.view{display:none;animation:fade .18s ease}.view.active{display:block}
+@keyframes fade{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.view-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:5px 2px 16px}
+.eyebrow{color:#6fdaf0;font-size:9px;font-weight:950;letter-spacing:.2em;text-transform:uppercase}
+h1{margin:5px 0 0;font-size:clamp(25px,3vw,34px);line-height:1.1;letter-spacing:-.04em}
+.view-copy{margin:7px 0 0;color:#91a1bb;font-size:12px;max-width:670px}
+.head-meta{color:#7e91af;font-size:10px;text-align:right}
+.panel{border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(145deg,#111c30,#0c1423);box-shadow:0 13px 38px #0003}
+.panel-pad{padding:19px}
+.game-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(260px,.75fr);gap:14px}
+.roll-panel{min-height:440px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 37%,#263c70a8,transparent 49%),linear-gradient(145deg,#111d33,#0a1221)}
+.roll-panel:before{content:"";position:absolute;inset:14px;border:1px solid #86b6ff15;border-radius:14px;pointer-events:none}
+.roll-top{position:absolute;left:22px;right:22px;top:19px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.micro-tag{font-size:9px;letter-spacing:.14em;text-transform:uppercase;font-weight:900;color:#8ea5c8}
+.micro-tag.live{color:#6ee2b2}
+.orb-wrap{height:225px;display:grid;place-items:center;position:relative;margin:18px 0 8px}
+.orb-wrap:before,.orb-wrap:after{content:"";position:absolute;width:206px;height:206px;border-radius:50%;border:1px solid #94c8ff22;box-shadow:0 0 0 18px #84baff08,0 0 0 38px #84baff05}
+.orb-wrap:after{width:255px;height:255px;border-style:dashed;opacity:.4;animation:spin 35s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.orb{width:160px;height:160px;border-radius:50%;position:relative;background:radial-gradient(circle at 31% 25%,#fff 0 3%,#bdf7ff 6%,#76d9ff 15%,#4d75ed 42%,#27245e 73%,#0c1129 100%);box-shadow:0 0 30px #4b9cff88,0 0 80px #4d77ff45,inset -17px -21px 30px #070a25,inset 9px 8px 18px #ffffff7a;transition:filter .25s,transform .25s}
+.orb.rare{background:radial-gradient(circle at 31% 25%,#fff 0 3%,#f4d4ff 7%,#d68dff 18%,#8956eb 45%,#40235f 78%,#120e28 100%);box-shadow:0 0 34px #b46dff99,0 0 90px #914dff55,inset -17px -21px 30px #100822}
+.orb.epic{background:radial-gradient(circle at 31% 25%,#fff 0 3%,#fff2bd 8%,#ffcf72 19%,#f0784f 48%,#632a4d 79%,#180e24 100%);box-shadow:0 0 38px #ff9b5a99,0 0 95px #ff764d55,inset -17px -21px 30px #1c0b1b}
+.orb-gleam{position:absolute;inset:12px 20px auto auto;width:28px;height:14px;border-radius:50%;background:#fff9;filter:blur(6px);transform:rotate(-38deg)}
+.result-name{margin-top:2px;font-size:22px;font-weight:950;letter-spacing:-.03em}
+.result-rarity{margin-top:3px;color:#9fb2d0;font-size:12px;font-weight:750;font-variant-numeric:tabular-nums}
+.result-tier{margin-top:8px;display:inline-flex;align-items:center;gap:7px;border:1px solid #3a506f;background:#0d192b;border-radius:999px;padding:5px 10px;color:#b4c9e7;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.roll-button{width:min(340px,100%);min-height:54px;margin-top:22px;border:1px solid #a2eaff66;border-radius:13px;background:linear-gradient(100deg,#3dd1e8,#65a2ff);color:#071324;font-size:14px;font-weight:1000;letter-spacing:.12em;box-shadow:0 10px 30px #42c9ef35;transition:.15s}
+.roll-button:hover:not(:disabled){filter:brightness(1.09);transform:translateY(-2px);box-shadow:0 13px 34px #42c9ef52}
+.cooldown{margin-top:10px;color:#7186a7;font-size:10px}
+.side-stack{display:grid;gap:14px;align-content:start}
+.mini-panel{padding:16px}
+.panel-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.panel-title{font-size:12px;font-weight:900;letter-spacing:.02em}
+.panel-kicker{color:#8295b4;font-size:9px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+.xp-track{height:8px;border-radius:99px;background:#050b17;border:1px solid #263750;overflow:hidden;margin-top:8px}
+.xp-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#4bdbec,#718bff,#b28aff);width:0;transition:width .25s}
+.progress-line{display:flex;justify-content:space-between;gap:8px;color:#94a5bf;font-size:10px}
+.milestone{border:1px solid #2e4160;background:#0b1423;border-radius:12px;padding:12px}
+.milestone strong{display:block;margin-top:4px;font-size:14px}
+.milestone small{color:#8495b2;font-size:10px}
+.log-list{display:grid;gap:8px}
+.log-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #1e2b40;font-size:10px}
+.log-row:last-child{border:0;padding-bottom:0}
+.log-row strong{color:#dce8f9}.log-row span{color:#8a9bb5;text-align:right}
+.section-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.upgrade-card{border:1px solid #2c3d59;background:linear-gradient(140deg,#111e32,#0b1423);border-radius:16px;padding:17px;display:flex;flex-direction:column;gap:10px}
+.upgrade-header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.upgrade-name{font-size:14px;font-weight:950}.upgrade-level{background:#22324a;color:#c4d4ec;border-radius:7px;padding:4px 7px;font-size:10px;font-weight:900;white-space:nowrap}
+.upgrade-desc{color:#8d9fba;font-size:11px;min-height:32px}
+.upgrade-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto}
+.cost{color:#e7c477;font-size:11px;font-weight:900}
+.small-btn{border:1px solid #405c87;background:#1b3559;color:#c7ddff;border-radius:9px;padding:8px 11px;font-size:10px;font-weight:950;letter-spacing:.07em}
+.small-btn:hover:not(:disabled){background:#294a77}.small-btn:disabled{opacity:.35}
+.section-note{margin-top:13px;color:#7385a3;font-size:10px;line-height:1.55}
+.challenge-hero{position:relative;overflow:hidden;padding:22px;background:radial-gradient(ellipse at 100% 0,#45347d88,transparent 42%),linear-gradient(120deg,#132344,#11162f 65%,#231b3e);border:1px solid #777ce15c;border-radius:20px}
+.challenge-hero:after{content:"";position:absolute;right:5%;top:-80px;width:220px;height:220px;border:1px solid #b8b8ff24;border-radius:50%;box-shadow:0 0 0 23px #b8b8ff08,0 0 0 48px #b8b8ff05;pointer-events:none}
+.challenge-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+.challenge-number{color:#b6a5ff;font-size:9px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}
+.challenge-title{font-size:clamp(24px,3vw,32px);font-weight:1000;letter-spacing:-.04em;margin:6px 0 4px}
+.challenge-copy{max-width:680px;color:#c0c7e0;font-size:12px}
+.challenge-record{min-width:112px;text-align:right;position:relative;z-index:1}
+.challenge-record b{font-size:25px;display:block}
+.challenge-record span{font-size:9px;color:#99a9c8;text-transform:uppercase;letter-spacing:.12em}
+.challenge-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);gap:13px;margin-top:13px}
+.challenge-card{border:1px solid #2f4060;background:linear-gradient(145deg,#111c30,#0b1322);border-radius:17px;padding:18px}
+.challenge-status{display:inline-flex;align-items:center;border:1px solid #52d6a34a;background:#1d66421c;color:#7be4b6;border-radius:999px;padding:5px 9px;font-size:9px;font-weight:950;text-transform:uppercase;letter-spacing:.1em}
+.challenge-status.locked{border-color:#f2c56a55;background:#7a541519;color:#efcf8c}
+.challenge-status.active{border-color:#56d7ed55;background:#1d65751c;color:#79e4f2}
+.target-box{border:1px solid #4dcae344;background:linear-gradient(120deg,#1c698422,#394e9b25);border-radius:14px;padding:15px;margin-top:15px}
+.target-label{color:#7de2f0;font-size:9px;font-weight:950;letter-spacing:.16em;text-transform:uppercase}
+.target-number{font-size:26px;font-weight:1000;margin-top:3px;letter-spacing:-.03em}
+.target-desc{font-size:10px;color:#93a4c0}
+.debuff-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:13px}
+.debuff{border:1px solid #2a3851;background:#080f1d;border-radius:11px;padding:10px}
+.debuff b{font-size:10px;display:block}.debuff span{font-size:9px;line-height:1.45;color:#8192ac}
+.unlock-list{display:grid;gap:0}
+.unlock-row{display:flex;justify-content:space-between;align-items:center;gap:9px;padding:11px 0;border-bottom:1px solid #24324a}
+.unlock-row:last-child{border:0}
+.unlock-row b{font-size:10px;display:block}.unlock-row small{font-size:9px;color:#8192ac}
+.unlock-pill{border-radius:7px;padding:4px 7px;background:#202b40;color:#8d9ab0;font-size:8px;font-weight:950;white-space:nowrap}
+.unlock-pill.on{background:#164538;color:#7de5bb}
+.archive-box{border:1px solid #2b3b56;background:#080f1d;border-radius:12px;padding:12px;margin-top:13px}
+.archive-box small{display:block;color:#8092ad;font-size:9px;text-transform:uppercase;letter-spacing:.12em;font-weight:900}
+.archive-box strong{display:block;margin-top:4px;font-size:13px}
+.run-panel{margin-top:14px;border:1px solid #5a64bf66;border-radius:19px;padding:18px;background:radial-gradient(ellipse at 0 0,#2a377344,transparent 47%),linear-gradient(145deg,#101a30,#0a1221)}
+.run-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.run-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:15px}
+.run-stat{border:1px solid #2b3b56;background:#080f1d;border-radius:11px;padding:10px;min-width:0}
+.run-stat small{display:block;color:#7f91ad;font-size:8px;font-weight:900;letter-spacing:.11em;text-transform:uppercase}
+.run-stat strong{display:block;margin-top:3px;font-size:17px;font-weight:950;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.run-progress{margin-top:14px}
+.run-action-row{display:flex;align-items:center;gap:12px;margin-top:15px}
+.run-action-row .roll-button{margin-top:0;max-width:300px;flex:1}
+.run-upgrades{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}
+.run-upgrade{border:1px solid #2d3c57;background:#080f1d;border-radius:12px;padding:12px}
+.run-upgrade h4{font-size:11px;margin:0}.run-upgrade p{font-size:9px;line-height:1.45;color:#8394af;min-height:27px;margin:5px 0}
+.run-upgrade-foot{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.run-upgrade-foot span{font-size:9px;color:#9aaecb}
+.complete-box{border:1px solid #49d59a55;background:#123b2b3b;border-radius:13px;padding:14px;margin-top:15px}
+.complete-box strong{font-size:17px;color:#8bf0c2}.complete-box p{font-size:10px;color:#a6c9bc;margin:5px 0 0}
+.danger-btn{border:1px solid #9a3d5d;background:#3b1728;color:#ffc0cf;border-radius:9px;padding:8px 11px;font-size:9px;font-weight:900}
+.notice{margin:14px 2px 0;color:#667996;font-size:10px;line-height:1.5}
+.empty{color:#7587a4;font-size:10px;padding:10px 0}
+.hidden{display:none!important}
+.footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:17px 2px 0;color:#647795;font-size:9px}
+@media(max-width:900px){.shell{padding:16px 14px 32px}.app-grid{grid-template-columns:1fr}.sidebar{position:static;display:flex;gap:5px;overflow:auto;padding:6px}.nav-label,.sidebar-note{display:none}.nav-btn{justify-content:center;white-space:nowrap;padding:10px 12px;flex:1}.nav-icon{width:auto}.game-layout,.challenge-layout{grid-template-columns:1fr}.roll-panel{min-height:400px}.side-stack{grid-template-columns:repeat(2,minmax(0,1fr))}.challenge-hero{padding:18px}}
+@media(max-width:600px){.shell{padding:11px 10px 24px}.topbar{height:auto;margin-bottom:12px}.brand-orb{width:32px;height:32px}.brand-title{font-size:12px}.brand-sub{font-size:9px}.save-pill{font-size:8px;padding:6px 8px}.icon-button{padding:7px}.stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px}.stat{padding:8px 9px}.stat-label{font-size:8px}.stat-value{font-size:16px}.sidebar{border-radius:13px}.nav-btn{font-size:10px;padding:9px 7px;gap:5px}.nav-icon{font-size:14px}.view-head{align-items:flex-start;margin-top:2px}.view-head .head-meta{display:none}h1{font-size:26px}.panel-pad{padding:14px}.roll-panel{min-height:370px;padding:15px}.roll-top{left:15px;right:15px;top:14px}.orb-wrap{height:190px}.orb-wrap:before{width:170px;height:170px}.orb-wrap:after{width:210px;height:210px}.orb{width:130px;height:130px}.result-name{font-size:19px}.side-stack{grid-template-columns:1fr}.section-grid{grid-template-columns:1fr}.challenge-hero{padding:16px}.challenge-record{min-width:76px}.challenge-record b{font-size:20px}.challenge-title{font-size:24px}.debuff-list{grid-template-columns:1fr}.run-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.run-action-row{align-items:stretch;flex-direction:column}.run-action-row .roll-button{max-width:none;width:100%}.run-upgrades{grid-template-columns:1fr}.footer{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><div class="brand-orb"></div><div><div class="brand-title">Infinity Orbs</div><div class="brand-sub">INFINITE POSSIBILITIES · WEB EDITION</div></div></div>
+    <div class="top-actions"><div class="save-pill"><span class="save-dot"></span> Browser save active</div><button class="icon-button" id="reset-save" title="Reset local browser save">Reset</button></div>
+  </header>
+
+  <section class="stats" aria-label="Main game statistics">
+    <div class="stat"><span class="stat-label">Coins</span><span class="stat-value gold" id="top-coins">0</span></div>
+    <div class="stat"><span class="stat-label">Level</span><span class="stat-value blue" id="top-level">1</span></div>
+    <div class="stat"><span class="stat-label">Luck</span><span class="stat-value" id="top-luck">1.00×</span></div>
+    <div class="stat"><span class="stat-label">Total rolls</span><span class="stat-value" id="top-rolls">0</span></div>
+    <div class="stat"><span class="stat-label">Best rarity</span><span class="stat-value green" id="top-best">2</span></div>
+  </section>
+
+  <div class="app-grid">
+    <nav class="sidebar" aria-label="Game navigation">
+      <div class="nav-label">Game</div>
+      <button class="nav-btn active" data-view="main"><span class="nav-icon">◉</span>Main Game</button>
+      <button class="nav-btn" data-view="upgrades"><span class="nav-icon">✦</span>Upgrades</button>
+      <button class="nav-btn" data-view="challenges"><span class="nav-icon">⌁</span>Challenges <span class="nav-count" id="challenge-nav-count">0</span></button>
+      <button class="nav-btn" data-view="progress"><span class="nav-icon">◇</span>Progress</button>
+      <div class="sidebar-note">Your main save and Rift run are stored separately in this browser. Main-game progress unlocks challenge mechanics.</div>
+    </nav>
+
+    <main class="content">
+      <section class="view active" id="view-main">
+        <div class="view-head"><div><div class="eyebrow">Main game</div><h1>Roll for something extraordinary.</h1><p class="view-copy">Find Orbs, build your Coin economy, level up, and unlock new mechanics. Your progress here carries into Rift Challenges.</p></div><div class="head-meta" id="main-save-time">LOCAL SAVE</div></div>
+        <div class="game-layout">
+          <section class="panel roll-panel">
+            <div class="roll-top"><span class="micro-tag live">● MAIN REALITY</span><span class="micro-tag" id="main-cooldown-tag">1.20s base cooldown</span></div>
+            <div class="orb-wrap"><div class="orb" id="main-orb"><span class="orb-gleam"></span></div></div>
+            <div class="result-name" id="main-orb-name">Uncharted Orb</div>
+            <div class="result-rarity" id="main-orb-rarity">Discover your first rarity</div>
+            <div class="result-tier" id="main-orb-tier">COMMON</div>
+            <button class="roll-button" id="main-roll">ROLL ORB</button>
+            <div class="cooldown" id="main-cooldown">Every roll advances your main-game save.</div>
+          </section>
+          <aside class="side-stack">
+            <section class="panel mini-panel">
+              <div class="panel-heading"><span class="panel-title">Level progression</span><span class="panel-kicker" id="level-text">LV 1</span></div>
+              <div class="progress-line"><span id="xp-current">0 XP</span><span id="xp-next">70 XP to next level</span></div>
+              <div class="xp-track"><div class="xp-fill" id="xp-fill"></div></div>
+              <div class="milestone" style="margin-top:13px"><span class="panel-kicker">Next unlock</span><strong id="next-unlock">Rift Challenges · Level 5</strong><small id="next-unlock-copy">Reach Level 5 to open your first challenge.</small></div>
+            </section>
+            <section class="panel mini-panel">
+              <div class="panel-heading"><span class="panel-title">Recent rolls</span><span class="panel-kicker">ACTIVITY</span></div>
+              <div class="log-list" id="recent-rolls"><div class="empty">Your discoveries will appear here.</div></div>
+            </section>
+            <section class="panel mini-panel">
+              <div class="panel-heading"><span class="panel-title">Main-game upgrades</span><span class="panel-kicker">QUICK VIEW</span></div>
+              <div class="log-list" id="quick-upgrades"></div>
+              <button class="small-btn" style="width:100%;margin-top:12px" data-go="upgrades">OPEN UPGRADE SHOP</button>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-upgrades">
+        <div class="view-head"><div><div class="eyebrow">Main game</div><h1>Upgrade your odds.</h1><p class="view-copy">Spend main-game Coins to improve normal rolls. These bonuses do not carry into challenge runs unless the challenge explicitly unlocks a matching mechanic.</p></div><div class="head-meta" id="upgrade-wallet">0 Coins</div></div>
+        <div class="section-grid" id="main-upgrades"></div>
+        <p class="section-note">Upgrade purchases are part of your main save. Rift Challenges start from a clean temporary economy and have their own upgrade shop.</p>
+      </section>
+
+      <section class="view" id="view-challenges">
+        <div class="view-head"><div><div class="eyebrow">Rift archive</div><h1>Challenges.</h1><p class="view-copy">Each Rift begins with a separate save. Main-game achievements determine which challenge mechanics are available when a run starts.</p></div><div class="head-meta" id="challenge-meta">0 COMPLETIONS</div></div>
+        <section class="challenge-hero">
+          <div class="challenge-hero-top"><div><div class="challenge-number">CHALLENGE 001 · THE BEGINNING</div><div class="challenge-title">The First Spark</div><div class="challenge-copy">Start from nothing. Build a temporary economy under a set of restrictions, then find an Orb with rarity 1 in 1,000. The first clear proves the system can be broken without your usual tools.</div></div><div class="challenge-record"><b id="archive-count">0</b><span>Clears</span></div></div>
+        </section>
+        <div class="challenge-layout">
+          <section class="challenge-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div class="panel-kicker">Objective</div><span class="challenge-status locked" id="challenge-status">Locked · Level 5</span></div>
+            <div class="target-box"><div class="target-label">Required discovery</div><div class="target-number">1 / 1,000</div><div class="target-desc">Find an Orb with rarity 1,000 or higher to complete The First Spark.</div></div>
+            <div class="panel-kicker" style="margin-top:16px">Run restrictions</div>
+            <div class="debuff-list">
+              <div class="debuff"><b>Fresh Save</b><span>Start with 0 Coins, no upgrades, and baseline Luck.</span></div>
+              <div class="debuff"><b>Dimensional Tax</b><span>Every 10 rolls raises upgrade prices by 5%, up to 50%.</span></div>
+              <div class="debuff"><b>Shards Disabled</b><span>No Shard drops or spending during the challenge.</span></div>
+              <div class="debuff"><b>No Automation</b><span>Auto Roll and offline rolls are unavailable.</span></div>
+              <div class="debuff"><b>Sealed Progression</b><span>Main-game boosts, Mastery, Prestige, and Guild effects are ignored.</span></div>
+            </div>
+            <p class="section-note" id="challenge-lock-copy">Reach Level 5 in the main game to unlock this challenge.</p>
+            <button class="roll-button" style="width:100%;margin-top:13px" id="start-challenge" disabled>START CHALLENGE</button>
+          </section>
+          <aside class="challenge-card">
+            <div class="panel-kicker">Main-game unlocks</div>
+            <h3 style="font-size:17px;margin:5px 0 2px">Your progress opens mechanics.</h3>
+            <p class="view-copy" style="font-size:10px">Unlocks are snapshotted when a new run starts. Further progress applies to your next attempt.</p>
+            <div class="unlock-list" id="challenge-unlocks"></div>
+            <div class="archive-box"><small>Rift archive</small><strong id="archive-best">No completed runs yet</strong><small id="archive-record" style="margin-top:4px;text-transform:none;letter-spacing:0">Best rarity: 2</small></div>
+          </aside>
+        </div>
+        <section class="run-panel hidden" id="challenge-run">
+          <div class="run-head"><div><div class="panel-kicker" id="run-state">ACTIVE CHALLENGE SAVE</div><h2 style="font-size:21px;margin:4px 0">The First Spark</h2><p class="view-copy" id="run-snapshot">Unlocks frozen at run start.</p></div><button class="danger-btn" id="abandon-run">ABANDON RUN</button></div>
+          <div class="run-stats">
+            <div class="run-stat"><small>Challenge Coins</small><strong id="run-coins" style="color:#f2cf78">0</strong></div>
+            <div class="run-stat"><small>Challenge rolls</small><strong id="run-rolls">0</strong></div>
+            <div class="run-stat"><small>Best rarity</small><strong id="run-best" style="color:#8be5f0">2</strong></div>
+            <div class="run-stat"><small>Target</small><strong>1,000</strong></div>
+          </div>
+          <div class="run-progress"><div class="progress-line"><span>Rarity progress</span><strong id="run-progress-text">10.0%</strong></div><div class="xp-track"><div class="xp-fill" id="run-progress-fill"></div></div></div>
+          <div class="run-action-row" id="challenge-actions"><button class="roll-button" id="challenge-roll">ROLL IN THE RIFT</button><span class="cooldown" id="challenge-cooldown">1.50s base cooldown.</span></div>
+          <div class="milestone hidden" id="challenge-last-result" style="margin-top:12px"><span class="panel-kicker">Latest challenge result</span><strong id="challenge-last-main"></strong><small id="challenge-last-coins"></small></div>
+          <div class="panel-kicker" style="margin-top:18px">Challenge upgrades</div>
+          <div class="run-upgrades" id="challenge-upgrades"></div>
+          <div class="complete-box hidden" id="challenge-complete"><strong>The First Spark is stable.</strong><p id="complete-copy"></p><button class="small-btn" id="new-challenge-run" style="margin-top:12px">START A FRESH RUN</button></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-progress">
+        <div class="view-head"><div><div class="eyebrow">Player record</div><h1>Your progress.</h1><p class="view-copy">A record of your main-game growth and Rift Challenge milestones.</p></div></div>
+        <div class="section-grid">
+          <section class="panel panel-pad"><div class="panel-kicker">Main save</div><h2 style="font-size:25px;margin:6px 0" id="progress-level">Level 1</h2><p class="view-copy" id="progress-xp">0 total XP</p><div class="log-list" style="margin-top:15px" id="progress-stats"></div></section>
+          <section class="panel panel-pad"><div class="panel-kicker">Rift archive</div><h2 style="font-size:25px;margin:6px 0" id="progress-rift-count">0 clears</h2><p class="view-copy" id="progress-rift-best">No challenge completed yet.</p><div class="log-list" style="margin-top:15px" id="progress-unlocks"></div></section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="notice">This Pages build is a browser simulation of the Infinity Orbs gameplay loop. It has its own local save and does not connect to your Reddit account or live Devvit Redis. The same challenge design is also integrated into the actual game code.</div>
+  <footer class="footer"><span>INFINITY ORBS · BROWSER BUILD</span><span><a href="https://www.reddit.com/r/infinityorbs/" target="_blank" rel="noreferrer">Main subreddit</a> · <a href="https://github.com/awesome118/infinity-orbs-v2" target="_blank" rel="noreferrer">Source</a></span></footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const STORAGE_KEY='io-browser-game-v2';
+  const OLD_KEY='io-rift-challenge-pages-preview-v1';
+  const TARGET=1000;
+  const fmt=n=>Math.max(0,Math.floor(Number(n)||0)).toLocaleString('en-US');
+  const fmtRarity=n=>{const v=Math.max(0,Number(n)||0);return v>=1e9?v.toExponential(2).replace('e+','e'):fmt(v)};
+  const clamp=(n,min,max,fallback)=>Number.isFinite(Number(n))?Math.max(min,Math.min(max,Math.floor(Number(n)))):fallback;
+  const UPGRADES={
+    luck:{name:'Fortune Engine',desc:'+15% Luck per level. Improves the rarity distribution of main-game rolls.',base:35,growth:1.52,max:20,unit:'Luck'},
+    speed:{name:'Quickstep Drive',desc:'Reduces your main-game roll cooldown by 70ms per level.',base:55,growth:1.55,max:10,unit:'Cooldown'},
+    coins:{name:'Coin Lattice',desc:'+20% Coins earned from each Orb per level.',base:45,growth:1.48,max:20,unit:'Coins'},
+    critical:{name:'Critical Resonator',desc:'+1.5 percentage points of critical chance per level.',base:90,growth:1.62,max:10,unit:'Critical chance'}
+  };
+  const RIFT={
+    fortune:{name:'Fortune Lens',desc:'+12% effective Luck per level in this challenge.',requirement:'Reach Level 5 in the main game',base:10,growth:1.42,max:10},
+    speed:{name:'Quickstep Coil',desc:'Reduces the challenge roll cooldown by 90ms per level.',requirement:'Reach Level 10 in the main game',base:18,growth:1.48,max:10},
+    prosperity:{name:'Coin Converter',desc:'+20% Coins earned per level in this challenge.',requirement:'Roll 25 Orbs in the main game',base:14,growth:1.45,max:10},
+    critical:{name:'Critical Echo',desc:'+1.5 percentage points of critical chance per level.',requirement:'Land 10 critical rolls in the main game',base:55,growth:1.65,max:10}
+  };
+  const defaults={
+    main:{coins:0,xp:0,level:1,levelXpFloor:0,totalRolls:0,totalCrits:0,bestRarity:2,upgrades:{luck:0,speed:0,coins:0,critical:0},lastRoll:null,recent:[],nextRollAt:0,lastSavedAt:Date.now()},
+    archive:{activeRun:null,completedChallengeIds:[],bestRarityByChallenge:{},totalCompletedRuns:0}
+  };
+  let data=load();
+  let now=Date.now();
+  const $=id=>document.getElementById(id);
+  function deep(value){return JSON.parse(JSON.stringify(value));}
+  function xpForLevel(level){return Math.floor(70*Math.pow(Math.max(1,level),1.30));}
+  function mainProgress(){
+    const m=data.main;
+    let level=1,floor=0;
+    while(level<10000&&m.xp-floor>=xpForLevel(level)){floor+=xpForLevel(level);level++;}
+    m.level=level;m.levelXpFloor=floor;
+    return {level,current:m.xp-floor,next:xpForLevel(level),percent:Math.min(100,(m.xp-floor)/xpForLevel(level)*100)};
+  }
+  function emptyArchive(){return {activeRun:null,completedChallengeIds:[],bestRarityByChallenge:{},totalCompletedRuns:0};}
+  function load(){
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const p=JSON.parse(raw),d=deep(defaults);
+        const m=p.main||{};
+        Object.assign(d.main,{coins:clamp(m.coins,0,Number.MAX_SAFE_INTEGER,0),xp:clamp(m.xp,0,Number.MAX_SAFE_INTEGER,0),totalRolls:clamp(m.totalRolls,0,Number.MAX_SAFE_INTEGER,0),totalCrits:clamp(m.totalCrits,0,Number.MAX_SAFE_INTEGER,0),bestRarity:Math.max(2,Number(m.bestRarity)||2),nextRollAt:clamp(m.nextRollAt,0,Number.MAX_SAFE_INTEGER,0)});
+        for(const id of Object.keys(UPGRADES))d.main.upgrades[id]=clamp(m.upgrades?.[id],0,UPGRADES[id].max,0);
+        d.main.lastRoll=m.lastRoll&&typeof m.lastRoll==='object'?m.lastRoll:null;
+        d.main.recent=Array.isArray(m.recent)?m.recent.slice(0,12):[];
+        const a=p.archive||{};
+        d.archive={activeRun:normalizeRun(a.activeRun),completedChallengeIds:Array.isArray(a.completedChallengeIds)?a.completedChallengeIds.filter(x=>typeof x==='string').slice(0,50):[],bestRarityByChallenge:a.bestRarityByChallenge&&typeof a.bestRarityByChallenge==='object'?a.bestRarityByChallenge:{},totalCompletedRuns:clamp(a.totalCompletedRuns,0,Number.MAX_SAFE_INTEGER,0)};
+        mainProgress();return d;
+      }
+      const old=JSON.parse(localStorage.getItem(OLD_KEY)||'null');
+      if(old){
+        const d=deep(defaults),a=old.archive||{};
+        d.archive={activeRun:normalizeRun(a.activeRun),completedChallengeIds:a.completed===true?['first-spark']:[],bestRarityByChallenge:a.completed?{'first-spark':Math.max(2,Number(a.bestRarity)||2)}:{},totalCompletedRuns:clamp(a.totalCompletedRuns,0,Number.MAX_SAFE_INTEGER,0)};
+        return d;
+      }
+    }catch(e){console.warn('Save could not be read; a fresh browser save was created.',e);}
+    return deep(defaults);
+  }
+  function normalizeRun(r){
+    if(!r||r.challengeId!=='first-spark'||!['active','completed'].includes(r.status))return null;
+    const levels={};for(const id of Object.keys(RIFT))levels[id]=clamp(r.upgradeLevels?.[id],0,RIFT[id].max,0);
+    const progress=r.mainProgressAtStart||{};
+    const unlocked=unlocks(progress);
+    const saved=r.mechanicUnlocks||{};
+    return {runId:String(r.runId||Date.now()),challengeId:'first-spark',status:r.status,startedAt:Number(r.startedAt)||Date.now(),completedAt:Number(r.completedAt)||0,coins:clamp(r.coins,0,Number.MAX_SAFE_INTEGER,0),totalRolls:clamp(r.totalRolls,0,Number.MAX_SAFE_INTEGER,0),bestRarity:Math.max(2,Number(r.bestRarity)||2),nextRollAt:Number(r.nextRollAt)||0,upgradeLevels:levels,mainProgressAtStart:{level:clamp(progress.level,1,100000,1),totalRolls:clamp(progress.totalRolls,0,Number.MAX_SAFE_INTEGER,0),totalCrits:clamp(progress.totalCrits,0,Number.MAX_SAFE_INTEGER,0),highestRarity:Math.max(2,Number(progress.highestRarity)||2)},mechanicUnlocks:Object.fromEntries(Object.keys(RIFT).map(id=>[id,saved[id]===true||unlocked[id]])),lastRoll:r.lastRoll||null};
+  }
+  function save(){data.main.lastSavedAt=Date.now();localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}
+  function random(){if(globalThis.crypto?.getRandomValues){const a=new Uint32Array(2);crypto.getRandomValues(a);return ((a[0]>>>5)*67108864+(a[1]>>>6))/9007199254740992;}return Math.random();}
+  function rarityRoll(luck,level=1){const raw=(1/Math.max(Number.MIN_VALUE,random()))*Math.max(1,level)*Math.sqrt(Math.max(1,luck));return Number.isFinite(raw)?Math.max(2,Math.min(Number.MAX_SAFE_INTEGER,Math.floor(raw))):Number.MAX_SAFE_INTEGER;}
+  function coinsForRarity(r){return Math.max(1,Math.round(Math.pow(Math.max(1,r),.68)));}
+  function currentLuck(){return (1+Math.max(0,data.main.level-1)*.01)*(1+data.main.upgrades.luck*.15);}
+  function currentCooldown(){return Math.max(450,1200-data.main.upgrades.speed*70);}
+  function mainCoinMultiplier(){return (1+Math.max(0,data.main.level-1)*.03)*(1+data.main.upgrades.coins*.20);}
+  function mainCritChance(){return Math.min(.3,.05+data.main.upgrades.critical*.015);}
+  function tierFor(r){if(r>=10000)return 'LEGENDARY';if(r>=1000)return 'EPIC';if(r>=100)return 'RARE';if(r>=10)return 'UNCOMMON';return 'COMMON';}
+  function orbName(r){const names=r>=10000?['Solar Crown','Astral Monarch','Eternal Prism']:r>=1000?['Aether Flame','Voidheart','Nova Shard']:r>=100?['Starseer','Prismatic Core','Dusk Pearl']:r>=10?['Blue Comet','Lunar Glass','Frost Spark']:['Glimmer','Azure Seed','Quiet Light'];return names[Math.floor(random()*names.length)];}
+  function unlocks(m){return {fortune:m.level>=5,speed:m.level>=10,prosperity:m.totalRolls>=25,critical:m.totalCrits>=10};}
+  function cost(def,level,rolls=0){const tax=Math.min(.5,Math.floor(rolls/10)*.05);return Math.min(Number.MAX_SAFE_INTEGER,Math.ceil(def.base*Math.pow(def.growth,level)*(1+tax)));}
+  function riftCooldown(run){return Math.max(600,1500-run.upgradeLevels.speed*90);}
+  function riftLuck(run){return 1+run.upgradeLevels.fortune*.12;}
+  function riftCoinMultiplier(run){return 1+run.upgradeLevels.prosperity*.2;}
+  function riftCritChance(run){return Math.min(.15,run.upgradeLevels.critical*.015);}
+  function pctRarity(r){return Math.max(0,Math.min(100,Math.log10(Math.max(2,r))/Math.log10(TARGET)*100));}
+  function safeAdd(a,b){return Math.min(Number.MAX_SAFE_INTEGER,Math.max(0,a)+Math.max(0,b));}
+  function setView(id){document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id==='view-'+id));document.querySelectorAll('.nav-btn').forEach(el=>el.classList.toggle('active',el.dataset.view===id));if(id==='challenges')renderChallenge();if(id==='progress')renderProgress();}
+  function mainRoll(){
+    if(data.main.nextRollAt>Date.now())return;
+    const m=data.main,level=m.level;
+    const rarity=rarityRoll(currentLuck(),level);
+    const critical=random()<mainCritChance();
+    const finalRarity=critical?Math.min(Number.MAX_SAFE_INTEGER,rarity*2):rarity;
+    const coins=Math.max(1,Math.floor(coinsForRarity(finalRarity)*mainCoinMultiplier()));
+    const xp=Math.max(14,Math.floor(18+Math.log10(Math.max(2,finalRarity))*3));
+    m.coins=safeAdd(m.coins,coins);m.xp=safeAdd(m.xp,xp);m.totalRolls=safeAdd(m.totalRolls,1);if(critical)m.totalCrits=safeAdd(m.totalCrits,1);m.bestRarity=Math.max(m.bestRarity,finalRarity);
+    const info={rarity:finalRarity,critical,coins,xp,at:Date.now(),name:orbName(finalRarity)};
+    m.lastRoll=info;m.recent.unshift(info);m.recent=m.recent.slice(0,12);m.nextRollAt=Date.now()+currentCooldown();
+    mainProgress();save();render();showView('main');
+  }
+  function showView(id){setView(id);}
+  function startChallenge(){
+    mainProgress();
+    if(data.main.level<5||data.archive.activeRun?.status==='active')return;
+    const p={level:data.main.level,totalRolls:data.main.totalRolls,totalCrits:data.main.totalCrits,highestRarity:data.main.bestRarity};
+    const u=unlocks(p);
+    data.archive.activeRun={runId:(crypto.randomUUID?.()||String(Date.now())+'-'+Math.floor(random()*1e9)),challengeId:'first-spark',status:'active',startedAt:Date.now(),completedAt:0,coins:0,totalRolls:0,bestRarity:2,nextRollAt:0,upgradeLevels:{fortune:0,speed:0,prosperity:0,critical:0},mainProgressAtStart:p,mechanicUnlocks:u,lastRoll:null};
+    save();renderChallenge();
+  }
+  function challengeRoll(){
+    const run=data.archive.activeRun;if(!run||run.status!=='active'||run.nextRollAt>Date.now())return;
+    const rarity=rarityRoll(riftLuck(run),1),critical=random()<riftCritChance(run),finalRarity=critical?Math.min(Number.MAX_SAFE_INTEGER,rarity*2):rarity;
+    const coins=Math.max(1,Math.floor(coinsForRarity(finalRarity)*riftCoinMultiplier(run)));
+    run.coins=safeAdd(run.coins,coins);run.totalRolls=safeAdd(run.totalRolls,1);run.bestRarity=Math.max(run.bestRarity,finalRarity);run.lastRoll={rarity:finalRarity,isCritical:critical,coinsGained:coins,rolledAt:Date.now()};run.nextRollAt=Date.now()+riftCooldown(run);
+    if(finalRarity>=TARGET){run.status='completed';run.completedAt=Date.now();data.archive.totalCompletedRuns=safeAdd(data.archive.totalCompletedRuns,1);if(!data.archive.completedChallengeIds.includes('first-spark'))data.archive.completedChallengeIds.push('first-spark');data.archive.bestRarityByChallenge['first-spark']=Math.max(2,Number(data.archive.bestRarityByChallenge['first-spark'])||2,run.bestRarity);}
+    save();renderChallenge();
+  }
+  function buyRift(id){
+    const run=data.archive.activeRun;if(!run||run.status!=='active'||!run.mechanicUnlocks[id])return;
+    const def=RIFT[id],level=run.upgradeLevels[id],price=cost(def,level,run.totalRolls);
+    if(level>=def.max||run.coins<price)return;
+    run.coins-=price;run.upgradeLevels[id]++;save();renderChallenge();
+  }
+  function abandon(){
+    const run=data.archive.activeRun;if(!run||run.status!=='active')return;
+    if(!confirm('Abandon this run? Its temporary Coins and upgrades will be discarded.'))return;
+    data.archive.activeRun=null;save();renderChallenge();
+  }
+  function buyMain(id){
+    const def=UPGRADES[id],level=data.main.upgrades[id],price=cost(def,level);
+    if(level>=def.max||data.main.coins<price)return;
+    data.main.coins-=price;data.main.upgrades[id]++;save();render();
+  }
+  function renderStats(){
+    const m=data.main,p=mainProgress();
+    $('top-coins').textContent=fmt(m.coins);$('top-level').textContent=fmt(m.level);$('top-luck').textContent=currentLuck().toFixed(2)+'×';$('top-rolls').textContent=fmt(m.totalRolls);$('top-best').textContent=fmtRarity(m.bestRarity);
+    $('level-text').textContent='LV '+fmt(m.level);$('xp-current').textContent=fmt(p.current)+' XP';$('xp-next').textContent=fmt(p.next-p.current)+' XP to next level';$('xp-fill').style.width=p.percent+'%';
+    if(m.level<5){$('next-unlock').textContent='Rift Challenges · Level 5';$('next-unlock-copy').textContent='Reach Level 5 to open your first challenge.';}else if(m.level<10){$('next-unlock').textContent='Quickstep Coil · Level 10';$('next-unlock-copy').textContent='Reach Level 10 to unlock challenge cooldown upgrades.';}else{$('next-unlock').textContent='All level unlocks reached';$('next-unlock-copy').textContent='Continue rolling to unlock more challenge mechanics.';}
+    $('main-cooldown-tag').textContent=(currentCooldown()/1000).toFixed(2)+'s cooldown';
+    $('main-cooldown').textContent=m.nextRollAt>Date.now()?'Ready in '+((m.nextRollAt-Date.now())/1000).toFixed(1)+'s':'Your rolls build Coins and XP in the main save.';
+    $('main-roll').disabled=m.nextRollAt>Date.now();$('main-roll').textContent=m.nextRollAt>Date.now()?'READY IN '+((m.nextRollAt-Date.now())/1000).toFixed(1)+'S':'ROLL ORB';
+    $('main-save-time').textContent='SAVED '+new Date(m.lastSavedAt||Date.now()).toLocaleTimeString();
+    const r=m.lastRoll;
+    if(r){$('main-orb-name').textContent=r.name||orbName(r.rarity);$('main-orb-rarity').textContent='1 / '+fmtRarity(r.rarity)+(r.critical?' · CRITICAL':'');$('main-orb-tier').textContent=tierFor(r.rarity);$('main-orb').className='orb '+(r.rarity>=1000?'epic':r.rarity>=100?'rare':'');}
+    $('recent-rolls').innerHTML=m.recent.length?m.recent.slice(0,5).map(r=>'<div class="log-row"><strong>'+r.name+(r.critical?' ✦':'')+'</strong><span>1 / '+fmtRarity(r.rarity)+'</span></div>').join(''):'<div class="empty">Your discoveries will appear here.</div>';
+    $('quick-upgrades').innerHTML=Object.entries(UPGRADES).map(([id,d])=>'<div class="log-row"><strong>'+d.name+'</strong><span>Lv '+m.upgrades[id]+'</span></div>').join('');
+  }
+  function renderMainUpgrades(){
+    const m=data.main;
+    $('upgrade-wallet').textContent=fmt(m.coins)+' Coins';
+    $('main-upgrades').innerHTML=Object.entries(UPGRADES).map(([id,d])=>{
+      const level=m.upgrades[id],price=cost(d,level);
+      return '<article class="upgrade-card"><div class="upgrade-header"><div class="upgrade-name">'+d.name+'</div><span class="upgrade-level">LV '+level+' / '+d.max+'</span></div><div class="upgrade-desc">'+d.desc+'</div><div class="upgrade-foot"><span class="cost">'+(level>=d.max?'MAX LEVEL':fmt(price)+' Coins')+'</span><button class="small-btn" data-main-upgrade="'+id+'" '+(level>=d.max||m.coins<price?'disabled':'')+'>UPGRADE</button></div></article>';
+    }).join('');
+  }
+  function renderChallenge(){
+    const m=data.main,p=mainProgress(),run=data.archive.activeRun,progress=run?.mainProgressAtStart||m,unlock=unlocks(progress),available=m.level>=5;
+    $('challenge-nav-count').textContent=String(data.archive.totalCompletedRuns);
+    $('challenge-meta').textContent=fmt(data.archive.totalCompletedRuns)+' COMPLETIONS';
+    $('archive-count').textContent=fmt(data.archive.totalCompletedRuns);
+    $('challenge-status').textContent=run?.status==='active'?'Run in progress':run?.status==='completed'?'Completed':available?'Available':'Locked · Level 5';
+    $('challenge-status').className='challenge-status '+(run?.status==='active'?'active':available?'':'locked');
+    $('challenge-lock-copy').textContent=available?'Available. Start a fresh run whenever you are ready.':'Reach Level 5 in the main game. Current level: '+fmt(m.level)+'.';
+    $('start-challenge').disabled=!available||run?.status==='active';$('start-challenge').textContent=run?.status==='active'?'RUN ACTIVE BELOW':run?.status==='completed'?'START ANOTHER FRESH RUN':'START CHALLENGE';
+    $('challenge-unlocks').innerHTML=Object.entries(RIFT).map(([id,d])=>{
+      const on=unlock[id];return '<div class="unlock-row"><div><b>'+d.name+'</b><small>'+d.requirement+'</small></div><span class="unlock-pill '+(on?'on':'')+'">'+(on?'UNLOCKED':'LOCKED')+'</span></div>';
+    }).join('');
+    const best=Number(data.archive.bestRarityByChallenge['first-spark'])||2;
+    $('archive-best').textContent=data.archive.completedChallengeIds.includes('first-spark')?'The First Spark completed':'No completed runs yet';
+    $('archive-record').textContent='Best rarity: 1 / '+fmtRarity(best);
+    $('challenge-run').classList.toggle('hidden',!run);
+    if(!run)return;
+    const completed=run.status==='completed';
+    $('run-state').textContent=completed?'CHALLENGE COMPLETED':'ACTIVE CHALLENGE SAVE';
+    $('run-snapshot').textContent='Started '+new Date(run.startedAt).toLocaleString()+' · unlocks frozen at Level '+fmt(run.mainProgressAtStart.level)+' and '+fmt(run.mainProgressAtStart.totalRolls)+' rolls.';
+    $('abandon-run').classList.toggle('hidden',completed);
+    $('run-coins').textContent=fmt(run.coins);$('run-rolls').textContent=fmt(run.totalRolls);$('run-best').textContent=fmtRarity(run.bestRarity);
+    const pct=pctRarity(run.bestRarity);$('run-progress-text').textContent=pct.toFixed(1)+'%';$('run-progress-fill').style.width=pct+'%';
+    $('challenge-actions').classList.toggle('hidden',completed);$('challenge-complete').classList.toggle('hidden',!completed);
+    $('challenge-last-result').classList.toggle('hidden',!run.lastRoll);
+    if(run.lastRoll){$('challenge-last-main').textContent='1 / '+fmtRarity(run.lastRoll.rarity)+(run.lastRoll.isCritical?' · CRITICAL':'');$('challenge-last-coins').textContent='+'+fmt(run.lastRoll.coinsGained)+' challenge Coins';}
+    if(completed){$('complete-copy').textContent='You found a 1 / '+fmtRarity(TARGET)+' Orb in '+fmt(run.totalRolls)+' challenge rolls. Your main-game save was not changed.';}
+    else{
+      $('challenge-roll').disabled=run.nextRollAt>Date.now();$('challenge-roll').textContent=run.nextRollAt>Date.now()?'READY IN '+((run.nextRollAt-Date.now())/1000).toFixed(1)+'S':'ROLL IN THE RIFT';
+      $('challenge-cooldown').textContent='Current cooldown: '+(riftCooldown(run)/1000).toFixed(2)+'s. Challenge Coins only.';
+      $('challenge-upgrades').innerHTML=Object.entries(RIFT).map(([id,d])=>{
+        const level=run.upgradeLevels[id],on=run.mechanicUnlocks[id],price=cost(d,level,run.totalRolls),max=level>=d.max;
+        return '<article class="run-upgrade"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><h4>'+d.name+'</h4><span class="upgrade-level">LV '+level+'/'+d.max+'</span></div><p>'+d.desc+'</p><div class="run-upgrade-foot"><span>'+(!on?d.requirement:max?'MAX LEVEL':fmt(price)+' Coins')+'</span><button class="small-btn" data-rift-upgrade="'+id+'" '+(!on||max||run.coins<price?'disabled':'')+'>UPGRADE</button></div></article>';
+      }).join('');
+    }
+  }
+  function renderProgress(){
+    const m=data.main,p=mainProgress(),unlock=unlocks(m);
+    $('progress-level').textContent='Level '+fmt(m.level);$('progress-xp').textContent=fmt(m.xp)+' total XP · '+fmt(p.current)+' / '+fmt(p.next)+' toward next level';
+    $('progress-stats').innerHTML=[['Total rolls',fmt(m.totalRolls)],['Critical rolls',fmt(m.totalCrits)],['Best rarity','1 / '+fmtRarity(m.bestRarity)],['Main-game Luck',currentLuck().toFixed(2)+'×'],['Main-game Coins',fmt(m.coins)]].map(x=>'<div class="log-row"><strong>'+x[0]+'</strong><span>'+x[1]+'</span></div>').join('');
+    $('progress-rift-count').textContent=fmt(data.archive.totalCompletedRuns)+' clears';
+    $('progress-rift-best').textContent=data.archive.completedChallengeIds.includes('first-spark')?'Best First Spark rarity: 1 / '+fmtRarity(data.archive.bestRarityByChallenge['first-spark']||2):'No challenge completed yet.';
+    $('progress-unlocks').innerHTML=Object.entries(RIFT).map(([id,d])=>'<div class="log-row"><strong>'+d.name+'</strong><span>'+(unlock[id]?'Unlocked':'Locked')+'</span></div>').join('');
+  }
+  function render(){
+    mainProgress();renderStats();renderMainUpgrades();renderChallenge();renderProgress();
+  }
+  $('main-roll').addEventListener('click',mainRoll);
+  $('start-challenge').addEventListener('click',startChallenge);
+  $('challenge-roll').addEventListener('click',challengeRoll);
+  $('abandon-run').addEventListener('click',abandon);
+  $('new-challenge-run').addEventListener('click',()=>{if(data.archive.activeRun?.status==='completed'){data.archive.activeRun=null;save();startChallenge();}});
+  $('main-upgrades').addEventListener('click',e=>{const b=e.target.closest('[data-main-upgrade]');if(b)buyMain(b.dataset.mainUpgrade);});
+  $('challenge-upgrades').addEventListener('click',e=>{const b=e.target.closest('[data-rift-upgrade]');if(b)buyRift(b.dataset.riftUpgrade);});
+  document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+  document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.go)));
+  $('reset-save').addEventListener('click',()=>{if(!confirm('Reset the local Infinity Orbs browser save, including Rift Challenge progress?'))return;localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(OLD_KEY);data=deep(defaults);save();render();showView('main');});
+  window.setInterval(()=>{now=Date.now();const run=data.archive.activeRun;if(run?.status==='active'&&run.nextRollAt>0){$('challenge-roll').disabled=run.nextRollAt>now;$('challenge-roll').textContent=run.nextRollAt>now?'READY IN '+((run.nextRollAt-now)/1000).toFixed(1)+'S':'ROLL IN THE RIFT';$('challenge-cooldown').textContent='Current cooldown: '+(riftCooldown(run)/1000).toFixed(2)+'s. Challenge Coins only.';}if(data.main.nextRollAt){$('main-roll').disabled=data.main.nextRollAt>now;$('main-roll').textContent=data.main.nextRollAt>now?'READY IN '+((data.main.nextRollAt-now)/1000).toFixed(1)+'S':'ROLL ORB';$('main-cooldown').textContent=data.main.nextRollAt>now?'Ready in '+((data.main.nextRollAt-now)/1000).toFixed(1)+'s':'Your rolls build Coins and XP in the main save.';}},100);
+  render();
+})();
+</script>
+</body>
+</html>

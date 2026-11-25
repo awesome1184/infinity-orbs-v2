@@ -1,0 +1,70 @@
+name: Deploy Infinity Orbs actual game to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/github-pages.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.pages.config.ts"
+      - "src/**"
+      - "tsconfig*.json"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the actual game
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check the game
+        run: npm run type-check
+
+      - name: Test Rift Challenges and the Pages backend simulator
+        run: node --import tsx --test tests/rift-challenges.test.ts tests/pages-rift-challenges.test.ts tests/pages-reddit-simulator.test.ts
+
+      - name: Build the real Infinity Orbs client for Pages
+        run: npm run build:pages
+
+      - name: Mark output as a static site
+        run: touch dist-pages/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload actual game
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist-pages
+
+      - name: Wait for uploaded artifact metadata
+        run: sleep 10
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

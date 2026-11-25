@@ -1,0 +1,81 @@
+name: Weighted Roll Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/server/game.ts"
+      - "src/server/rift-challenges.ts"
+      - "src/server/social.ts"
+      - "src/shared/roll-batching.ts"
+      - "src/shared/rift-challenges.ts"
+      - "src/client/main.tsx"
+      - "src/client/components/**"
+      - "src/client/rift.tsx"
+      - "src/pages/api.ts"
+      - "devvit.json"
+      - "scripts/predeploy-check.mjs"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/weighted-roll-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weighted-roll-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Node 24 preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Regenerate lockfile for pinned dependencies
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run guarded deployment regressions and production build
+        run: |
+          set -euo pipefail
+          npm run preflight:guard
+          # Exercise the new Rift post, Kudos, archive-counter, admin, and popup paths on every relevant change.
+          node --import tsx --test tests/rift-challenges.test.ts tests/rift-completion-posts.test.ts tests/popups.test.ts tests/predeploy-check.test.ts
+          node --import tsx --test tests/alignment-prompt-ui.test.ts
+          node --import tsx --test tests/player-save-chunking.test.ts tests/player-lock.test.ts tests/inline-main-post-cta-layout.test.ts tests/game-ban-status.test.ts
+          node --import tsx --test tests/storage-compression.test.ts
+          node --import tsx --test --test-name-pattern="Frenzy claim activity is a retryable post-commit projection" tests/frenzy.test.ts
+          node --import tsx --test tests/cosmic-dust-uncapped.test.ts
+          node --import tsx --test tests/combat-runes.test.ts
+          node --import tsx --test tests/guild-member-recovery.test.ts
+          node --import tsx --test tests/redis-storage-retention.test.ts
+          node --import tsx --test tests/guild-combo-progress.test.ts
+          node --import tsx --test tests/cooldown-time-energy.test.ts tests/auto-roll-sonar-regressions.test.ts tests/guild-loading-regression.test.ts
+          node --import tsx --test --test-name-pattern="Guild task set starts with one task of each type|Guild task difficulty and rewards scale upward by tier|Guild task difficulty is driven by tier alone and does not carry Guild XP|Guild task rewards remain capped|Guild tasks retain token rewards but do not model Titan or Guild XP rewards" tests/mechanics.test.ts
+          node --import tsx --test --test-name-pattern="Chain Patcher chooses the lowest adjacent rarity|Chain Patcher advances from the upper end of the longest Codex chain" tests/mechanics.test.ts
+          node --import tsx --test --test-name-pattern="Guild parser preserves task/member data while removing legacy levels, XP, Titan, and tax|roll rewards commit atomically with Guild and community progress|corrupt optional Guild roll projections do not cancel normal or Frenzy player payouts|legacy Guild contribution advances each task once and rewards Tokens without XP or Titan" tests/audit-regressions.test.ts
+          npm run type-check
+          node --import tsx --test --test-name-pattern="immersive startup shows save-loading progress and unlocks the radiant Play button only when ready|inline Frenzy claim activity stays compact inside the fixed, non-scrollable post preview|inline main-game Reddit post fills the preview height and anchors the card footer at the bottom" tests/post-revamp.test.ts
+          node --import tsx --test tests/roll-batching.test.ts tests/collection-persistence.test.ts
+          node --import tsx --test tests/mobile-layout.test.ts
+          node --import tsx --test tests/upgrade-expansion.test.ts
+          node --import tsx --test tests/large-number-economy.test.ts
+          node --import tsx --test tests/server-monitor.test.ts tests/upgrade-batch-route.test.ts tests/player-state-reconciliation.test.ts tests/upgrade-spam-ui.test.ts
+          node --import tsx --test tests/roll-ticket-seeds.test.ts
+          node --import tsx --test tests/admin-api-feature-fixture.test.ts
+          node --import tsx --test tests/rarity-icon-visuals.test.ts
+          npm run build

@@ -14,6 +14,10 @@
       "frenzy": {
         "entry": "frenzy.html",
         "height": "tall"
+      },
+      "rift": {
+        "entry": "rift.html",
+        "height": "tall"
       }
     }
   },
@@ -34,13 +38,15 @@
   },
   "triggers": {
     "onAppInstall": "/internal/on-app-install",
-    "onCommentCreate": "/internal/trigger/comment-create"
+    "onCommentCreate": "/internal/trigger/comment-create",
+    "onAppUpgrade": "/internal/on-app-upgrade"
   },
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build"
   },
   "permissions": {
+    "journeys": true,
     "redis": true,
     "payments": false,
     "reddit": {
@@ -48,7 +54,8 @@
       "scope": "moderator",
       "asUser": [
         "SUBMIT_POST",
-        "SUBMIT_COMMENT"
+        "SUBMIT_COMMENT",
+        "SUBSCRIBE_TO_SUBREDDIT"
       ]
     }
   },
@@ -56,6 +63,12 @@
     "tasks": {
       "offline-orbs-full": {
         "endpoint": "/internal/scheduler/offline-orbs-full"
+      },
+      "manual-push-broadcast": {
+        "endpoint": "/internal/scheduler/manual-push-broadcast"
+      },
+      "pending-game-update-drain": {
+        "endpoint": "/internal/scheduler/pending-game-update-drain"
       }
     }
   }

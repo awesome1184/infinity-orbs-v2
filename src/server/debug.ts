@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   applyRolls,
+  markCodexRarityWrite,
   claimOrbFrenzy,
   loadRaw,
   save,
@@ -28,16 +29,40 @@ import {
   sendPushNotificationTest,
   getPlayerSpyLogs,
   clearPlayerSpyLogs,
+  clearAllDiagnosticLogs,
   getFollowPromptStats,
+  getPopupConfig,
+  setPopupConfig,
+  getPopupStats,
   getGlobalBoosters,
   getFakeCcuBonus,
   getOnlinePlayers,
   getPlayerActivityStats,
+  getNotificationStats,
+  startManualPushNotificationCampaign,
+  getManualPushNotificationCampaign,
   getRollTicket,
+  getCelestialAlignmentChoiceStats,
+  forceCelestialAlignmentPromptForCurrentUser,
+  readPlayerSaveForUser,
+  createPlayerSaveWritePlanForUser,
+  setGlobalMenuControl,
+  getGlobalFeatureControls,
+  setGlobalFeatureControl,
+  executeLiveBalanceCommand,
+  discardPlayerSaveWritePlan,
+  cleanupPreviousPlayerSave,
 } from './game.js';
 import { withPlayerMutationLock, withPlayerMutationLockFor } from './player-lock.js';
-import { adminCombatLabAction, getCombatSnapshot, performCombatBeat } from './combat.js';
-import { COMBAT_MAX_DEPTH, combatGearRarityOdds, combatGearStatBudgetMultiplier, combatOrbDamageMultiplier, combatStatsFor, getEnemyForDungeonDepth, type CombatState } from '../shared/combat.js';
+import {
+  createRedisLargeValueWritePlan,
+  readRedisLargeValue,
+  retireRedisLargeValue,
+  discardRedisLargeValueWritePlan,
+} from './redis-large-values.js';
+import { adminCombatLabAction, getCombatSnapshot, getCombatSnapshotForUser, performCombatBeat } from './combat.js';
+import { getRiftChallengeAdminStatus, adminGrantRiftProgress } from './rift-challenges.js';
+import { COMBAT_MAX_DEPTH, COMBAT_SKILLS, combatBossLuckBonus, combatGearRarityOdds, combatGearStatBudgetMultiplier, combatOrbDamageMultiplier, combatRuneBonuses, combatRuneLuckMultiplier, combatRuneMajorAbilityStrengthPct, combatRuneScaledValue, combatStatsFor, combatTotalBossesBeaten, getEnemyForDungeonDepth, type CombatRuneBonuses, type CombatState } from '../shared/combat.js';
 import { context, redis, reddit } from './devvit-mock.js';
 import {
   setCommunityEventConfig,
@@ -50,10 +75,12 @@ import {
   getPlayerGuildPerks,
   getPlayerGuildCombo,
   getCommunityEvent,
+  leaderboards,
 } from './social.js';
 import {
   cooldownMs,
   createInitialState,
+  addCoinAmount,
   calculateLevelFromXp,
   COSMETICS_LIST,
   PRESTIGE_UPGRADES,
@@ -63,9 +90,13 @@ import {
   offlineRollCap,
   effectiveOfflineTickMs,
   calculateAltarMultipliers,
+  roundShardAmount,
+  SHARD_PITY_ROLLS_TO_REWARD,
   calculateCosmicDust,
   calculatePrestigeDust,
+  aftershockCriticalLuckBonus,
   critMultiplier,
+  ROLL_SHARD_PROC_CHANCE_CAP,
   autoUnlocked,
   getLevelBenefits,
   LEVEL_MILESTONES,
@@ -80,10 +111,17 @@ import {
   guildComboCritChanceBonus,
   guildComboCritLuckBonus,
   isPremiumBoosterActive,
+  TIME_ENERGY_MAX_MS,
+  MAX_ORB_RARITY,
   type PlayerState,
 } from '../shared/game.js';
 import { recordLeaderboard } from './social.js';
 import { getImpressionDashboard } from './impressions.js';
+import { estimateKnownRedisStorage, getServerMonitorSnapshot } from './server-monitor.js';
+import { auditKnownRedisStorage } from './redis-storage-audit.js';
+import { APP_VERSION } from '../shared/version.js';
+import { applyAdminSaveCommands } from '../shared/admin-save-commands.js';
+import { parseAdminCliCommand } from '../shared/admin-cli.js';
 
 const DEBUG_USERS = new Set([
   'shadow_fen',
@@ -115,6 +153,30 @@ debugRouter.use((_req, res, next) => {
   next();
 });
 
+debugRouter.get('/server-monitor', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.json(getServerMonitorSnapshot());
+});
+
+debugRouter.get('/server-monitor/storage', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  try {
+    res.json(await estimateKnownRedisStorage(redis));
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not estimate Redis storage usage.' });
+  }
+});
+
+debugRouter.get('/server-monitor/storage/audit', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  try {
+    res.json(await auditKnownRedisStorage(redis));
+  } catch (error) {
+    console.error('[Redis Storage Audit] Read-only audit failed:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not audit Redis storage.' });
+  }
+});
+
 debugRouter.get('/impressions', async (_req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
@@ -137,6 +199,10 @@ function combatLabReport(state:CombatState) {
   const rarityOdds=combatGearRarityOdds();
   const statBudgets=Object.fromEntries([0,15,40,70,90,100].map(quality=>[String(quality),combatGearStatBudgetMultiplier(quality)]));
   const end=projections[projections.length-1]!;
+  const speedProbeState={...state,inventory:[],equipment:Object.fromEntries(Object.keys(state.equipment).map(slot=>[slot,null])) as CombatState['equipment']};
+  const speedAtDepthOne=combatStatsFor({...speedProbeState,depth:1}).speed;
+  const speedAtMaxDepth=combatStatsFor({...speedProbeState,depth:COMBAT_MAX_DEPTH}).speed;
+  const playerSpeedDepthInvariant=speedAtDepthOne===speedAtMaxDepth;
   const qualityValid=state.inventory.every(item=>Number.isFinite(item.quality)&&item.quality>=0&&item.quality<=100);
   const equipmentValid=Object.entries(state.equipment).every(([slot,id])=>!id||state.inventory.some(item=>item.id===id&&item.slot===slot));
   const runeRefsValid=(state.equippedRunes??[]).every(id=>state.runes.some(rune=>rune.id===id));
@@ -146,7 +212,7 @@ function combatLabReport(state:CombatState) {
     {label:'Equipped Rune references are valid',passed:runeRefsValid,detail:runeRefsValid?'Every equipped Rune exists in inventory.':'A Rune slot references a missing Rune.'},
     {label:'High gear grades are genuinely rare',passed:rarityOdds.Common>.85&&rarityOdds.Mythic<.01,detail:'Common '+(rarityOdds.Common*100).toFixed(2)+'% · Mythic '+(rarityOdds.Mythic*100).toFixed(2)+'% theoretical natural-drop odds.'},
     {label:'High-quality gear owns a larger stat budget',passed:combatGearStatBudgetMultiplier(90)>combatGearStatBudgetMultiplier(15)*5,detail:'90% quality is '+(combatGearStatBudgetMultiplier(90)/combatGearStatBudgetMultiplier(15)).toFixed(1)+'× the budget of 15% quality.'},
-    {label:'Late-game Speed reaches millions',passed:end.speed>=1_000_000,detail:'Depth 50,000 projection: '+Math.round(end.speed).toLocaleString()+' Speed.'},
+    {label:'Player Speed is independent of dungeon depth',passed:playerSpeedDepthInvariant,detail:'No-gear baseline: depth 1 '+Math.round(speedAtDepthOne).toLocaleString()+' → depth '+COMBAT_MAX_DEPTH.toLocaleString()+' '+Math.round(speedAtMaxDepth).toLocaleString()+' Speed.'},
     {label:'Late-game HP reaches millions',passed:end.maxHealth>=1_000_000,detail:'Depth 50,000 projection: '+Math.round(end.maxHealth).toLocaleString()+' maximum HP.'},
     {label:'Late-game high-orb crit damage reaches millions',passed:end.maxOrbCritDamage>=1_000_000,detail:'Depth 50,000 projection: '+Math.round(end.maxOrbCritDamage).toLocaleString()+' critical damage.'},
     {label:'Rune Major Ability data is valid',passed:state.runes.every(rune=>!rune.majorAbility||(typeof rune.majorAbility.name==='string'&&typeof rune.majorAbility.description==='string')),detail:state.runes.filter(rune=>rune.majorAbility).length+' Runes currently have Major Abilities.'},
@@ -169,6 +235,15 @@ debugRouter.post('/combat-lab/action',async(req,res)=>{
   }catch(error){
     const message=error instanceof Error?error.message:'Combat Lab action failed.';
     return res.status(400).json({error:message});
+  }
+});
+
+debugRouter.post('/diagnostic-logs/clear-all', async (_req, res) => {
+  try {
+    const result = await clearAllDiagnosticLogs();
+    res.json({ ok: true, ...result });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Could not clear diagnostic logs.' });
   }
 });
 
@@ -369,11 +444,101 @@ debugRouter.post('/push-test', async (_req, res) => {
   }
 });
 
+debugRouter.get('/notifications/stats', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  try {
+    res.json(await getNotificationStats());
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : 'Could not load notification audience statistics.' });
+  }
+});
+
+debugRouter.post('/notifications/send', async (req, res) => {
+  try {
+    const result = await startManualPushNotificationCampaign();
+    res.status(202).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not start notification broadcast.' });
+  }
+});
+
+debugRouter.get('/notifications/campaign/:id', async (req, res) => {
+  try {
+    const campaign = await getManualPushNotificationCampaign(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Notification campaign was not found.' });
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json(campaign);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not load notification campaign.' });
+  }
+});
+
 debugRouter.get('/follow-stats', async (_req, res) => {
   try {
     res.json(await getFollowPromptStats());
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Failed to load follow statistics.' });
+  }
+});
+
+debugRouter.get('/popups', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const [config, stats] = await Promise.all([getPopupConfig(), getPopupStats()]);
+    res.json({ config, stats, generatedAt: Date.now() });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to load popup analytics.' });
+  }
+});
+
+debugRouter.get('/rift/status', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    const username = targetUsername(req.query?.username);
+    const userId = await resolveUserId(username);
+    res.json({ username, userId, ...(await getRiftChallengeAdminStatus(userId)) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not inspect Rift progression.' });
+  }
+});
+
+debugRouter.post('/rift/grant', async (req, res) => {
+  try {
+    const username = targetUsername(req.body?.username);
+    const userId = await resolveUserId(username);
+    const result = await adminGrantRiftProgress(userId, {
+      points: req.body?.points,
+      minutes: req.body?.minutes,
+    });
+    res.json({ ok: true, username, userId, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not grant Rift progress.' });
+  }
+});
+
+debugRouter.post('/popups/config', async (req, res) => {
+  try {
+    const config = await setPopupConfig(req.body && typeof req.body === 'object' ? req.body : {});
+    res.json({ ok: true, config, stats: await getPopupStats() });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message || 'Failed to update popup settings.' });
+  }
+});
+
+debugRouter.get('/alignment/stats', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...(await getCelestialAlignmentChoiceStats()), generatedAt: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Could not load Alignment choice statistics.' });
+  }
+});
+
+debugRouter.post('/alignment/force', async (_req, res) => {
+  try {
+    res.json(await forceCelestialAlignmentPromptForCurrentUser());
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Could not queue the Alignment chooser.' });
   }
 });
 
@@ -444,8 +609,11 @@ function parseAdminPlayerSave(raw: unknown): Record<string, any> {
         typeof record.coins === 'number' &&
         Number.isFinite(record.coins) &&
         record.coins >= 0 &&
-        Number.isSafeInteger(record.shards) &&
-        Number(record.shards) >= 0 &&
+        typeof record.shards === 'number' &&
+        Number.isFinite(record.shards) &&
+        record.shards >= 0 &&
+        record.shards <= Number.MAX_SAFE_INTEGER &&
+        Math.abs(record.shards * 1_000 - Math.round(record.shards * 1_000)) < 1e-6 &&
         Number.isSafeInteger(record.totalRolls) &&
         Number(record.totalRolls) >= 0 &&
         (
@@ -467,6 +635,225 @@ function parseAdminPlayerSave(raw: unknown): Record<string, any> {
   if (!state) throw new Error('The target player save could not be read safely.');
   return state;
 }
+
+async function readPlayerSaveForAdmin(userId: string): Promise<Record<string, any>> {
+  const storedRaw = await redis.get('player:' + userId);
+  const raw = await readPlayerSaveForUser(userId, storedRaw);
+  return parseAdminPlayerSave(raw);
+}
+
+debugRouter.get('/execute-as/save', async (req, res) => {
+  try {
+    const username = targetUsername(req.query.username);
+    const userId = await resolveUserId(username);
+    const state = await withPlayerMutationLockFor(userId, async () => {
+      const save = await readPlayerSaveForAdmin(userId);
+      const visible = { ...save };
+      // The Codex is stored separately in Redis hashes. Never imply that this
+      // partial player-save projection contains the collection itself.
+      delete visible.collection;
+      return visible;
+    });
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json({ ok: true, username, userId, save: state, codexStoredSeparately: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not load the target player save.';
+    res.status(/not found/i.test(message) ? 404 : 400).json({ error: message });
+  }
+});
+
+debugRouter.post('/cli/execute', async (req, res) => {
+  try {
+    const parsed = parseAdminCliCommand(String(req.body?.command ?? ''));
+    if (parsed.kind === 'balance') {
+      const balance = await executeLiveBalanceCommand(parsed, context.username ?? 'Developer');
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return res.json({ ok: true, scope: 'everyone', balance });
+    }
+    if (parsed.kind === 'menus') {
+      const menuControl = await setGlobalMenuControl(
+        parsed.enabled,
+        parsed.reason,
+        context.username ?? 'Developer',
+      );
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return res.json({ ok: true, scope: 'everyone', menuControl });
+    }
+    if (parsed.kind === 'feature') {
+      const featureControl = await setGlobalFeatureControl(
+        parsed.feature, parsed.enabled, parsed.reason, context.username ?? 'Developer',
+      );
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return res.json({ ok: true, scope: 'everyone', featureControl });
+    }
+    if (parsed.kind === 'feature-list') {
+      const featureControls = await getGlobalFeatureControls();
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return res.json({ ok: true, scope: 'everyone', featureControls });
+    }
+    if (parsed.kind === 'announcement') {
+      const announcement = await setDeveloperAnnouncement(
+        parsed.message,
+        context.username ?? 'Developer',
+      );
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return res.json({ ok: true, scope: 'everyone', announcement });
+    }
+
+    const username = targetUsername(req.body?.username);
+    const userId = await resolveUserId(username);
+    const playerKey = 'player:' + userId;
+    const generationKey = 'player-generation:' + userId;
+    const result = await withPlayerMutationLockFor(userId, async () => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const txn = await redis.watch(playerKey, generationKey);
+        let transactionClosed = false;
+        let writePlan: Awaited<ReturnType<typeof createPlayerSaveWritePlanForUser>> | null = null;
+        let writeCommitted = false;
+        try {
+          const generationRaw = await redis.get(generationKey);
+          const generation = Math.max(0, Number.parseInt(String(generationRaw ?? '0'), 10) || 0);
+          const storedRaw = await redis.get(playerKey);
+          const raw = await readPlayerSaveForUser(userId, storedRaw);
+          const state = parseAdminPlayerSave(raw);
+          const storedGeneration = Math.max(0, Number(state.saveGeneration ?? generation) || 0);
+          if (storedGeneration !== generation) {
+            throw new Error('The target player save generation changed. Reload the target before executing commands.');
+          }
+          const currentRevision = Number(state.stateRevision ?? 0);
+          if (!Number.isSafeInteger(currentRevision) || currentRevision < 0 || currentRevision >= Number.MAX_SAFE_INTEGER) {
+            throw new Error('The target player save revision is invalid or exhausted.');
+          }
+          state.username = String(state.username || username).slice(0, 100);
+          state.saveGeneration = generation;
+          const applied = applyAdminSaveCommands(state, parsed.commands);
+          applied.state.username = String(state.username || username).slice(0, 100);
+          applied.state.saveGeneration = generation;
+          applied.state.stateRevision = currentRevision + 1;
+
+          writePlan = await createPlayerSaveWritePlanForUser(
+            userId,
+            applied.state as unknown as PlayerState,
+          );
+          await txn.multi();
+          await txn.set(playerKey, writePlan.storedValue);
+          const committed = await txn.exec();
+          transactionClosed = true;
+          if (committed !== null) {
+            writeCommitted = true;
+            await cleanupPreviousPlayerSave(userId, storedRaw);
+            if (parsed.invalidateRollTicket) await redis.del('io:roll-ticket:' + userId);
+            console.info('[Admin CLI]', JSON.stringify({
+              actor: context.username ?? 'unknown',
+              target: username,
+              targetUserId: userId,
+              stateRevision: applied.state.stateRevision,
+              commands: applied.results.map(item => ({ action: item.action, path: item.path })),
+              invalidatedRollTicket: parsed.invalidateRollTicket,
+            }));
+            return {
+              ok: true,
+              scope: 'player',
+              username,
+              userId,
+              stateRevision: applied.state.stateRevision,
+              results: applied.results,
+              invalidatedRollTicket: parsed.invalidateRollTicket,
+            };
+          }
+        } finally {
+          if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+          if (writePlan && !writeCommitted) await discardPlayerSaveWritePlan(writePlan);
+        }
+      }
+      throw new Error('The target player save changed repeatedly. No commands were committed; retry the command.');
+    });
+
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Admin CLI command failed.';
+    res.status(/not found/i.test(message) ? 404 : 400).json({ error: message });
+  }
+});
+
+debugRouter.post('/execute-as/execute', async (req, res) => {
+  let userId = '';
+  try {
+    const username = targetUsername(req.body?.username);
+    const commands = String(req.body?.commands ?? '');
+    userId = await resolveUserId(username);
+    const playerKey = 'player:' + userId;
+    const generationKey = 'player-generation:' + userId;
+    const result = await withPlayerMutationLockFor(userId, async () => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const txn = await redis.watch(playerKey, generationKey);
+        let transactionClosed = false;
+        let writePlan: Awaited<ReturnType<typeof createPlayerSaveWritePlanForUser>> | null = null;
+        let writeCommitted = false;
+        try {
+          const generationRaw = await redis.get(generationKey);
+          const generation = Math.max(0, Number.parseInt(String(generationRaw ?? '0'), 10) || 0);
+          const storedRaw = await redis.get(playerKey);
+          const raw = await readPlayerSaveForUser(userId, storedRaw);
+          const state = parseAdminPlayerSave(raw);
+          const storedGeneration = Math.max(0, Number(state.saveGeneration ?? generation) || 0);
+          if (storedGeneration !== generation) {
+            throw new Error('The target player save generation changed. Reload the save before executing commands.');
+          }
+
+          const currentRevision = Number(state.stateRevision ?? 0);
+          if (!Number.isSafeInteger(currentRevision) || currentRevision < 0 || currentRevision >= Number.MAX_SAFE_INTEGER) {
+            throw new Error('The target player save revision is invalid or exhausted.');
+          }
+          state.username = String(state.username || username).slice(0, 100);
+          state.saveGeneration = generation;
+          const applied = applyAdminSaveCommands(state, commands);
+          applied.state.username = String(state.username || username).slice(0, 100);
+          applied.state.saveGeneration = generation;
+          applied.state.stateRevision = currentRevision + 1;
+
+          writePlan = await createPlayerSaveWritePlanForUser(
+            userId,
+            applied.state as unknown as PlayerState,
+          );
+          await txn.multi();
+          await txn.set(playerKey, writePlan.storedValue);
+          const committed = await txn.exec();
+          transactionClosed = true;
+          if (committed !== null) {
+            writeCommitted = true;
+            await cleanupPreviousPlayerSave(userId, storedRaw);
+            console.info('[Admin Execute As]', JSON.stringify({
+              actor: context.username ?? 'unknown',
+              target: username,
+              targetUserId: userId,
+              stateRevision: applied.state.stateRevision,
+              commands: applied.results.map(item => ({ action: item.action, path: item.path })),
+            }));
+            return {
+              ok: true,
+              username,
+              userId,
+              stateRevision: applied.state.stateRevision,
+              results: applied.results,
+              codexStoredSeparately: true,
+            };
+          }
+        } finally {
+          if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+          if (writePlan && !writeCommitted) await discardPlayerSaveWritePlan(writePlan);
+        }
+      }
+      throw new Error('The target player save changed repeatedly. No commands were committed; reload and retry.');
+    });
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Execute As failed.';
+    res.status(/not found/i.test(message) ? 404 : 400).json({ error: message });
+  }
+});
 
 function parseGlobalBoosterCreditGrantManifest(
   raw: unknown,
@@ -526,19 +913,26 @@ async function getOrCreateGlobalBoosterCreditGrantManifest(
 ): Promise<GlobalBoosterCreditGrantManifest> {
   const manifestKey = GLOBAL_BOOSTER_CREDIT_BATCH_PREFIX + encodeURIComponent(operationId);
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    const existing = await redis.get(manifestKey);
+    const existingStored = await redis.get(manifestKey);
+    const existing = await readRedisLargeValue(manifestKey, existingStored);
     if (existing != null) {
       return parseGlobalBoosterCreditGrantManifest(existing, operationId, scope, amount);
     }
 
     const txn = await redis.watch(manifestKey);
-    const watched = await redis.get(manifestKey);
-    if (watched != null) {
-      await txn.unwatch();
-      return parseGlobalBoosterCreditGrantManifest(watched, operationId, scope, amount);
-    }
+    let transactionClosed = false;
+    let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+    let writeCommitted = false;
+    try {
+      const watchedStored = await redis.get(manifestKey);
+      const watched = await readRedisLargeValue(manifestKey, watchedStored);
+      if (watched != null) {
+        await txn.unwatch();
+        transactionClosed = true;
+        return parseGlobalBoosterCreditGrantManifest(watched, operationId, scope, amount);
+      }
 
-    const players = await listRegisteredPlayerIds();
+      const players = await listRegisteredPlayerIds();
     const selectedPlayers = scope === 'online'
       ? players.filter(player => player.active)
       : players;
@@ -554,9 +948,20 @@ async function getOrCreateGlobalBoosterCreditGrantManifest(
       })).filter(player => player.userId.length > 0 && player.username.length > 0),
     };
 
-    await txn.multi();
-    await txn.set(manifestKey, JSON.stringify(manifest));
-    if (await txn.exec() !== null) return manifest;
+      writePlan = await createRedisLargeValueWritePlan(manifestKey, JSON.stringify(manifest));
+      await txn.multi();
+      await txn.set(manifestKey, writePlan.storedValue);
+      const committed = await txn.exec();
+      transactionClosed = true;
+      if (committed !== null) {
+        writeCommitted = true;
+        await retireRedisLargeValue(manifestKey, watchedStored);
+        return manifest;
+      }
+    } finally {
+      if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+      if (writePlan && !writeCommitted) await discardRedisLargeValueWritePlan(writePlan);
+    }
   }
   throw new Error('Could not persist the Global Booster batch recipient manifest. Retry the same operation ID.');
 }
@@ -583,7 +988,8 @@ async function grantGlobalBoosterCreditsToUser(
       const txn = await redis.watch(playerKey, generationKey, receiptKey);
       const generationRaw = await redis.get(generationKey);
       const generation = Math.max(0, Number.parseInt(String(generationRaw ?? '0'), 10) || 0);
-      const raw = await redis.get(playerKey);
+      const storedRaw = await redis.get(playerKey);
+      const raw = await readPlayerSaveForUser(id, storedRaw);
       const rawReceipt = await redis.get(receiptKey);
 
       if (rawReceipt != null) {
@@ -661,11 +1067,27 @@ async function grantGlobalBoosterCreditsToUser(
       state.stateRevision = currentRevision + 1;
 
       const receipt = JSON.stringify({ amount: safeAmount, before, after, createdAt: Date.now() });
-      await txn.multi();
-      await txn.set(playerKey, JSON.stringify(state));
-      await txn.set(receiptKey, receipt);
-      if (await txn.exec() !== null) {
-        return { userId: id, username: safeUsername, before, after };
+      let writePlan: Awaited<ReturnType<typeof createPlayerSaveWritePlanForUser>> | null = null;
+      let transactionClosed = false;
+      let writeCommitted = false;
+      try {
+        writePlan = await createPlayerSaveWritePlanForUser(
+          id,
+          state as unknown as import('../shared/game.js').PlayerState,
+        );
+        await txn.multi();
+        await txn.set(playerKey, writePlan.storedValue);
+        await txn.set(receiptKey, receipt);
+        const committed = await txn.exec();
+        transactionClosed = true;
+        if (committed !== null) {
+          writeCommitted = true;
+          await cleanupPreviousPlayerSave(id, storedRaw);
+          return { userId: id, username: safeUsername, before, after };
+        }
+      } finally {
+        if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+        if (writePlan && !writeCommitted) await discardPlayerSaveWritePlan(writePlan);
       }
     }
 
@@ -694,11 +1116,13 @@ async function appendGlobalBoosterCreditGrantLog(
 
 async function listRegisteredPlayerIds(): Promise<Array<{ userId: string; username: string; active: boolean }>> {
   const players = await listPlayers();
-  return players.map(player => ({
-    userId: player.userId,
-    username: player.username,
-    active: player.active,
-  }));
+  return players
+    .filter(player => !player.legacyOnly && Boolean(player.userId))
+    .map(player => ({
+      userId: player.userId,
+      username: player.username,
+      active: player.active,
+    }));
 }
 
 
@@ -708,15 +1132,17 @@ async function removeLeaderboardEntry(username: string): Promise<void> {
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const txn = await redis.watch(leaderboardKey);
-    const raw = await redis.get(leaderboardKey);
-    if (raw == null) {
+    const storedRaw = await redis.get(leaderboardKey);
+    if (storedRaw == null) {
       await txn.unwatch();
       return;
     }
 
+    let raw: string | null;
     let parsed: unknown;
     try {
-      parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      raw = await readRedisLargeValue(leaderboardKey, storedRaw);
+      parsed = raw == null ? null : JSON.parse(raw);
     } catch {
       await txn.unwatch();
       throw new Error('Leaderboard data is corrupted; refusing to replace it during account cleanup.');
@@ -736,9 +1162,24 @@ async function removeLeaderboardEntry(username: string): Promise<void> {
       return;
     }
 
-    await txn.multi();
-    await txn.set(leaderboardKey, JSON.stringify(next));
-    if (await txn.exec() !== null) return;
+    let writePlan: Awaited<ReturnType<typeof createRedisLargeValueWritePlan>> | null = null;
+    let transactionClosed = false;
+    let writeCommitted = false;
+    try {
+      writePlan = await createRedisLargeValueWritePlan(leaderboardKey, JSON.stringify(next));
+      await txn.multi();
+      await txn.set(leaderboardKey, writePlan.storedValue);
+      const committed = await txn.exec();
+      transactionClosed = true;
+      if (committed !== null) {
+        writeCommitted = true;
+        await retireRedisLargeValue(leaderboardKey, storedRaw);
+        return;
+      }
+    } finally {
+      if (!transactionClosed) await txn.unwatch().catch(() => undefined);
+      if (writePlan && !writeCommitted) await discardRedisLargeValueWritePlan(writePlan);
+    }
   }
 
   throw new Error('Leaderboard changed too frequently during account cleanup. Please retry.');
@@ -754,19 +1195,22 @@ async function resolveUserId(username: string): Promise<string> {
   return id;
 }
 
-async function resetPlayerGenerationAndSave(
+export async function resetPlayerGenerationAndSave(
   userId: string,
   username: string,
 ): Promise<{ state: ReturnType<typeof createInitialState>; generation: number }> {
   const generationKey = `player-generation:${userId}`;
   const playerKey = `player:${userId}`;
   const combatStateKey = `infinity-orbs:combat:${userId}`;
+  const riftArchiveKey = `io:rift-challenge:v1:${userId}`;
 
   // Reset the main save and its independent Combat save in one transaction.
   // Watching the combat key prevents a concurrent combat write from being silently overwritten.
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const txn = await redis.watch(generationKey, playerKey, combatStateKey);
+    const txn = await redis.watch(generationKey, playerKey, combatStateKey, riftArchiveKey);
     const rawGeneration = await redis.get(generationKey);
+    const previousPlayerSaveRaw = await redis.get(playerKey);
+    const previousCombatStateRaw = await redis.get(combatStateKey);
     const parsedGeneration = Number.parseInt(String(rawGeneration ?? '0'), 10);
     const currentGeneration =
       Number.isSafeInteger(parsedGeneration) && parsedGeneration >= 0
@@ -788,8 +1232,17 @@ async function resetPlayerGenerationAndSave(
     await txn.set(generationKey, String(generation));
     await txn.set(playerKey, JSON.stringify(fresh));
     await txn.del(combatStateKey);
+    await txn.del(riftArchiveKey);
     const committed = await txn.exec();
-    if (committed !== null) return { state: fresh, generation };
+    if (committed !== null) {
+      await cleanupPreviousPlayerSave(userId, previousPlayerSaveRaw).catch(error => {
+        console.warn('[Wipe] Previous player-save chunks could not be retired:', error);
+      });
+      await retireRedisLargeValue(combatStateKey, previousCombatStateRaw).catch(error => {
+        console.warn('[Wipe] Previous Combat chunks could not be retired:', error);
+      });
+      return { state: fresh, generation };
+    }
   }
 
   throw new Error('Player data changed repeatedly while resetting. Please retry.');
@@ -860,8 +1313,11 @@ function setMaxProgression(s: Awaited<ReturnType<typeof loadRaw>>): void {
     xpBonus: 20,
     critChance: 20,
     critPower: 20,
-    offlineRate: 20,
+    offlineRate: 8,
     valueBonus: 20,
+    offlineFoundry: 10,
+    orbFingers: 15,
+    criticalDividend: 20,
   };
 
   for (const [id, info] of Object.entries(PRESTIGE_UPGRADES)) {
@@ -983,15 +1439,259 @@ debugRouter.post('/guild-chat/unmute', async (req, res) => {
 });
 
 debugRouter.get('/players', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   try {
-    const [players, activity] = await Promise.all([
+    const [players, activity, notificationStats] = await Promise.all([
       listPlayers(),
       getPlayerActivityStats(),
+      getNotificationStats().catch(error => {
+        console.warn('[Admin Notifications] Audience count unavailable while loading player list.', error);
+        return null;
+      }),
     ]);
-    res.json({ players, activity });
+    res.json({ players, activity, notificationStats });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Failed to load player list.' });
   }
+});
+/**
+ * Read-only diagnostic snapshot for the leaderboard and admin player list.
+ * Includes counts and a few redacted examples, never raw Redis values or full IDs.
+ * This route is behind the server-side shadow_fen admin guard above.
+ */
+debugRouter.get('/leaderboard-diagnostics', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  const generatedAt = Date.now();
+  const parseStoredValue = (raw: unknown): unknown => {
+    let value = raw;
+    for (let depth = 0; depth < 4; depth += 1) {
+      if (typeof value !== 'string') {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const record = value as Record<string, unknown>;
+          if ('value' in record) { value = record.value; continue; }
+          if ('data' in record) { value = record.data; continue; }
+        }
+        return value;
+      }
+      try { value = JSON.parse(value); }
+      catch { return { __invalidJson: true }; }
+    }
+    return value;
+  };
+  const errorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? 'Unknown error');
+  const redactId = (value: unknown) => {
+    const id = typeof value === 'string' ? value : '';
+    return id ? '…' + id.slice(-8) : null;
+  };
+
+  const report: Record<string, unknown> = {
+    generatedAt,
+    appVersion: APP_VERSION,
+    runningContext: {
+      username: context.username ?? null,
+      subredditName: context.subredditName ?? context.subreddit?.name ?? null,
+      postId: context.postId ?? null,
+    },
+    storage: {},
+    computed: {},
+  };
+
+  let registry: Record<string, string> = {};
+  try {
+    const raw = await redis.hGetAll('io:player-registry');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      report.storage = {
+        ...(report.storage as object),
+        registry: { key: 'io:player-registry', readOk: true, shape: 'not-a-hash-object', fieldCount: 0 },
+      };
+    } else {
+      registry = raw as Record<string, string>;
+      let parseableEntries = 0;
+      let malformedEntries = 0;
+      let missingUsername = 0;
+      let missingLastSeenAt = 0;
+      const samples: Array<{ idSuffix: string; username: string | null; validEntry: boolean }> = [];
+      for (const [userId, stored] of Object.entries(registry)) {
+        const value = parseStoredValue(stored);
+        const valid = value !== null && typeof value === 'object' &&
+          !Array.isArray(value) && !('__invalidJson' in (value as Record<string, unknown>));
+        if (valid) {
+          parseableEntries += 1;
+          const entry = value as Record<string, unknown>;
+          if (typeof entry.username !== 'string' || !entry.username.trim()) missingUsername += 1;
+          if (!Number.isFinite(Number(entry.lastSeenAt)) || Number(entry.lastSeenAt) <= 0) missingLastSeenAt += 1;
+          if (samples.length < 5) samples.push({
+            idSuffix: redactId(userId) ?? '',
+            username: typeof entry.username === 'string' ? entry.username.slice(0, 50) : null,
+            validEntry: true,
+          });
+        } else {
+          malformedEntries += 1;
+          if (samples.length < 5) samples.push({ idSuffix: redactId(userId) ?? '', username: null, validEntry: false });
+        }
+      }
+      report.storage = {
+        ...(report.storage as object),
+        registry: {
+          key: 'io:player-registry',
+          readOk: true,
+          shape: 'hash',
+          fieldCount: Object.keys(registry).length,
+          parseableEntries,
+          malformedEntries,
+          missingUsername,
+          missingLastSeenAt,
+          sampleEntries: samples,
+        },
+      };
+    }
+  } catch (error) {
+    report.storage = {
+      ...(report.storage as object),
+      registry: { key: 'io:player-registry', readOk: false, error: errorMessage(error) },
+    };
+  }
+
+  try {
+    const raw = await redis.get('io:leaderboard');
+    const parsed = parseStoredValue(raw);
+    if (raw == null) {
+      report.storage = {
+        ...(report.storage as object),
+        legacyLeaderboard: { key: 'io:leaderboard', readOk: true, exists: false, shape: 'missing', entryCount: 0 },
+      };
+    } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && '__invalidJson' in parsed) {
+      report.storage = {
+        ...(report.storage as object),
+        legacyLeaderboard: { key: 'io:leaderboard', readOk: true, exists: true, shape: 'invalid-json', entryCount: 0 },
+      };
+    } else if (Array.isArray(parsed)) {
+      let withId = 0;
+      let withoutId = 0;
+      let invalidRecords = 0;
+      let invalidMetrics = 0;
+      let withSharedAt = 0;
+      const ids = new Set<string>();
+      const usernames = new Set<string>();
+      let duplicateIds = 0;
+      let duplicateUsernames = 0;
+      const samples: Array<{ username: string | null; idSuffix: string | null; hasSharedAt: boolean; value: number | null }> = [];
+      for (const candidate of parsed) {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+          invalidRecords += 1;
+          continue;
+        }
+        const entry = candidate as Record<string, unknown>;
+        const username = typeof entry.username === 'string' ? entry.username.trim() : '';
+        const userId = typeof entry.userId === 'string' ? entry.userId.trim() : '';
+        if (!username) invalidRecords += 1;
+        if (userId) {
+          withId += 1;
+          if (ids.has(userId)) duplicateIds += 1;
+          ids.add(userId);
+        } else withoutId += 1;
+        if (username) {
+          const normalized = username.replace(/^u\//i, '').toLowerCase();
+          if (usernames.has(normalized)) duplicateUsernames += 1;
+          usernames.add(normalized);
+        }
+        if (!Number.isFinite(Number(entry.value)) ||
+            !Number.isFinite(Number(entry.highestRarity)) ||
+            !Number.isFinite(Number(entry.totalRolls))) invalidMetrics += 1;
+        if (Number(entry.sharedAt) > 0) withSharedAt += 1;
+        if (samples.length < 8) samples.push({
+          username: username ? username.slice(0, 50) : null,
+          idSuffix: redactId(userId),
+          hasSharedAt: Number(entry.sharedAt) > 0,
+          value: Number.isFinite(Number(entry.value)) ? Number(entry.value) : null,
+        });
+      }
+      let savedAccounts = 0;
+      let saveReadError: string | null = null;
+      const idsToCheck = Array.from(ids).slice(0, 1000);
+      if (idsToCheck.length > 0) {
+        try {
+          const saves = await redis.mGet(idsToCheck.map(id => 'player:' + id));
+          savedAccounts = saves.filter((value: unknown) => value != null).length;
+        } catch (error) {
+          saveReadError = errorMessage(error);
+        }
+      }
+      report.storage = {
+        ...(report.storage as object),
+        legacyLeaderboard: {
+          key: 'io:leaderboard',
+          readOk: true,
+          exists: true,
+          shape: 'array',
+          entryCount: parsed.length,
+          entriesWithUserId: withId,
+          entriesWithoutUserId: withoutId,
+          malformedRecords: invalidRecords,
+          recordsWithInvalidMetrics: invalidMetrics,
+          entriesWithSharedAt: withSharedAt,
+          duplicateUserIds: duplicateIds,
+          duplicateUsernames,
+          uniqueUserIdsWithSaveChecked: idsToCheck.length,
+          matchingPlayerSaves: savedAccounts,
+          saveReadError,
+          sampleEntries: samples,
+        },
+      };
+    } else {
+      report.storage = {
+        ...(report.storage as object),
+        legacyLeaderboard: {
+          key: 'io:leaderboard',
+          readOk: true,
+          exists: true,
+          shape: parsed === null ? 'unrecognized' : typeof parsed,
+          entryCount: 0,
+        },
+      };
+    }
+  } catch (error) {
+    report.storage = {
+      ...(report.storage as object),
+      legacyLeaderboard: { key: 'io:leaderboard', readOk: false, error: errorMessage(error) },
+    };
+  }
+
+  const [playerResult, boardsResult] = await Promise.all([
+    listPlayers().then(players => ({
+      ok: true,
+      count: players.length,
+      activeCount: players.filter(player => player.active).length,
+      registryRecoveredCount: players.filter(player => player.registryRecovered === true).length,
+      legacyOnlyCount: players.filter(player => player.legacyOnly === true).length,
+      samplePlayers: players.slice(0, 8).map(player => ({
+        username: player.username,
+        idSuffix: redactId(player.userId),
+        active: player.active,
+        legacyOnly: player.legacyOnly === true,
+        registryRecovered: player.registryRecovered === true,
+      })),
+    })).catch(error => ({ ok: false, error: errorMessage(error) })),
+    leaderboards().then(boards => ({
+      ok: true,
+      counts: Object.fromEntries(Object.entries(boards).map(([name, entries]) => [name, Array.isArray(entries) ? entries.length : null])),
+      sampleEntries: Object.fromEntries(Object.entries(boards).map(([name, entries]) => [
+        name,
+        Array.isArray(entries) ? entries.slice(0, 3).map(entry => ({
+          username: entry.username,
+          idSuffix: redactId(entry.userId),
+          legacyOnly: entry.legacyOnly === true,
+          value: entry.value,
+          totalRolls: entry.totalRolls,
+          highestRarity: entry.highestRarity,
+          sharedAt: entry.sharedAt ?? null,
+        })) : [],
+      ])),
+    })).catch(error => ({ ok: false, error: errorMessage(error) })),
+  ]);
+  report.computed = { playerList: playerResult, leaderboards: boardsResult };
+  res.json(report);
 });
 
 
@@ -1016,16 +1716,14 @@ type StatSpyStat = {
 };
 
 async function loadPlayerForStatSpy(userId: string, username: string): Promise<PlayerState> {
-  const raw = await redis.get('player:' + userId);
+  const raw = await readPlayerSaveForUser(userId, await redis.get('player:' + userId));
   if (raw == null) throw new Error('No Infinity Orbs save exists for u/' + username + '.');
 
-  let parsed: unknown = raw;
-  if (typeof parsed === 'string') {
-    try {
-      parsed = JSON.parse(parsed);
-    } catch {
-      throw new Error('The stored save for u/' + username + ' is not valid player data.');
-    }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('The stored save for u/' + username + ' is not valid player data.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('The stored save for u/' + username + ' is not valid player data.');
@@ -1064,11 +1762,61 @@ function statSource(
   return { label, value, unit, kind, ...options };
 }
 
+function equippedRuneStatSources(
+  combat: CombatState,
+  stat: keyof CombatRuneBonuses,
+): StatSpySource[] {
+  const equippedIds = new Set(Array.isArray(combat.equippedRunes) ? combat.equippedRunes : []);
+  const sources: StatSpySource[] = [];
+  const runes = Array.isArray(combat.runes) ? combat.runes : [];
+  for (const rune of runes) {
+    if (!rune || typeof rune.id !== 'string' || !equippedIds.has(rune.id)) continue;
+    if (rune.stat === stat) {
+      const value = combatRuneScaledValue(rune);
+      if (value > 0) {
+        sources.push(statSource(
+          String(rune.name || rune.id) + ' · ' + String(rune.rarity || 'Rune'),
+          value,
+          'pct',
+          'special',
+          { level: Number(rune.level) || 1, detail: 'Equipped Rune main stat · ' + String(rune.stat) + ' · ' + String(rune.sourceDungeon || 'unknown dungeon') + ' depth ' + Number(rune.sourceDepth || 0) },
+        ));
+      }
+    }
+    const ability = rune.majorAbility;
+    const abilityStat = ability?.id === 'fateweaver'
+      ? 'luckPct'
+      : ability?.id === 'midas-engine'
+        ? 'coinGainPct'
+        : ability?.id === 'memory-well'
+          ? 'xpGainPct'
+          : null;
+    if (ability && abilityStat === stat && Number(ability.valuePct) > 0) {
+      const value = combatRuneMajorAbilityStrengthPct(ability, rune.level, rune.rarity);
+      if (value > 0) {
+        sources.push(statSource(
+          String(ability.name || ability.id) + ' · ' + String(rune.name || rune.id),
+          value,
+          'pct',
+          'special',
+          { level: Number(rune.level) || 1, detail: 'Equipped Rune Major Ability · ' + String(ability.description || ability.id) },
+        ));
+      }
+    }
+  }
+  return sources.length
+    ? sources
+    : [statSource('No equipped Rune source', 0, 'pct', 'special', { active: false, detail: 'No equipped Rune contributes to this stat.' })];
+}
+
 function buildStatSpyStats(
   s: PlayerState,
   currentCcu: number,
   fakeCcuBonus: number,
   communityLuckBonus: number,
+  runeBonuses: CombatRuneBonuses,
+  combatBossBonus: number,
+  combatState: CombatState,
 ): StatSpyStat[] {
   const level = Math.max(1, Math.floor(Number(s.level) || 1));
   const levelBenefits = getLevelBenefits(level);
@@ -1118,24 +1866,19 @@ function buildStatSpyStats(
   const cosmicReserveMultiplier = 1 + unspentCosmicDust * cosmicReserveLevel * 0.01;
 
   // luckMultiplier() applies permanent Luck, the Altar, and Cosmic Reserve as multiplicative layers.
-  const additiveBaseLuck =
-    1 +
-    (Number(upgrades.luck ?? 0) * 0.05) +
-    Math.max(0, levelBenefits.luckMultiplier - 1) +
-    (Number(mastery.continuumLuck ?? 0) * 0.03) +
-    (codexDevotionPct / 100) +
-    (Number(guild.luckRank ?? 0) * 0.03) +
-    ((pityLuckPct) / 100) +
-    ((onlineLuckPct) / 100) +
-    (fortunePct / 100) +
-    ((globalLuckPct) / 100) +
-    ((Math.max(0, comboLuck - 1) * 100) / 100) +
-    (astralReservePct / 100);
-
   const permanentLuckFactor = Math.pow(1.05, Math.max(0, Number(prestige.permLuck ?? 0)));
-  const finalLuck = Math.round(
-    ((additiveBaseLuck * permanentLuckFactor * altar.totalAltarMultiplier * cosmicReserveMultiplier) + communityLuckBonus) * 100,
-  ) / 100;
+  // Match the production base-Luck calculation. This includes Daily Streak Community,
+  // all current multipliers, and every source already handled by luckMultiplier().
+  // World-event and combat-boss Luck are separate additive bonuses in applyRolls.
+  const finalLuckCandidate = luckMultiplier(s) + communityLuckBonus + combatBossBonus;
+  const finalLuck = Number.isFinite(finalLuckCandidate)
+    ? Math.max(1, finalLuckCandidate)
+    : Number.MAX_VALUE;
+  const apexFortuneLevel = Math.max(0, Number(mastery.apexFortune ?? 0));
+  const apexFortuneChance = Math.min(0.45, apexFortuneLevel * 0.03);
+  const runeLuckMultiplier = combatRuneLuckMultiplier(runeBonuses.luckPct);
+  const runeCoinMultiplier = 1 + runeBonuses.coinGainPct / 100;
+  const runeXpMultiplier = 1 + runeBonuses.xpGainPct / 100;
 
   const luckSources: StatSpySource[] = [
     statSource('Base', 1, 'mult', 'base'),
@@ -1154,7 +1897,9 @@ function buildStatSpyStats(
     statSource('Cosmic Reserve', cosmicReserveMultiplier, 'mult', 'multiply', { level: cosmicReserveLevel, active: cosmicReserveLevel > 0 && unspentCosmicDust > 0, detail: '×(1 + ' + unspentCosmicDust.toLocaleString() + ' unspent Dust × ' + cosmicReserveLevel + '%). Spent Dust removes its bonus.' }),
     statSource('Permanent Luck layer', permanentLuckFactor, 'mult', 'multiply', { level: Number(prestige.permLuck ?? 0), detail: '×1.05 per prestige level' }),
     statSource('Altar layer', altar.totalAltarMultiplier, 'mult', 'multiply', { detail: 'Coin sacrifice × Shard infusion × Luck Surge' }),
-    statSource('Community Luck', communityLuckBonus * 100, 'pct', 'add', { detail: 'Current community event bonus, applied to roll Luck after normal Luck calculation' }),
+    statSource('Daily Streak Community', Math.max(0, Number(s.dailyStreakCommunity?.luckMultiplier ?? 1) - 1) * 100, 'pct', 'add', { active: Number(s.dailyStreakCommunity?.luckMultiplier ?? 1) > 1, detail: 'Player-specific Daily Streak community bonus included in the base Luck formula' }),
+    statSource('World Event Luck', communityLuckBonus * 100, 'pct', 'add', { active: communityLuckBonus > 0, detail: 'Current world/community event bonus added after normal Luck' }),
+    statSource('Combat Boss Records', combatBossBonus * 100, 'pct', 'add', { active: combatBossBonus > 0, detail: 'Persistent Luck bonus from total bosses beaten across Combat dungeons' }),
   ];
 
   const manualCooldown = cooldownMs(s, false);
@@ -1164,7 +1909,7 @@ function buildStatSpyStats(
     statSource('Speed upgrade', Number(upgrades.speed ?? 0) * 150, 'ms', 'reduction', { level: Number(upgrades.speed ?? 0), detail: '-150ms per level' }),
     statSource('Permanent Speed Floor', Number(prestige.permSpeed ?? 0) * 300, 'ms', 'reduction', { level: Number(prestige.permSpeed ?? 0), detail: '-300ms to cooldown and floor per level' }),
     statSource('Guild Speed', Number(guild.speedRank ?? 0) * 100, 'ms', 'reduction', { level: Number(guild.speedRank ?? 0), detail: 'Floor reduction only' }),
-    statSource('Chrono Flow', Number(mastery.chronoFlow ?? 0) * 120, 'ms', 'reduction', { level: Number(mastery.chronoFlow ?? 0), detail: 'Floor reduction only' }),
+    statSource('Chrono Flow', Number(mastery.chronoFlow ?? 0) * 120, 'ms', 'reduction', { level: Number(mastery.chronoFlow ?? 0), detail: 'Reduces active cooldown and minimum floor' }),
     statSource('Steady Hands', Number(prestige.steadyHands ?? 0) * 100, 'ms', 'reduction', { level: Number(prestige.steadyHands ?? 0), detail: '-100ms per level' }),
     statSource('Temporal Compression', Number(prestige.temporalCompression ?? 0) * 75, 'ms', 'reduction', { level: Number(prestige.temporalCompression ?? 0), detail: '-75ms per level' }),
     statSource('Level milestone speed', levelBenefits.cooldownReductionMs, 'ms', 'reduction', { level, detail: 'Unlocked at level milestones' }),
@@ -1198,25 +1943,30 @@ function buildStatSpyStats(
     levelBenefits.coinsMultiplier *
     (1 + Number(upgrades.coinBonus ?? 0) * 0.15) *
     (1 + Number(mastery.prosperity ?? 0) * 0.12) *
-    (1 + Number(guild.coinRank ?? 0) * 0.10);
+    (1 + Number(guild.coinRank ?? 0) * 0.10) *
+    runeCoinMultiplier;
 
   const offlineCoinMultiplier =
     (1 + Number(prestige.offlineFortune ?? 0) * 0.25) *
     (1 + Number(prestige.offlineOverdrive ?? 0) * 0.50);
 
   const shardChance = Math.min(
-    1,
-    Number(upgrades.shardChance ?? 0) * 0.0015 +
-    Number(mastery.shardAttunement ?? 0) * 0.001 +
-    Number(guild.shardRank ?? 0) * 0.0005 +
-    Number(prestige.shardResonator ?? 0) * 0.0025 +
-    levelBenefits.shardChance,
+    ROLL_SHARD_PROC_CHANCE_CAP,
+    (
+      Number(upgrades.shardChance ?? 0) * 0.0015 +
+      Number(mastery.shardAttunement ?? 0) * 0.001 +
+      Number(guild.shardRank ?? 0) * 0.0005 +
+      Number(prestige.shardResonator ?? 0) * 0.0025 +
+      levelBenefits.shardChance +
+      Math.min(100, runeBonuses.shardChancePct) / 100
+    ) * 0.025,
   );
 
   const xpMultiplier =
     (1 + Number(upgrades.xpBonus ?? 0) * 0.20) *
     levelBenefits.xpMultiplier *
-    (isPremiumBoosterActive(s, 'ascension') ? 10 : 1);
+    (isPremiumBoosterActive(s, 'ascension') ? 10 : 1) *
+    runeXpMultiplier;
 
   const valueMultiplier =
     1 +
@@ -1243,8 +1993,41 @@ function buildStatSpyStats(
       label: 'Effective Luck',
       total: finalLuck,
       unit: 'mult',
-      detail: 'Final roll Luck before Apex Fortune. Permanent Luck and Altar are multiplicative layers.',
+      detail: 'Production base Luck before the per-activation Apex Fortune proc and before the separate direct Combat Rune rarity multiplier.',
       sources: luckSources,
+    },
+    {
+      id: 'luckTail',
+      label: 'Luck Rarity-Tail Factor',
+      total: Math.min(25, Math.pow(finalLuck, 0.08)),
+      unit: 'mult',
+      detail: 'The actual factor applied by the Continuum rarity distribution from Effective Luck. It changes rarity odds rather than multiplying the final Orb rarity; hard-capped at 25×.',
+      sources: [
+        statSource('Effective base Luck', finalLuck, 'mult', 'special', { detail: 'Input to the Continuum tail function: min(25, Luck^0.08)' }),
+        statSource('Rarity-tail hard cap', 25, 'mult', 'special', { detail: 'The Continuum factor cannot exceed 25×' }),
+      ],
+    },
+    {
+      id: 'runeLuck',
+      label: 'Combat Rune Rarity Multiplier',
+      total: runeLuckMultiplier,
+      unit: 'mult',
+      detail: 'Applied directly to the continuous rarity sample before its integer floor. This is separate from Luck-shaped tail odds.',
+      sources: [
+        ...equippedRuneStatSources(combatState, 'luckPct'),
+        statSource('Total equipped Rune Luck', runeLuckMultiplier, 'mult', 'special', { active: runeBonuses.luckPct > 0, detail: '+' + runeBonuses.luckPct.toLocaleString() + '% effective Rune Luck, including Fateweaver abilities' }),
+      ],
+    },
+    {
+      id: 'apexFortune',
+      label: 'Apex Fortune Proc Chance',
+      total: apexFortuneChance,
+      unit: 'chance',
+      detail: 'Only on multi-roll activations; a successful proc doubles Luck for that activation. It is not permanently baked into the base Luck total.',
+      sources: [
+        statSource('Apex Fortune mastery', apexFortuneLevel * 3, 'pct', 'special', { level: apexFortuneLevel, active: apexFortuneChance > 0, detail: '+3 percentage points per level; capped at 45%' }),
+        statSource('Luck on successful proc', 2, 'mult', 'special', { active: apexFortuneChance > 0, detail: 'Doubles base Luck for that activation' }),
+      ],
     },
     {
       id: 'cooldown',
@@ -1295,8 +2078,20 @@ function buildStatSpyStats(
         statSource('Base critical', 2, 'mult', 'base'),
         statSource('Crit Power upgrade', Number(upgrades.critPower ?? 0) * 0.25, 'mult', 'add', { level: Number(upgrades.critPower ?? 0), detail: '+0.25× per level' }),
         statSource('Critical Overdrive', Number(mastery.critMastery ?? 0) * 0.30, 'mult', 'add', { level: Number(mastery.critMastery ?? 0), detail: '+0.30× per level' }),
+        statSource('Aftershock', Number(mastery.aftershock ?? 0) > 0 ? aftershockCriticalLuckBonus(s.aftershockRecord) : 0, 'mult', 'add', { level: Number(mastery.aftershock ?? 0), active: Number(mastery.aftershock ?? 0) > 0, detail: 'Permanent Critical Luck from the best dry interval between all-time rarity records' }),
         statSource('Global Crit', globalCritPower, 'mult', 'add', { level: Number(s.globalBoosters?.crit?.tier ?? 0), active: globalCritPower > 0, detail: '+0.10× per active tier' }),
         statSource('Guild Combo Crit', comboCritPower, 'mult', 'add', { level: Number(s.guildCombo?.tier ?? 0), active: comboCritPower > 0, detail: '+0.05× per active combo tier' }),
+      ],
+    },
+    {
+      id: 'supernova',
+      label: 'Supernova Critical Amplification Chance',
+      total: Math.min(1, Math.max(0, Number(prestige.supernova ?? 0)) * 0.10),
+      unit: 'chance',
+      detail: 'When a critical roll is selected, this chance multiplies its full critical strength by 5×.',
+      sources: [
+        statSource('Supernova upgrade', Number(prestige.supernova ?? 0) * 10, 'pct', 'special', { level: Number(prestige.supernova ?? 0), active: Number(prestige.supernova ?? 0) > 0, detail: '+10 percentage points per upgrade level, up to 100%' }),
+        statSource('Critical strength when triggered', 5, 'mult', 'special', { active: Number(prestige.supernova ?? 0) > 0, detail: 'Multiplies the full normal critical multiplier by 5' }),
       ],
     },
     {
@@ -1311,6 +2106,8 @@ function buildStatSpyStats(
         statSource('Coin Bonus upgrade', 1 + Number(upgrades.coinBonus ?? 0) * 0.15, 'mult', 'multiply', { level: Number(upgrades.coinBonus ?? 0), detail: '+15% per level' }),
         statSource('Midas Touch', 1 + Number(mastery.prosperity ?? 0) * 0.12, 'mult', 'multiply', { level: Number(mastery.prosperity ?? 0), detail: '+12% per level' }),
         statSource('Guild Coin', 1 + Number(guild.coinRank ?? 0) * 0.10, 'mult', 'multiply', { level: Number(guild.coinRank ?? 0), detail: '+10% per rank' }),
+        ...equippedRuneStatSources(combatState, 'coinGainPct'),
+        statSource('Equipped Rune Coin Multiplier', runeCoinMultiplier, 'mult', 'multiply', { active: runeBonuses.coinGainPct > 0, detail: '+' + runeBonuses.coinGainPct.toLocaleString() + '% from equipped Rune stats and Midas Engine abilities' }),
         statSource('Offline coin layer', offlineCoinMultiplier, 'mult', 'multiply', { detail: 'Only applies to offline roll rewards' }),
       ],
     },
@@ -1324,6 +2121,8 @@ function buildStatSpyStats(
         statSource('XP Bonus upgrade', 1 + Number(upgrades.xpBonus ?? 0) * 0.20, 'mult', 'multiply', { level: Number(upgrades.xpBonus ?? 0), detail: '+20% per level' }),
         statSource('Level XP', levelBenefits.xpMultiplier, 'mult', 'multiply', { level, detail: 'Unlocked milestone multipliers' }),
         statSource('Ascension', 10, 'mult', 'multiply', { active: isPremiumBoosterActive(s, 'ascension'), detail: '×10 while active' }),
+        ...equippedRuneStatSources(combatState, 'xpGainPct'),
+        statSource('Equipped Rune XP Multiplier', runeXpMultiplier, 'mult', 'multiply', { active: runeBonuses.xpGainPct > 0, detail: '+' + runeBonuses.xpGainPct.toLocaleString() + '% from equipped Rune stats and Memory Well abilities' }),
       ],
     },
     {
@@ -1331,13 +2130,20 @@ function buildStatSpyStats(
       label: 'Bonus Shard Chance',
       total: shardChance,
       unit: 'chance',
-      detail: 'Proc chance for +1 bonus Shard, capped at 100%.',
+      detail: 'Actual primary Shard-proc probability per Orb after the 2.5% conversion factor; hard-capped at 0.25% per Orb. There is no Shard pity.',
       sources: [
-        statSource('Shard Chance upgrade', Number(upgrades.shardChance ?? 0) * 0.15, 'pct', 'add', { level: Number(upgrades.shardChance ?? 0), detail: '+0.15 percentage points per level' }),
-        statSource('Shard Resonance', Number(mastery.shardAttunement ?? 0) * 0.10, 'pct', 'add', { level: Number(mastery.shardAttunement ?? 0), detail: '+0.10 percentage points per level' }),
-        statSource('Guild Shard', Number(guild.shardRank ?? 0) * 0.05, 'pct', 'add', { level: Number(guild.shardRank ?? 0), detail: '+0.05 percentage points per rank' }),
-        statSource('Shard Resonator', Number(prestige.shardResonator ?? 0) * 0.25, 'pct', 'add', { level: Number(prestige.shardResonator ?? 0), detail: '+0.25 percentage points per level' }),
-        statSource('Level shard chance', levelBenefits.shardChance * 100, 'pct', 'add', { level, detail: 'From unlocked level milestones' }),
+        statSource('Shard Chance upgrade', Number(upgrades.shardChance ?? 0) * 0.0015 * 0.025 * 100, 'pct', 'add', { level: Number(upgrades.shardChance ?? 0), detail: '+0.15 points to the pre-scale factor per level; effective chance is then ×2.5%' }),
+        statSource('Shard Resonance', Number(mastery.shardAttunement ?? 0) * 0.001 * 0.025 * 100, 'pct', 'add', { level: Number(mastery.shardAttunement ?? 0), detail: '+0.10 points to the pre-scale factor per level; effective chance is then ×2.5%' }),
+        statSource('Guild Shard', Number(guild.shardRank ?? 0) * 0.0005 * 0.025 * 100, 'pct', 'add', { level: Number(guild.shardRank ?? 0), detail: '+0.05 points to the pre-scale factor per rank; effective chance is then ×2.5%' }),
+        statSource('Shard Resonator', Number(prestige.shardResonator ?? 0) * 0.0025 * 0.025 * 100, 'pct', 'add', { level: Number(prestige.shardResonator ?? 0), detail: '+0.25 points to the pre-scale factor per level; effective chance is then ×2.5%' }),
+        statSource('Level shard chance', levelBenefits.shardChance * 0.025 * 100, 'pct', 'add', { level, detail: 'Unlocked level contribution, then scaled by 2.5%' }),
+        ...equippedRuneStatSources(combatState, 'shardChancePct').map(source => ({
+          ...source,
+          value: source.value * 0.025,
+          detail: (source.detail ?? '') + ' · Rune contribution is not level-scaled; per-rune values contribute to a combined 100% cap before ×2.5% scaling',
+        })),
+        statSource('Combined equipped Rune Shard chance', Math.min(100, runeBonuses.shardChancePct) * 0.025, 'pct', 'special', { active: runeBonuses.shardChancePct > 0, detail: 'All equipped Rune Shard stats are combined (capped at 100%) before the ×2.5% conversion' }),
+        statSource('Final cap', ROLL_SHARD_PROC_CHANCE_CAP * 100, 'pct', 'special', { detail: 'Maximum final primary-proc chance is 0.25% per Orb' }),
       ],
     },
     {
@@ -1411,16 +2217,58 @@ debugRouter.get('/stat-spy', async (req, res) => {
   try {
     const username = targetUsername(req.query?.username);
     const userId = await resolveUserId(username);
-    const [state, currentCcu, fakeCcuBonus, communityEvent] = await Promise.all([
+    const [state, currentCcu, fakeCcuBonus, communityEvent, combatSnapshot, rawPlayerSave] = await Promise.all([
       loadPlayerForStatSpy(userId, username),
       getOnlinePlayers(),
       getFakeCcuBonus(userId),
       getCommunityEvent(),
+      getCombatSnapshotForUser(userId),
+      readPlayerSaveForUser(userId, await redis.get('player:' + userId)),
     ]);
-    const communityLuckBonus = Math.max(0, Number(communityEvent?.buffMultiplier ?? 1.15) - 1);
+    // No active event means neutral ×1 Luck, not the old fallback +15%.
+    const communityLuckBonus = Math.max(0, Number(communityEvent?.buffMultiplier ?? 1) - 1);
     state.onlinePlayers = Math.max(1, Math.floor(currentCcu + fakeCcuBonus));
+    const runeBonuses = combatRuneBonuses(combatSnapshot.state.runes, combatSnapshot.state.equippedRunes);
+    const combatBossBonus = combatBossLuckBonus(combatTotalBossesBeaten(combatSnapshot.state));
+    const stats = buildStatSpyStats(state, currentCcu, fakeCcuBonus, communityLuckBonus, runeBonuses, combatBossBonus, combatSnapshot.state);
+    let storedPlayerSave: unknown = null;
+    if (typeof rawPlayerSave === 'string' && rawPlayerSave.trim()) {
+      try {
+        storedPlayerSave = JSON.parse(rawPlayerSave) as unknown;
+      } catch {
+        storedPlayerSave = { error: 'Could not parse the stored player save.' };
+      }
+    }
 
-    const stats = buildStatSpyStats(state, currentCcu, fakeCcuBonus, communityLuckBonus);
+    const combatState = combatSnapshot.state;
+    const enemy = combatSnapshot.enemy;
+    const gear = Object.entries(combatState.equipment).map(([slot, itemId]) => ({
+      slot,
+      itemId: itemId ?? null,
+      item: itemId ? combatState.inventory.find(item => item.id === itemId && item.slot === slot) ?? null : null,
+    }));
+    const equippedSkills = (Array.isArray(combatState.equippedAbilities) ? combatState.equippedAbilities : []).map(id => {
+      const definition = COMBAT_SKILLS.find(skill => skill.id === id);
+      return {
+        id,
+        name: definition?.name ?? id,
+        rarity: definition?.rarity ?? 'Unknown',
+        effect: definition?.effect ?? 'No skill definition found.',
+        rank: Number(combatState.skillLevels?.[id] ?? 0),
+        cooldownUntilSequence: combatState.abilityCooldowns?.[id] ?? null,
+      };
+    });
+    const equippedRuneIds = new Set(Array.isArray(combatState.equippedRunes) ? combatState.equippedRunes : []);
+    const equippedRunes = (Array.isArray(combatState.runes) ? combatState.runes : [])
+      .filter(rune => equippedRuneIds.has(rune.id));
+    const inCombat = combatSnapshot.saveExists && Number(combatState.health) > 0 && Number(enemy.hp) > 0;
+    const combatStatus = !combatSnapshot.saveExists
+      ? 'No saved Combat state'
+      : Number(combatState.health) <= 0
+        ? 'Player defeated'
+        : Number(enemy.hp) <= 0
+          ? 'Enemy defeated / transition pending'
+          : 'Live encounter saved';
     res.json({
       username,
       userId,
@@ -1439,6 +2287,10 @@ debugRouter.get('/stat-spy', async (req, res) => {
         effectiveCcu: Math.max(1, Math.floor(currentCcu + fakeCcuBonus)),
       },
       stats,
+      // Full persisted save plus the hydrated calculation state, which also
+      // includes live guild/global-buff data needed to explain current stats.
+      playerSave: storedPlayerSave,
+      calculatedPlayerState: state,
       allocations: {
         upgrades: state.upgrades,
         prestigeUpgrades: state.prestigeUpgrades,
@@ -1446,6 +2298,37 @@ debugRouter.get('/stat-spy', async (req, res) => {
         guildPerks: state.guildPerks,
         globalBoosters: state.globalBoosters,
         activeBoosters: state.activeBoosters ?? {},
+      },
+      combat: {
+        saveExists: combatSnapshot.saveExists,
+        inCombat,
+        status: combatStatus,
+        statusNote: 'In-combat status is inferred from saved player/enemy HP. The server does not persist whether the Combat UI tab is currently open.',
+        dungeonId: combatState.dungeonId,
+        depth: combatState.depth,
+        bestDepth: combatState.bestDepth,
+        dungeonBestDepths: combatState.dungeonBestDepths,
+        playerHp: combatState.health,
+        playerMaxHp: combatState.maxHealth,
+        enemy: {
+          name: enemy.name,
+          kind: enemy.kind,
+          boss: enemy.boss,
+          room: enemy.room,
+          hp: enemy.hp,
+          maxHp: enemy.maxHp,
+          damage: enemy.damage,
+          speed: enemy.speed,
+        },
+        stats: combatSnapshot.stats,
+        gear,
+        equippedSkills,
+        equippedRunes,
+        runeBonuses,
+        runeLuckMultiplier: combatRuneLuckMultiplier(runeBonuses.luckPct),
+        lastAcceptedBeatAtMs: combatState.lastAcceptedBeatAtMs,
+        state: combatState,
+        save: combatSnapshot.persistedSave,
       },
     });
   } catch (e: any) {
@@ -1487,11 +2370,11 @@ debugRouter.get('/moderation/save', async (req, res) => {
     const name = targetUsername(req.query?.username);
     const userId = await resolveUserId(name);
     const generationRaw = await redis.get('player-generation:' + userId);
-    const raw = await redis.get('player:' + userId);
+    const raw = await readPlayerSaveForUser(userId, await redis.get('player:' + userId));
     let save: Record<string, unknown> | null = null;
     if (raw) {
       try {
-        save = JSON.parse(String(raw)) as Record<string, unknown>;
+        save = JSON.parse(raw) as Record<string, unknown>;
       } catch {
         save = null;
       }
@@ -1564,6 +2447,25 @@ debugRouter.get('/mechanics', async (_req, res) => {
         offlineRollCap: offlineRollCap(s),
         effectiveOfflineTickMs: effectiveOfflineTickMs(s),
         critMultiplier: critMultiplier(s),
+        effectiveCritChance: Math.min(
+          0.40,
+          (s.upgrades.critChance ?? 0) * 0.03 +
+            (s.masterySkills?.critMastery ?? 0) * 0.03 +
+            (s.guildPerks?.critRank ?? 0) * 0.015 +
+            globalBoosterCritChanceBonus(s.globalBoosters?.crit) +
+            guildComboCritChanceBonus(s.guildCombo),
+        ),
+        shardProcChance: Math.min(
+          0.5,
+          (
+            (s.upgrades.shardChance ?? 0) * 0.0015 +
+            (s.masterySkills?.shardAttunement ?? 0) * 0.001 +
+            (s.guildPerks?.shardRank ?? 0) * 0.0005 +
+            (s.prestigeUpgrades?.shardResonator ?? 0) * 0.0025 +
+            getLevelBenefits(Math.max(1, s.level || 1)).shardChance
+          ) * 0.5,
+        ),
+        apexFortuneChance: Math.min(0.45, Math.max(0, Number(s.masterySkills?.apexFortune ?? 0)) * 0.03),
         altar: calculateAltarMultipliers(s),
         basePrestigeDust: calculatePrestigeDust(s.collectionValue ?? 0),
         prestigeDust: calculateCosmicDust(s),
@@ -1582,13 +2484,33 @@ debugRouter.post('/currency', async (req, res) => {
       await withPlayerMutationLock(async () => {
     const { coins = 0, shards = 0, dust = 0 } = req.body || {};
     const s = await loadRaw();
-    s.coins = Math.max(0, s.coins + finiteInteger(coins));
+    const coinDelta = finiteInteger(coins);
+    s.coins = coinDelta >= 0
+      ? addCoinAmount(s.coins, coinDelta)
+      : Math.max(0, s.coins + coinDelta);
     s.shards = Math.max(0, (s.shards ?? 0) + finiteInteger(shards));
     s.cosmicDust = Math.max(0, (s.cosmicDust ?? 0) + finiteInteger(dust));
     await save(s);
     res.json({ ok: true, state: s });
         });} catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Deliberate single-player test preset. The debug router is server-gated to
+ * u/shadow_fen, and the grant fills the bank to its normal one-million-second cap.
+ */
+debugRouter.post('/time-energy/grant-test', async (_req, res) => {
+  try {
+    await withPlayerMutationLock(async () => {
+      const s = await loadRaw();
+      s.timeEnergy = TIME_ENERGY_MAX_MS;
+      await save(s);
+      res.json({ ok: true, grantedSeconds: TIME_ENERGY_MAX_MS / 1_000, state: s });
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Could not grant test Time Energy.' });
   }
 });
 
@@ -1602,21 +2524,26 @@ debugRouter.post('/state', async (req, res) => {
     const body = req.body || {};
 
     const numericFields = [
-      'coins', 'shards', 'cosmicDust', 'xp', 'totalRolls', 'totalCrits',
-      'lifetimeCoins', 'lifetimeShards', 'highestRarity', 'collectionValue',
+      'coins', 'cosmicDust', 'xp', 'totalRolls', 'totalCrits',
+      'lifetimeCoins', 'highestRarity', 'collectionValue',
       'lifetimeCollectionValue', 'offlineRolls', 'prestigeCount', 'rollsSinceBest',
       'turboRollUntil', 'onlinePlayers', 'purchasedShards',
       'currentRunRolls', 'questsCompleted', 'guildContribution', 'masteryPoints',
-      'singularityTitheSingleRolls', 'aftershockRecord', 'rollingSessionStartedAt',
+      'aftershockRecord', 'rollingSessionStartedAt',
       'rollingSessionLastRollAt', 'longestRollingSessionMs',
       'communityRewardClaimedAt', 'communityRewardClaimedTier',
       'chainPatcherNextRarity', 'chainPatcherCooldownUntil',
-      'level', 'levelXpFloor', 'globalBoosterCredits', 'freeShardsEarnedToday',
+      'level', 'levelXpFloor', 'globalBoosterCredits',
     ];
 
     for (const field of numericFields) {
       if (field in body) (s as any)[field] = nonNegativeInteger(body[field]);
     }
+    // Shards support thousandth-unit precision; admin edits must preserve it too.
+    for (const field of ['shards', 'lifetimeShards', 'freeShardsEarnedToday']) {
+      if (field in body) (s as any)[field] = roundShardAmount(body[field]);
+    }
+    if ('shardPityRolls' in body) s.shardPityRolls = Math.min(SHARD_PITY_ROLLS_TO_REWARD - 1, nonNegativeInteger(body.shardPityRolls));
 
     if ('lastRollAt' in body) {
       s.lastRollAt = body.lastRollAt === null ? null : nonNegativeInteger(body.lastRollAt);
@@ -1656,10 +2583,11 @@ debugRouter.post('/state', async (req, res) => {
     }
 
     if (body.activeBoosters && typeof body.activeBoosters === 'object') {
-      s.activeBoosters = { ...(s.activeBoosters ?? {}) };
-      for (const id of ['fortune', 'hyperdrive', 'barrage', 'prosperity', 'ascension']) {
-        if (id in body.activeBoosters) s.activeBoosters[id as keyof NonNullable<typeof s.activeBoosters>] =
-          nonNegativeInteger(body.activeBoosters[id]);
+      const boosterIds = ['fortune', 'hyperdrive', 'barrage', 'prosperity', 'ascension'] as const;
+      // An explicit empty object is the admin/test reset command; partial updates merge.
+      s.activeBoosters = Object.keys(body.activeBoosters).length === 0 ? {} : { ...(s.activeBoosters ?? {}) };
+      for (const id of boosterIds) {
+        if (id in body.activeBoosters) s.activeBoosters[id] = nonNegativeInteger(body.activeBoosters[id]);
       }
     }
 
@@ -1682,6 +2610,16 @@ debugRouter.post('/state', async (req, res) => {
         const amount = nonNegativeInteger(value);
         if (amount > 0) next[String(key)] = amount;
       }
+
+      // Current Codex data lives in generation-scoped Redis hashes, not in the
+      // player JSON. Mark both removed and incoming keys so admin fixtures can
+      // replace a collection (including clearing it) through the same save path
+      // used by live rolls. Missing keys are written as zero in their shard.
+      const affectedRarities = new Set([
+        ...Object.keys(s.collection ?? {}),
+        ...Object.keys(next),
+      ]);
+      for (const rarityKey of affectedRarities) markCodexRarityWrite(s, rarityKey);
       s.collection = next;
     }
 
@@ -1751,13 +2689,15 @@ debugRouter.post('/preset', async (req, res) => {
       s.upgrades = {
         speed: 20, multi: 20, clusterRoll: 20, auto: 1, luck: 20,
         coinBonus: 20, shardChance: 20, xpBonus: 20, critChance: 20,
-        critPower: 20, offlineRate: 20, valueBonus: 20,
+        critPower: 20, offlineRate: 8, valueBonus: 20,
+        offlineFoundry: 10, orbFingers: 15, criticalDividend: 20,
       };
     } else if (preset === 'upgrades-reset') {
       s.upgrades = {
         speed: 0, multi: 0, clusterRoll: 0, auto: 1, luck: 0,
         coinBonus: 0, shardChance: 0, xpBonus: 0, critChance: 0,
         critPower: 0, offlineRate: 0, valueBonus: 0,
+        offlineFoundry: 0, orbFingers: 0, criticalDividend: 0,
       };
     } else if (preset === 'prestige-max') {
       for (const [id, info] of Object.entries(PRESTIGE_UPGRADES)) {
@@ -1813,20 +2753,22 @@ debugRouter.post('/preset', async (req, res) => {
 
 debugRouter.post('/reset-cooldown', async (_req, res) => {
   try {
-    await withPlayerMutationLock(async () => {
+    // Commit the reset and invalidate the old ticket under one player lock.
+    // Issue the replacement ticket after releasing it: getRollTicket() takes
+    // the same lock internally, so calling it from inside this callback would
+    // deadlock the player's mutation queue.
+    const state = await withPlayerMutationLock(async () => {
       const s = await loadRaw();
       s.lastRollAt = 0;
-      // Persist the cleared cooldown before invalidating the old ticket. The
-      // returned ticket is issued only after that reset commits, so the admin
-      // runner can use one response rather than racing two HTTP requests.
       await save(s);
 
       const userId = String(context.userId ?? '').trim();
       if (userId) await redis.del('io:roll-ticket:' + userId);
-
-      const ticket = await getRollTicket();
-      res.json({ ok: true, state: s, ...ticket });
+      return s;
     });
+
+    const ticket = await getRollTicket();
+    res.json({ ok: true, state, ...ticket });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1847,8 +2789,11 @@ debugRouter.post('/unlock-upgrades', async (_req, res) => {
       xpBonus: 20,
       critChance: 20,
       critPower: 20,
-      offlineRate: 20,
+      offlineRate: 8,
       valueBonus: 20,
+      offlineFoundry: 10,
+      orbFingers: 15,
+      criticalDividend: 20,
     };
     await save(s);
     res.json({ ok: true, state: s });
@@ -1929,8 +2874,9 @@ debugRouter.post('/force-roll', async (req, res) => {
       throw new Error('randomValue must be a number from 0 inclusive to 1 exclusive.');
     }
     const randomOverride = hasRandomValue ? () => randomValue : undefined;
+    const exactRarity = req.body?.exactRarity !== false;
     const { bestOrb, batch, totalVal, coinsGained, shardsGained, xpGained } =
-      await applyRolls(s, 1, forcedRarity, source, undefined, randomOverride);
+      await applyRolls(s, 1, forcedRarity, source, undefined, randomOverride, exactRarity);
     const now = Date.now();
     s.lastRollAt = now;
     s.lastSeenAt = now;
@@ -1953,6 +2899,39 @@ debugRouter.post('/force-roll', async (req, res) => {
     });
         });} catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+
+debugRouter.post('/queue-force-roll', async (req, res) => {
+  try {
+    await withPlayerMutationLock(async () => {
+      const s = await loadRaw();
+      const forcedRarity = Number(req.body?.rarity);
+      if (!Number.isSafeInteger(forcedRarity) || forcedRarity < 2 || forcedRarity > MAX_ORB_RARITY) {
+        throw new Error('Choose a whole-number rarity target between 2 and the maximum Orb rarity.');
+      }
+      const pending = Math.floor(Number(s.chainPatcherNextRarity ?? 0) || 0);
+      if (s.adminGuaranteedRollQueued === true) {
+        throw new Error('A guaranteed admin roll is already queued. Use it before queueing another.');
+      }
+      if (pending >= 2 && pending <= MAX_ORB_RARITY) {
+        throw new Error('Chain Patcher is already charged. Use it before queueing an admin guaranteed roll.');
+      }
+      if (pending !== 0) {
+        throw new Error('Chain Patcher save data is invalid; repair it before queueing a guaranteed roll.');
+      }
+
+      // Reuse the normal next-manual-roll exact-rarity slot. The subsequent
+      // /api/roll request performs rewards, progression, and Rift completion.
+      s.chainPatcherNextRarity = forcedRarity;
+      s.adminGuaranteedRollQueued = true;
+      s.autoRollEnabled = false;
+      await save(s);
+      res.json({ ok: true, queued: true, targetRarity: forcedRarity, state: s });
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || 'Could not queue the guaranteed roll.' });
   }
 });
 

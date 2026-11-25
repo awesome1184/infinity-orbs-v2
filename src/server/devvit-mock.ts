@@ -5,16 +5,67 @@ const store = new Map<string, string>();
 const expirations = new Map<string, number>();
 const keyRevisions = new Map<string, number>();
 
+// The Pages build runs this same mock in the browser. Persist its Redis-shaped
+// records locally so a refresh does not erase a tester's save. In Node, where
+// localStorage does not exist, this remains the original in-memory mock.
+const BROWSER_STORAGE_PREFIX = 'io:github-pages-test:redis:';
+
+type BrowserStorageLike = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+};
+
+function browserStorage(): BrowserStorageLike | null {
+  try {
+    return ((globalThis as any).localStorage as BrowserStorageLike | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function browserStorageKey(key: string): string {
+  return BROWSER_STORAGE_PREFIX + encodeURIComponent(key);
+}
+
+function hydrateStore(key: string): void {
+  if (store.has(key)) return;
+  const storage = browserStorage();
+  if (!storage) return;
+  try {
+    const storageKey = browserStorageKey(key);
+    const value = storage.getItem(storageKey);
+    if (value === null) return;
+    store.set(key, value);
+    const expiry = Number(storage.getItem(storageKey + ':expires'));
+    if (Number.isFinite(expiry) && expiry > 0) expirations.set(key, expiry);
+  } catch {
+    // Private browsing and storage quota restrictions should not stop gameplay.
+  }
+}
+
 function bumpKeyRevision(key: string): void {
   keyRevisions.set(key, (keyRevisions.get(key) ?? 0) + 1);
 }
 
 function writeStore(key: string, value: string, expiration?: Date): void {
   store.set(key, value);
-  if (expiration instanceof Date && Number.isFinite(expiration.getTime())) {
-    expirations.set(key, expiration.getTime());
-  } else {
-    expirations.delete(key);
+  const expiresAt = expiration instanceof Date && Number.isFinite(expiration.getTime())
+    ? expiration.getTime()
+    : undefined;
+  if (expiresAt !== undefined) expirations.set(key, expiresAt);
+  else expirations.delete(key);
+
+  const storage = browserStorage();
+  if (storage) {
+    try {
+      const storageKey = browserStorageKey(key);
+      storage.setItem(storageKey, value);
+      if (expiresAt !== undefined) storage.setItem(storageKey + ':expires', String(expiresAt));
+      else storage.removeItem(storageKey + ':expires');
+    } catch {
+      // Keep the active tab usable if browser storage is unavailable or full.
+    }
   }
   bumpKeyRevision(key);
 }
@@ -22,15 +73,25 @@ function writeStore(key: string, value: string, expiration?: Date): void {
 function deleteStore(key: string): boolean {
   expirations.delete(key);
   const deleted = store.delete(key);
+  const storage = browserStorage();
+  if (storage) {
+    try {
+      const storageKey = browserStorageKey(key);
+      storage.removeItem(storageKey);
+      storage.removeItem(storageKey + ':expires');
+    } catch {
+      // The in-memory delete still succeeds.
+    }
+  }
   if (deleted) bumpKeyRevision(key);
   return deleted;
 }
 
 function readStore(key: string): string | undefined {
+  hydrateStore(key);
   const expiresAt = expirations.get(key);
   if (expiresAt !== undefined && expiresAt <= Date.now()) {
-    if (store.delete(key)) bumpKeyRevision(key);
-    expirations.delete(key);
+    deleteStore(key);
     return undefined;
   }
   return store.get(key);
@@ -72,8 +133,8 @@ const initialLeaderboard = [
   { username: 'OrbMaster', value: 0, highestRarity: 2, totalRolls: 0 },
 ];
 
-store.set('io:guilds', JSON.stringify(initialGuilds));
-store.set('io:leaderboard', JSON.stringify(initialLeaderboard));
+if (readStore('io:guilds') === undefined) writeStore('io:guilds', JSON.stringify(initialGuilds));
+if (readStore('io:leaderboard') === undefined) writeStore('io:leaderboard', JSON.stringify(initialLeaderboard));
 
 const localRedis = {
   get: async (key: string): Promise<string | null> => readStore(key) ?? null,
@@ -197,8 +258,14 @@ const localRedis = {
       },
     };
   },
-  incr: async (key: string): Promise<number> => {
-    const value = Number.parseInt(readStore(key) ?? '0', 10) + 1;
+  incrBy: async (key: string, increment: number): Promise<number> => {
+    const current = Number.parseInt(readStore(key) ?? '0', 10);
+    const amount = Number(increment);
+    if (!Number.isSafeInteger(current) || !Number.isSafeInteger(amount) ||
+        !Number.isSafeInteger(current + amount)) {
+      throw new Error('ERR value is not an integer or out of range');
+    }
+    const value = current + amount;
     writeStore(key, String(value));
     return value;
   },
@@ -241,6 +308,14 @@ const localContext = {
   postId: 't3_localmaingame',
 };
 
+const localScheduler = {
+  runJob: async (job: { name: string; runAt?: Date; cron?: string; data?: unknown }): Promise<string> => {
+    const id = `local-scheduled-${job.name}-${Date.now()}`;
+    console.log('[Scheduler Mock] Job scheduled:', { id, name: job.name, runAt: job.runAt?.toISOString() ?? null });
+    return id;
+  },
+};
+
 const localReddit = {
   modMail: {
     createModInboxConversation: async (options: {
@@ -259,6 +334,7 @@ const localReddit = {
   }) => {
     console.log('[Reddit Mock] User flair set:', options.username, options.text);
   },
+  getPostFlairTemplates: async (_subredditName: string) => [],
   submitCustomPost: async (options: {
     runAs?: string;
     subredditName?: string;
@@ -289,13 +365,16 @@ const localReddit = {
 export let redis: any = localRedis;
 export let context: any = localContext;
 export let reddit: any = localReddit;
+export let scheduler: any = localScheduler;
 
 export function configureDevvitRuntime(runtime: {
   redis: unknown;
   context: unknown;
   reddit: unknown;
+  scheduler?: unknown;
 }) {
   redis = runtime.redis;
   context = runtime.context;
   reddit = runtime.reddit;
+  scheduler = runtime.scheduler ?? localScheduler;
 }

@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Coins, Gem, RefreshCw, Sparkles, Star, ShieldCheck } from 'lucide-react';
+import { sound } from '../sound.js';
 import type { CombatRune, CombatRuneRarity, CombatRuneStat, CombatSnapshot } from '../../shared/combat.js';
 import {
+  COMBAT_RUNE_RARITIES,
   combatRuneBonuses,
   combatRuneEffectText,
+  shouldAutoSacrificeRune,
   combatRuneRarityAtOrBelow,
   combatRuneExperienceForLevel,
   combatRuneMajorAbilitySummary,
@@ -23,7 +26,7 @@ async function request<T>(url:string,method='GET',body?:unknown):Promise<T>{
     throw error;
   }finally{clearTimeout(timeout);}
 }
-const RARITY_ORDER:Record<string,number>={Cosmic:7,Mythic:6,Legendary:5,Epic:4,Rare:3,Uncommon:2,Common:1};
+const RARITY_ORDER:Record<string,number>={Transcendent:10,Celestial:9,Astral:8,Cosmic:7,Mythic:6,Legendary:5,Epic:4,Rare:3,Uncommon:2,Common:1};
 const STAT_LABEL:Record<CombatRuneStat,string>={luckPct:'Orb Luck',coinGainPct:'Coin gain',shardChancePct:'Shard chance',xpGainPct:'XP gain'};
 const STAT_ICON:Record<CombatRuneStat,React.ReactNode>={luckPct:<Sparkles size={25}/>,coinGainPct:<Coins size={25}/>,shardChancePct:<Gem size={25}/>,xpGainPct:<BookOpen size={25}/>};
 const pct=(value:number,decimals=2)=>{
@@ -42,7 +45,7 @@ interface SacrificeResponse extends CombatSnapshot {
 interface AutoSacrificeResponse extends CombatSnapshot {
   runeAutoSacrificeResult?:{runesSacrificed:number;totalXp:number};
 }
-const RUNE_RARITIES:CombatRuneRarity[]=['Common','Uncommon','Rare','Epic','Legendary','Mythic','Cosmic'];
+const RUNE_RARITIES:CombatRuneRarity[]=COMBAT_RUNE_RARITIES;
 
 export const RunesSection:React.FC=()=>{
   const [snapshot,setSnapshot]=useState<CombatSnapshot|null>(null);
@@ -50,6 +53,7 @@ export const RunesSection:React.FC=()=>{
   const [busyRune,setBusyRune]=useState<string|null>(null);
   const [sacrificing,setSacrificing]=useState(false);
   const [strengthenTargetId,setStrengthenTargetId]=useState('');
+  const [sacrificeDonorId,setSacrificeDonorId]=useState('');
   const [inspectedRuneId,setInspectedRuneId]=useState('');
   const [runeFilter,setRuneFilter]=useState<'all'|'equipped'|'unequipped'|'auto'>('all');
   const [runeSearch,setRuneSearch]=useState('');
@@ -102,22 +106,33 @@ export const RunesSection:React.FC=()=>{
   const mutate=async(url:string,body:unknown,runeId:string,success:string)=>{
     if(!beginAction())return;
     setBusyRune(runeId);setError('');setNotice('');
-    try{const result=await request<CombatSnapshot>(url,'POST',body);snapshotRequestSequenceRef.current+=1;setSnapshot(result);setNotice(success);}
-    catch(e){setError(e instanceof Error?e.message:'Rune update failed.');}
+    try{
+      const result=await request<CombatSnapshot>(url,'POST',body);
+      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setNotice(success);
+      if(url==='/api/combat/runes/equip')sound.playEquip();
+      else if(url==='/api/combat/runes/sacrifice')sound.playSacrificeSound();
+    }
+    catch(e){sound.playError();setError(e instanceof Error?e.message:'Rune update failed.');}
     finally{setBusyRune(null);endAction();}
   };
   const equippedRunes=state?(state.equippedRunes.map(id=>state.runes.find(rune=>rune.id===id)).filter((rune):rune is CombatRune=>Boolean(rune))):[];
 
   const strengthenTargetRune=runes.find(rune=>rune.id===strengthenTargetId);
-  const rawAutoSacrificeSettings=state?.runeAutoSacrifice??{enabled:false,maxRarity:'Common' as CombatRuneRarity};
-  const autoSacrificeSettings={enabled:rawAutoSacrificeSettings.enabled===true,maxRarity:RUNE_RARITIES.includes(rawAutoSacrificeSettings.maxRarity)?rawAutoSacrificeSettings.maxRarity:'Common' as CombatRuneRarity};
+  const rawAutoSacrificeSettings=state?.runeAutoSacrifice??{enabled:false,maxRarity:'Rare' as CombatRuneRarity,targetRuneId:null,preserveSpecialEffects:true};
+  const autoSacrificeSettings={
+    enabled:rawAutoSacrificeSettings.enabled===true,
+    maxRarity:RUNE_RARITIES.includes(rawAutoSacrificeSettings.maxRarity)?rawAutoSacrificeSettings.maxRarity:'Rare' as CombatRuneRarity,
+    targetRuneId:typeof rawAutoSacrificeSettings.targetRuneId==='string'?rawAutoSacrificeSettings.targetRuneId:null,
+    preserveSpecialEffects:rawAutoSacrificeSettings.preserveSpecialEffects!==false,
+  };
+  const autoSacrificeTarget=equippedRunes.find(rune=>rune.id===autoSacrificeSettings.targetRuneId)??equippedRunes.find(rune=>/insight/i.test(rune.name))??equippedRunes[0]??null;
   const autoSacrificeEligibleCount=state?runes.filter(rune=>
-    !state.equippedRunes.includes(rune.id)&&combatRuneRarityAtOrBelow(rune.rarity,autoSacrificeSettings.maxRarity)
+    !state.equippedRunes.includes(rune.id)&&shouldAutoSacrificeRune(rune,autoSacrificeSettings.maxRarity,autoSacrificeSettings.preserveSpecialEffects)
   ).length:0;
   const statCards=[
     {label:'Orb Luck',value:pct(bonuses.luckPct),icon:<Sparkles size={16}/>},
     {label:'Coin gain',value:pct(bonuses.coinGainPct),icon:<Coins size={16}/>},
-    {label:'Shard chance',value:pct(bonuses.shardChancePct,3),icon:<Gem size={16}/>},
+    {label:'Shard chance',value:pct(bonuses.shardChancePct * 0.025,5),icon:<Gem size={16}/>},
     {label:'XP gain',value:pct(bonuses.xpGainPct),icon:<BookOpen size={16}/>},
   ];
   const sacrifice=async(targetId:string,donorId:string)=>{
@@ -128,7 +143,7 @@ export const RunesSection:React.FC=()=>{
     setSacrificing(true);setError('');setNotice('');
     try{
       const result=await request<SacrificeResponse>('/api/combat/runes/sacrifice','POST',{targetRuneId:target.id,donorRuneId:donor.id});
-      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setStrengthenTargetId('');setInspectedRuneId('');
+      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setStrengthenTargetId('');setSacrificeDonorId('');setInspectedRuneId('');
       const detail=result.runeSacrifice;
       setNotice(detail
         ?detail.donorName+' sacrificed into '+detail.targetName+': +'+fmt(detail.gainedXp)+' Rune XP. '+detail.targetName+' is now Level '+fmt(detail.level)+'.'
@@ -140,22 +155,31 @@ export const RunesSection:React.FC=()=>{
     if(actionInFlightRef.current)return;
     if(strengthenTargetId){
       if(rune.id===strengthenTargetId){
-        setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');
+        setStrengthenTargetId('');setSacrificeDonorId('');setNotice('Strengthen selection cancelled.');
         return;
       }
-      if(state?.equippedRunes.includes(rune.id)&&typeof window!=='undefined'&&
-         !window.confirm('This Rune is equipped and contributes to your loadout. Sacrificing it permanently consumes it and removes its bonus. Continue?'))return;
-      void sacrifice(strengthenTargetId,rune.id);
+      // Selecting a target must never consume another Rune implicitly. Make the
+      // donor choice explicit, then require the dedicated confirmation button.
+      setSacrificeDonorId(rune.id);
+      setInspectedRuneId(rune.id);
+      setError('');setNotice('Selected '+rune.name+' as donor. Confirm Sacrifice selected Rune to consume it.');
       return;
     }
     setError('');setInspectedRuneId(current=>current===rune.id?'':rune.id);
   };
-  const saveAutoSacrificeSettings=async(enabled:boolean,maxRarity:CombatRuneRarity)=>{
+  const saveAutoSacrificeSettings=async(
+    enabled:boolean,
+    maxRarity:CombatRuneRarity,
+    targetRuneId:string|null=autoSacrificeSettings.targetRuneId,
+    preserveSpecialEffects:boolean=autoSacrificeSettings.preserveSpecialEffects,
+  )=>{
     if(!beginAction())return;
     setAutoSacrificeBusy(true);setError('');setNotice('');
     try{
-      const result=await request<CombatSnapshot>('/api/combat/runes/auto-sacrifice/settings','POST',{enabled,maxRarity});
-      snapshotRequestSequenceRef.current+=1;setSnapshot(result);setNotice(enabled?'Auto Sacrifice enabled. New Runes at or below '+maxRarity+' will strengthen a random equipped Rune.':'Auto Sacrifice disabled.');
+      const result=await request<CombatSnapshot>('/api/combat/runes/auto-sacrifice/settings','POST',{enabled,maxRarity,targetRuneId,preserveSpecialEffects});
+      snapshotRequestSequenceRef.current+=1;setSnapshot(result);
+      const targetName=equippedRunes.find(rune=>rune.id===targetRuneId)?.name??(equippedRunes.find(rune=>/insight/i.test(rune.name))??equippedRunes[0])?.name??'your first equipped Rune';
+      setNotice(enabled?'Auto Sacrifice enabled: Runes at or below '+maxRarity+' feed '+targetName+'. '+(preserveSpecialEffects?'Runes with Major Abilities are protected.':'Special-effect Runes may also be sacrificed.'):'Auto Sacrifice disabled.');
     }catch(e){setError(e instanceof Error?e.message:'Auto Sacrifice settings could not be saved.');}
     finally{setAutoSacrificeBusy(false);endAction();}
   };
@@ -167,7 +191,7 @@ export const RunesSection:React.FC=()=>{
       snapshotRequestSequenceRef.current+=1;setSnapshot(result);
       const summary=result.runeAutoSacrificeResult;
       setNotice(summary
-        ?'Auto Sacrifice consumed '+fmt(summary.runesSacrificed)+' Runes and granted '+fmt(summary.totalXp)+' Rune XP across random equipped targets.'
+        ?'Auto Sacrifice consumed '+fmt(summary.runesSacrificed)+' Runes and granted '+fmt(summary.totalXp)+' Rune XP to '+(autoSacrificeTarget?.name??'the preferred equipped Rune')+'.'
         :'Auto Sacrifice completed.');
       setStrengthenTargetId('');
     }catch(e){setError(e instanceof Error?e.message:'Auto Sacrifice could not run.');}
@@ -182,7 +206,7 @@ export const RunesSection:React.FC=()=>{
     {notice&&!error&&<div className="io-runes-muted" role="status" aria-live="polite">{notice}</div>}
     {operationPending&&<div className="io-runes-muted" role="status" aria-live="polite">Saving Rune changes…</div>}
     {loading&&!state?<div className="io-runes-loading">Loading Rune inventory…</div>:state&&<>
-      <section className="io-runes-panel">
+      <section className="io-runes-panel" aria-label="Equipped Rune loadout">
         <div className="io-runes-panel-head"><h2>Equipped loadout</h2><span className="io-runes-muted" aria-live="polite">{equippedRunes.length} / {slots} slots used · Delver Lv. {fmt(state.level)} · Best depth {fmt(bestRuneDepth)}</span></div>
         <div className="io-runes-loadout">{Array.from({length:slots},(_,index)=>{
           const rune=equippedRunes[index];
@@ -192,31 +216,53 @@ export const RunesSection:React.FC=()=>{
           </div>;
         })}</div>
         <div className="io-runes-stat-grid">{statCards.map(card=><div className="io-runes-stat" key={card.label}><span>{card.icon} {card.label}</span><strong>{card.value}</strong></div>)}</div>
-        <p className="io-runes-muted" style={{marginTop:'.75rem'}}>Slot milestones: start with 2; unlock a third at Delver Level 10, a fourth at Level 25, and a fifth at best Depth 50. Rune bonuses affect main-game online and offline orb-roll rewards, never dungeon combat.</p>
+        <p className="io-runes-muted" style={{marginTop:'.75rem'}}>Start with 2 Rune slots. Unlock slot 3 at Delver Level 10, slot 4 at Level 25, and slot 5 at Best Depth 50. Equipped Rune bonuses affect normal Orb-roll rewards, including offline rewards, not dungeon combat.</p>
       </section>
       <section className="io-runes-panel">
-        <div className="io-runes-panel-head"><h2>Rune inventory</h2><span className="io-runes-muted">{state.runes.length} / 200 · {visibleRunes.length} shown</span>{state.runes.length>=200&&<span className="io-runes-capacity-warning" role="status">Inventory full — new Rune drops need an open slot.</span>}</div>
+        <div className="io-runes-panel-head"><h2>Rune inventory</h2><span className="io-runes-muted">{state.runes.length} / 200 · {Math.max(0,200-state.runes.length)} slots free · {visibleRunes.length} shown</span>{state.runes.length>=200&&<span className="io-runes-capacity-warning" role="status">Inventory full — new Rune drops need an open slot.</span>}</div>
         {strengthenTargetRune&&<div className="io-runes-strengthen-mode" role="status">
-          <div><strong>Strengthen: {strengthenTargetRune.name}</strong><span>Click another Rune to sacrifice it into this Rune. This permanently consumes the donor.</span></div>
-          <button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');}}>Cancel</button>
+          <div><strong>Strengthen: {strengthenTargetRune.name}</strong><span>Select a donor and confirm. It is permanently consumed for XP; an equipped donor also removes its loadout bonus.</span></div>
+          <label className="io-runes-auto-rarity">Donor Rune
+            <select className="io-runes-button" value={sacrificeDonorId} disabled={operationPending||sacrificing||autoSacrificeBusy} onChange={event=>setSacrificeDonorId(event.target.value)} aria-label="Rune to sacrifice">
+              <option value="">Choose a Rune to consume…</option>
+              {runes.filter(rune=>rune.id!==strengthenTargetRune.id).map(rune=><option key={rune.id} value={rune.id}>{rune.name} · {rune.rarity} · Lv. {fmt(rune.level??1)}</option>)}
+            </select>
+          </label>
+          <button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy||!sacrificeDonorId||!runes.some(rune=>rune.id===sacrificeDonorId&&rune.id!==strengthenTargetRune.id)} onClick={()=>{const donor=runes.find(rune=>rune.id===sacrificeDonorId&&rune.id!==strengthenTargetRune.id);if(!donor)return;if(state?.equippedRunes.includes(donor.id)&&typeof window!=='undefined'&&!window.confirm('This Rune is equipped and contributes to your loadout. Sacrificing it permanently consumes it and removes its bonus. Continue?'))return;setSacrificeDonorId('');void sacrifice(strengthenTargetRune.id,donor.id);}}>Sacrifice selected Rune</button>
+          <button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setSacrificeDonorId('');setNotice('Strengthen selection cancelled.');}}>Cancel</button>
         </div>}
         <div className="io-runes-auto-sacrifice">
           <div className="io-runes-auto-sacrifice-heading"><strong>Auto Sacrifice</strong><span>Turn low-rarity drops into XP for your equipped loadout.</span></div>
           <label className="io-runes-auto-toggle">
             <input type="checkbox" checked={autoSacrificeSettings.enabled} disabled={operationPending||autoSacrificeBusy} onChange={event=>void saveAutoSacrificeSettings(event.target.checked,autoSacrificeSettings.maxRarity)}/>
-            <span>Automatically strengthen an equipped Rune with new drops</span>
+            <span>Automatically strengthen a chosen equipped Rune with new drops</span>
           </label>
           <label className="io-runes-auto-rarity">Sacrifice rarity
-            <select value={autoSacrificeSettings.maxRarity} disabled={operationPending||autoSacrificeBusy} onChange={event=>void saveAutoSacrificeSettings(autoSacrificeSettings.enabled,event.target.value as CombatRuneRarity)}>
+            <select aria-label="Maximum Rune rarity to sacrifice automatically" value={autoSacrificeSettings.maxRarity} disabled={operationPending||autoSacrificeBusy} onChange={event=>void saveAutoSacrificeSettings(autoSacrificeSettings.enabled,event.target.value as CombatRuneRarity)}>
               {RUNE_RARITIES.map(rarity=><option key={rarity} value={rarity}>{rarity} and below</option>)}
             </select>
+          </label>
+          <label className="io-runes-auto-rarity">Strengthen target
+            <select
+              aria-label="Equipped Rune to strengthen automatically"
+              value={autoSacrificeSettings.targetRuneId&&equippedRunes.some(rune=>rune.id===autoSacrificeSettings.targetRuneId)?autoSacrificeSettings.targetRuneId:''}
+              disabled={operationPending||autoSacrificeBusy||equippedRunes.length===0}
+              onChange={event=>void saveAutoSacrificeSettings(autoSacrificeSettings.enabled,autoSacrificeSettings.maxRarity,event.target.value||null)}
+            >
+              <option value="">Prefer Insight Rune, otherwise first equipped</option>
+              {equippedRunes.map(rune=><option key={rune.id} value={rune.id}>{rune.name}</option>)}
+            </select>
+          </label>
+          <label className="io-runes-auto-toggle">
+            <input type="checkbox" checked={autoSacrificeSettings.preserveSpecialEffects} disabled={operationPending||autoSacrificeBusy} onChange={event=>void saveAutoSacrificeSettings(autoSacrificeSettings.enabled,autoSacrificeSettings.maxRarity,autoSacrificeSettings.targetRuneId,event.target.checked)}/>
+            <span>Preserve Runes with Major Abilities</span>
           </label>
           <button type="button" className="io-runes-button io-runes-process-button" disabled={operationPending||autoSacrificeBusy||equippedRunes.length===0||autoSacrificeEligibleCount===0} onClick={()=>void processAutoSacrifice()}>
             {autoSacrificeBusy?'Processing…':'Sacrifice '+fmt(autoSacrificeEligibleCount)+' eligible Runes now'}
           </button>
-          {autoSacrificeSettings.enabled&&equippedRunes.length===0&&<p className="io-runes-auto-warning" role="status">Auto Sacrifice is enabled, but no Runes are equipped. New eligible drops will be kept until you equip a Rune target.</p>}
-          <p>When enabled, new Runes at or below the selected rarity are sacrificed into a random equipped Rune. The button processes existing eligible Runes too. Equipped Runes are protected from auto-sacrifice; manual Strengthen can consume any other Rune and will ask before consuming an equipped Rune.</p>
-          {equippedRunes.length===0&&<p className="io-runes-muted" role="note">Equip at least one Rune before enabling Auto Sacrifice, so every consumed Rune has a valid strengthening target.</p>}
+          {autoSacrificeSettings.enabled&&equippedRunes.length===0&&<p className="io-runes-auto-warning" role="status">Auto Sacrifice is enabled, but no Runes are equipped. New eligible drops are kept until you equip a target.</p>}
+          <p>When enabled, eligible un-equipped Runes at or below the selected rarity feed the selected target. With no explicit target, an equipped Insight Rune is preferred, then the first equipped Rune. When preservation is on, Runes with Major Abilities are never auto-sacrificed. The button processes existing eligible Runes too; manual Strengthen can still consume other Runes and warns before consuming an equipped Rune.</p>
+          {equippedRunes.length===0&&<p className="io-runes-muted" role="note">Equip at least one Rune before Auto Sacrifice can consume drops. Existing eligible Runes will be kept until a target is equipped.</p>}
         </div>
         <div className="io-runes-inventory-tools">
           <label className="io-runes-search">Search Rune inventory by name, rarity, stat, or Major Ability
@@ -229,7 +275,7 @@ export const RunesSection:React.FC=()=>{
         </div>
         {!runes.length?<div className="io-runes-empty"><Gem size={22} style={{margin:'0 auto .5rem',color:'#a78bfa'}}/><strong style={{display:'block',color:'#e2e8f0'}}>No Runes found yet</strong>Defeat monsters in Combat. Common monsters can drop a Rune, elite enemies have a higher chance, and bosses always drop one.</div>:
           <>
-          {visibleRunes.length===0?<div className="io-runes-empty">No matching Runes. Clear filters to see your full inventory.</div>:
+          {visibleRunes.length===0?<div className="io-runes-empty">No matching Runes. Choose All, clear the search, or change the rarity/stat filter.</div>:
           <div className="io-runes-inventory">{visibleRunes.map(rune=>{
             const isEquipped=state.equippedRunes.includes(rune.id);
             const canEquip=isEquipped||state.equippedRunes.length<slots;
@@ -241,24 +287,24 @@ export const RunesSection:React.FC=()=>{
             const xpProgress=progressRange>0?Math.max(0,Math.min(100,(levelXp-currentXp)/progressRange*100)):100;
             const iconLabel=(isEquipped?'Unequip ':'Equip ')+rune.name;
             return <article key={rune.id} className={'io-runes-icon-wrap '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(inspectedRuneId===rune.id?' is-inspected':'')}>
-              <button type="button" className={'io-runes-icon '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(strengthenTargetId===rune.id?' is-strengthen-target':'')} disabled={operationPending||sacrificing||(strengthenTargetId?false:busyRune===rune.id||(!isEquipped&&!canEquip))} onClick={()=>handleRuneClick(rune)} aria-describedby={'io-rune-tooltip-'+encodeURIComponent(rune.id)} aria-pressed={strengthenTargetId?strengthenTargetId===rune.id:isEquipped} aria-label={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Sacrifice '+rune.name+' into '+(strengthenTargetRune?.name??'selected Rune')):iconLabel} title={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Sacrifice into '+(strengthenTargetRune?.name??'selected Rune')):iconLabel}>
+              <button type="button" className={'io-runes-icon '+rarityClass(rune.rarity)+(isEquipped?' is-equipped':'')+(strengthenTargetId===rune.id?' is-strengthen-target':'')} disabled={operationPending||sacrificing||(strengthenTargetId?false:busyRune===rune.id||(!isEquipped&&!canEquip))} onClick={()=>handleRuneClick(rune)} aria-describedby={'io-rune-tooltip-'+encodeURIComponent(rune.id)} aria-pressed={strengthenTargetId?strengthenTargetId===rune.id:isEquipped} aria-label={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Select '+rune.name+' as sacrifice donor'):iconLabel} title={strengthenTargetId?(rune.id===strengthenTargetId?'Cancel Strengthen selection':'Select as donor for '+(strengthenTargetRune?.name??'selected Rune')):iconLabel}>
                 <span className="io-runes-icon-art">{STAT_ICON[rune.stat]}</span><small>Lv. {fmt(level)}</small>{isEquipped&&<span className="io-runes-equipped-mark"><ShieldCheck size={12}/></span>}
               </button>
               <div id={'io-rune-tooltip-'+encodeURIComponent(rune.id)} className="io-runes-tooltip" role="tooltip">
                 <span className={'io-runes-tooltip-rarity '+rarityClass(rune.rarity)}>{rune.rarity.toUpperCase()} · {STAT_LABEL[rune.stat].toUpperCase()}</span>
                 <strong>{rune.name}</strong><span className="io-runes-tooltip-level">Level {fmt(level)} · Rune XP {fmt(levelXp)} / {fmt(nextXp)} · Found at depth {rune.sourceDepth+1}</span>
-                <div className="io-runes-xp-track" role="progressbar" aria-label={rune.name+' progress toward level '+fmt(level+1)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(xpProgress)}><span style={{width:xpProgress+'%'}}/></div>
+                <div className="io-runes-xp-track" role="progressbar" aria-label={rune.name+' progress toward level '+fmt(level+1)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(xpProgress)} aria-valuetext={Math.round(xpProgress)+' percent toward level '+fmt(level+1)}><span style={{width:xpProgress+'%'}}/></div>
                 <p className="io-runes-tooltip-value">{combatRuneEffectText(rune)}</p>
-                <p>{rune.stat==='luckPct'?'Improves rarity odds on normal orb rolls.':rune.stat==='coinGainPct'?'Increases Coins earned from normal orb rolls.':rune.stat==='shardChancePct'?'Adds its existing percentage-point chance to find a Shard; Rune levels do not alter this stat.':'Increases XP earned from normal orb rolls.'}</p>
-                {rune.majorAbility&&<div className="io-runes-major-card"><span>✦ MAIN-GAME MAJOR ABILITY</span><strong>{rune.majorAbility.name} · LEVEL-SCALING EFFECT</strong><p>{combatRuneMajorAbilitySummary(rune.majorAbility,level)}</p></div>}
+                <p>{rune.stat==='luckPct'?'Improves rarity odds on normal orb rolls.':rune.stat==='coinGainPct'?'Increases Coins earned from normal orb rolls.':rune.stat==='shardChancePct'?'Adds the effective Shard chance shown above; Rune levels do not alter this stat.':'Increases XP earned from normal orb rolls.'}</p>
+                {rune.majorAbility&&<div className="io-runes-major-card"><span>✦ MAIN-GAME MAJOR ABILITY</span><strong>{rune.majorAbility.name} · RARITY + LEVEL-SCALING EFFECT</strong><p>{combatRuneMajorAbilitySummary(rune.majorAbility,level,rune.rarity)}</p></div>}
                 <div className="io-runes-tooltip-actions">
-                  <button type="button" className="io-runes-button" disabled={operationPending||busyRune===rune.id||(!isEquipped&&!canEquip)||Boolean(strengthenTargetId)} onClick={()=>void mutate('/api/combat/runes/equip',{runeId:rune.id,equip:!isEquipped},rune.id,isEquipped?'Rune unequipped.':'Rune equipped.')}>{busyRune===rune.id?'Saving…':isEquipped?'Unequip':'Equip'}</button>
                   {strengthenTargetId===rune.id
                     ?<button type="button" className="io-runes-button" disabled={operationPending||sacrificing} onClick={()=>{setStrengthenTargetId('');setNotice('Strengthen selection cancelled.');}}>Cancel Strengthen</button>
-                    :<button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy} onClick={()=>{setStrengthenTargetId(rune.id);setError('');setNotice('Strengthen '+rune.name+': click another Rune to sacrifice it into this one.');}}>Strengthen</button>}
+                    :<button type="button" className="io-runes-button io-runes-strengthen-button" disabled={operationPending||sacrificing||autoSacrificeBusy} onClick={()=>{setStrengthenTargetId(rune.id);setSacrificeDonorId('');setError('');setNotice('Strengthen '+rune.name+': choose a donor Rune from the selector above.');}}>Strengthen</button>}
                 </div>
                 {!isEquipped&&!canEquip&&<div className="io-runes-muted">All Rune slots are full.</div>}
               </div>
+              <button type="button" className={isEquipped?'io-runes-button io-runes-equip-button is-equipped':'io-runes-button io-runes-equip-button'} disabled={operationPending||sacrificing||autoSacrificeBusy||busyRune===rune.id||Boolean(strengthenTargetId)||(!isEquipped&&!canEquip)} onClick={()=>void mutate('/api/combat/runes/equip',{runeId:rune.id,equip:!isEquipped},rune.id,isEquipped?'Rune unequipped.':'Rune equipped.')} aria-label={(isEquipped?'Unequip ':'Equip ')+rune.name}>{busyRune===rune.id?'Saving…':isEquipped?'Unequip':'Equip'}</button>
             </article>;
           })}</div>
           }

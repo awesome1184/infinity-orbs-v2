@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { context, redis } from '../src/server/devvit-mock.js';
 import { challengeCombatArena, getCombatArenaOpponents } from '../src/server/combat.js';
 
-test('Arena challenges update both records atomically and enforce the challengers cooldown', async () => {
+test('Arena challenges update win/loss records and enforce the challengers cooldown', async () => {
   const previousUserId = context.userId;
   const previousUsername = context.username;
   const arenaRegistryKey = 'infinity-orbs:combat:arena:profiles';
@@ -22,7 +22,7 @@ test('Arena challenges update both records atomically and enforce the challenger
     context.userId = opponentId;
     context.username = 'ArenaOpponent';
     const opponentRegistration = await getCombatArenaOpponents();
-    assert.equal(opponentRegistration.self.rating, 1000);
+    assert.equal(opponentRegistration.self.wins, 0);
 
     context.userId = challengerId;
     context.username = 'ArenaChallenger';
@@ -56,10 +56,9 @@ test('Arena challenges update both records atomically and enforce the challenger
 
     assert.ok(['you', 'opponent'].includes(result.arenaResult.winner));
     assert.ok(result.arenaResult.rounds >= 1 && result.arenaResult.rounds <= 100);
-    assert.ok(result.state.arenaRating >= 100 && result.state.arenaRating <= 10_000);
-    assert.ok((afterOpponent.arenaRating ?? 0) >= 100 && (afterOpponent.arenaRating ?? 0) <= 10_000);
-    assert.equal((afterOpponent.arenaRating ?? 0) + (afterChallenger.arenaRating ?? 0), 2000,
-      'the equal-rated starting players should exchange, not create, rating points');
+    assert.equal(result.state.arenaRating, 1000, 'legacy rating points are no longer changed by PvP');
+    assert.equal(afterOpponent.arenaRating ?? 1000, beforeOpponent.arenaRating ?? 1000, 'opponent legacy rating remains untouched');
+    assert.equal(afterChallenger.arenaRating ?? 1000, 1000, 'challenger legacy rating remains untouched');
     assert.equal((afterChallenger.arenaWins ?? 0) + (afterChallenger.arenaLosses ?? 0), 1);
     assert.equal((afterOpponent.arenaWins ?? 0) + (afterOpponent.arenaLosses ?? 0), 1);
     assert.ok((afterChallenger.arenaLastChallengeAt ?? 0) > 0);

@@ -1,0 +1,3 @@
+One-time deployment marker for infinity-orbs@1.2.50 to r/infinity_orbs_dev.
+Includes combat speed scaling, 10x Skill Gacha without pity, whole-number Shards with reduced proc odds, canonical Global Chat routing, PvP combat visuals, total Rune-inclusive Luck display, Auto-Buy toggle, and tooltip/UI regressions.
+Deployment trigger committed after merge of PR #4.

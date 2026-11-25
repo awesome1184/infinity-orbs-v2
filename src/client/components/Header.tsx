@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Volume2, VolumeX, Sparkles, HelpCircle, Coins, Gem, Zap, Wrench, Star, Users, MessageSquarePlus, Bell, BellOff, ScrollText, Swords } from 'lucide-react';
 import type { PlayerState } from '../../shared/game.js';
-import { LEVEL_MILESTONES, getLevelBenefits, getLevelProgress, onlinePlayerLuckMultiplier } from '../../shared/game.js';
+import { getLevelBenefits, getLevelProgress, onlinePlayerLuckMultiplier, formatShardAmount, formatNumber, MAX_PLAYER_LEVEL } from '../../shared/game.js';
 import { sound } from '../sound.js';
+import { APP_VERSION } from '../../shared/version.js';
 
 interface HeaderProps {
   state: PlayerState;
@@ -15,9 +16,13 @@ interface HeaderProps {
   changelogUnread?: boolean;
   onClaimOffline: () => void;
   onOpenDevDebug?: () => void;
+  adminStatusUnavailable?: boolean;
+  onRetryAdminStatus?: () => void;
   onOpenProfile?: () => void;
   notificationsEnabled: boolean;
-  onToggleNotifications: () => void;
+  notificationPreferences: { updates: boolean; offlineOrbs: boolean };
+  notificationSettingsLoaded: boolean;
+  onSetNotificationPreference: (type: 'updates' | 'offlineOrbs', enabled: boolean) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,14 +36,19 @@ export const Header: React.FC<HeaderProps> = ({
   changelogUnread = false,
   onClaimOffline,
   onOpenDevDebug,
+  adminStatusUnavailable = false,
+  onRetryAdminStatus,
   onOpenProfile,
   notificationsEnabled,
-  onToggleNotifications,
+  notificationPreferences,
+  notificationSettingsLoaded,
+  onSetNotificationPreference,
 }) => {
   const fmt = (n: number) => Number.isFinite(n) ? Math.max(0, n).toLocaleString() : '0';
   const onlineCountRaw = Number(state.onlinePlayers ?? 1);
   const onlineCount = Number.isFinite(onlineCountRaw) ? Math.max(1, Math.floor(onlineCountRaw)) : 1;
   const [combatMarks,setCombatMarks]=useState(0);
+  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
   useEffect(()=>{
     let cancelled=false;
     const refreshCombatMarks=async()=>{
@@ -66,7 +76,6 @@ export const Header: React.FC<HeaderProps> = ({
     state.levelXpFloor,
   );
   const displayedLevel = levelInfo.level;
-  const nextMilestone = LEVEL_MILESTONES.find(m => m.level > displayedLevel);
   const levelBenefits = getLevelBenefits(displayedLevel);
   return (
     <>
@@ -84,6 +93,12 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="font-extrabold text-base sm:text-lg tracking-tight text-white flex items-center gap-1.5">
                 Infinity Orbs
               </h1>
+              <span
+                aria-label={`App version ${APP_VERSION}`}
+                className="rounded border border-slate-700/70 px-1.5 py-0.5 text-[9px] font-mono font-semibold text-slate-500"
+              >
+                v{APP_VERSION}
+              </span>
               {/* Level Badge with click to view perks */}
               <button
                 type="button"
@@ -97,41 +112,34 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            {/* Glowing EXP Bar */}
-            <div className="flex items-center gap-2 mt-1">
-              <div
-                role="button"
-                tabIndex={0}
-                aria-label={`Open profile. Experience progress: ${levelInfo.progressPercent}% to level ${levelInfo.level + 1}`}
-                className="w-28 sm:w-40 h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5 relative cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-300"
-                onClick={() => onOpenProfile?.()}
-                onKeyDown={event => { if (!event.repeat && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpenProfile?.(); } }}
-                title={`EXP: ${fmt(levelInfo.currentLevelXp)} / ${fmt(levelInfo.nextLevelXp)} (${levelInfo.progressPercent}%)`}
-              >
-                <div
-                  className="h-full bg-purple-400 rounded-full transition-all duration-300 relative"
-                  style={{ width: `${levelInfo.progressPercent}%` }}
-                >
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-slate-400 font-medium">
-                {levelInfo.progressPercent}%
+            <button
+              type="button"
+              className="io-level-progress"
+              aria-label={displayedLevel >= MAX_PLAYER_LEVEL
+                ? `Maximum Paragon Level ${MAX_PLAYER_LEVEL} reached.`
+                : `View progress. ${fmt(levelInfo.currentLevelXp)} of ${fmt(levelInfo.nextLevelXp)} XP toward level ${levelInfo.level + 1}.`}
+              onClick={() => onOpenProfile?.()}
+              title={displayedLevel >= MAX_PLAYER_LEVEL
+                ? `Maximum Paragon Level ${MAX_PLAYER_LEVEL} reached`
+                : `Progress to Level ${levelInfo.level + 1}: ${fmt(levelInfo.currentLevelXp)} / ${fmt(levelInfo.nextLevelXp)} XP`}
+            >
+              <span className="io-level-progress-track" aria-hidden="true">
+                <span style={{ width: `${levelInfo.progressPercent}%` }} />
               </span>
-              {nextMilestone && (
-                <span className="text-[9px] text-purple-300/80 hidden md:inline truncate max-w-[140px]">
-                  Next: Lv {nextMilestone.level} ({nextMilestone.name})
-                </span>
-              )}
-            </div>
+              <span className="io-level-progress-copy">
+                {displayedLevel >= MAX_PLAYER_LEVEL ? 'MAX LEVEL' : `${fmt(levelInfo.currentLevelXp)} / ${fmt(levelInfo.nextLevelXp)} XP`}
+              </span>
+            </button>
           </div>
         </div>
 
         {/* Currencies & Global Actions */}
-        <div className="header-actions flex items-center gap-2 sm:gap-4 ml-auto">
+        <div className="header-actions flex flex-wrap items-center justify-end gap-2 sm:gap-4 ml-auto">
           {/* Live player count / social luck */}
           <div
             className="hidden sm:flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-2.5 py-1.5 text-[10px] font-black text-indigo-200"
-            title="Players currently active in this Reddit game installation. More players give everyone a logarithmic Luck bonus."
+            aria-label={`Online players: ${fmt(onlineCount)}; community Luck multiplier ${onlinePlayerLuckMultiplier(onlineCount).toFixed(2)} times.`}
+            title="Players currently active in this game installation. More players increase everyone’s Luck bonus."
           >
             <Users className="w-3.5 h-3.5 text-indigo-300" />
             <span>{fmt(onlineCount)} Online</span>
@@ -139,38 +147,42 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Currencies */}
-          <div className="header-resource-row resource-chip flex items-center gap-2 bg-slate-950/70 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold">
+          <div role="group" aria-label={combatMode ? "Combat resources" : "Player resources"} className="header-resource-row resource-chip flex items-center gap-2 bg-slate-950/70 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold">
             {/* Core-game Coins stay hidden while in Combat. */}
             {!combatMode && <>
-              <div className="flex items-center gap-1 text-amber-400" title="Coins (Coins = Orb Rarity)">
-                <Coins className="w-3.5 h-3.5" />
-                <span>{fmt(state.coins)}</span>
+              <div className="resource-item resource-coins" aria-label={`${formatNumber(state.coins)} Coins`} title="Spend Coins on upgrades to improve your rolls.">
+                <Coins className="w-4 h-4" />
+                <span className="resource-value">{formatNumber(state.coins)}</span>
+                <span className="resource-label">Coins</span>
               </div>
               <div className="w-[1px] h-3.5 bg-slate-800" />
             </>}
 
             {/* Combat Marks are shown only while in the Combat section. */}
             {combatMode && <>
-              <div className="flex items-center gap-1 text-lime-300" title="Combat Marks are earned in battles and spent on combat upgrades and Skill Gacha.">
-                <Swords className="w-3.5 h-3.5" />
-                <span>{fmt(combatMarks)}</span>
+              <div className="resource-item resource-marks" title="Earn Combat Marks in battles and spend them on combat upgrades.">
+                <Swords className="w-4 h-4" />
+                <span className="resource-value">{fmt(combatMarks)}</span>
+                <span className="resource-label">Marks</span>
               </div>
               <div className="w-[1px] h-3.5 bg-slate-800" />
             </>}
 
             {/* Shards */}
-            <div className="flex items-center gap-1 text-cyan-400" title="Shards">
-              <Gem className="w-3.5 h-3.5" />
-              <span>{fmt(state.shards ?? 0)}</span>
+            <div className="resource-item resource-shards" aria-label={`${formatShardAmount(state.shards ?? 0)} Shards`} title="Use Shards for special tools and boosters.">
+              <Gem className="w-4 h-4" />
+              <span className="resource-value">{formatShardAmount(state.shards ?? 0)}</span>
+              <span className="resource-label">Shards</span>
             </div>
 
             {/* Cosmic Dust */}
             {(state.cosmicDust > 0 || state.prestigeCount > 0) && (
               <>
                 <div className="w-[1px] h-3.5 bg-slate-800" />
-                <div className="flex items-center gap-1 text-fuchsia-400" title="Cosmic Dust">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{fmt(state.cosmicDust)}</span>
+                <div className="resource-item resource-dust" aria-label={`${fmt(state.cosmicDust)} Cosmic Dust`} title="Use Cosmic Dust for permanent Prestige upgrades.">
+                  <Sparkles className="w-4 h-4" />
+                  <span className="resource-value">{fmt(state.cosmicDust)}</span>
+                  <span className="resource-label">Dust</span>
                 </div>
               </>
             )}
@@ -183,10 +195,10 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label={`Claim ${fmt(state.offlineRolls)} offline rolls`}
               onClick={onClaimOffline}
               className="offline-button flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-md transition-all"
-              title="Claim rolls accumulated while away"
+              title="Claim the rolls accumulated while you were away. They are added to your Free Rolls."
             >
               <Zap className="w-3.5 h-3.5" />
-              <span>+{fmt(state.offlineRolls)} Offline</span>
+              <span>Claim +{fmt(state.offlineRolls)} Rolls</span>
             </button>
           )}
 
@@ -226,6 +238,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {/* Admin Console */}
+          {adminStatusUnavailable && onRetryAdminStatus && (
+            <button
+              type="button"
+              aria-label="Retry admin console availability check"
+              onClick={onRetryAdminStatus}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-bold transition-all"
+              title="Admin tools could not be checked. Retry."
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Retry Admin</span>
+            </button>
+          )}
           {onOpenDevDebug && (
             <button
               type="button"
@@ -242,22 +266,86 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Reddit Notification Toggle */}
-          <button
-            type="button"
-            aria-label={notificationsEnabled ? 'Disable Reddit notifications' : 'Enable Reddit notifications'}
-            aria-pressed={notificationsEnabled}
-            onClick={() => {
-              sound.playClick();
-              onToggleNotifications();
-            }}
-            className="header-icon-button p-2 text-slate-400 hover:text-fuchsia-300 hover:bg-slate-800/80 rounded-lg transition-colors"
-            title={notificationsEnabled ? 'Disable Reddit notifications' : 'Enable Reddit notifications'}
-          >
-            {notificationsEnabled
-              ? <Bell className="w-4 h-4 text-fuchsia-400" />
-              : <BellOff className="w-4 h-4 text-slate-500" />}
-          </button>
+          {/* Independent Reddit Notification Settings */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Notification settings"
+              aria-expanded={notificationSettingsOpen}
+              aria-haspopup="dialog"
+              onClick={() => {
+                sound.playClick();
+                setNotificationSettingsOpen(open => !open);
+              }}
+              className="header-icon-button p-2 text-slate-400 hover:text-fuchsia-300 hover:bg-slate-800/80 rounded-lg transition-colors"
+              title="Choose which Infinity Orbs notifications you receive"
+            >
+              {notificationsEnabled
+                ? <Bell className="w-4 h-4 text-fuchsia-400" />
+                : <BellOff className="w-4 h-4 text-slate-500" />}
+            </button>
+            {notificationSettingsOpen && (
+              <div
+                role="dialog"
+                aria-label="Notification preferences"
+                className="absolute right-0 top-full mt-2 z-[80] w-72 rounded-2xl border border-slate-700 bg-slate-950/98 p-3 shadow-2xl shadow-black/50"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-white">Push notifications</div>
+                  <button
+                    type="button"
+                    aria-label="Close notification settings"
+                    onClick={() => setNotificationSettingsOpen(false)}
+                    className="rounded-lg p-1 text-slate-500 hover:bg-slate-800 hover:text-white"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="mb-3 text-[10px] leading-relaxed text-slate-400">
+                  Choose each type independently. Reddit notifications are enabled while at least one type is on.
+                </p>
+                {!notificationSettingsLoaded ? (
+                  <div className="py-3 text-center text-[10px] text-slate-500">Loading preferences…</div>
+                ) : (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={notificationPreferences.updates}
+                      onClick={() => onSetNotificationPreference('updates', !notificationPreferences.updates)}
+                      className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-left hover:border-fuchsia-500/40"
+                    >
+                      <span>
+                        <span className="block text-xs font-bold text-slate-100">Game updates</span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">Announcements and new release alerts</span>
+                      </span>
+                      <span className={'relative h-5 w-9 shrink-0 rounded-full transition-colors ' + (notificationPreferences.updates ? 'bg-fuchsia-500' : 'bg-slate-700')}>
+                        <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ' + (notificationPreferences.updates ? 'translate-x-4' : 'translate-x-0.5')} />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={notificationPreferences.offlineOrbs}
+                      onClick={() => onSetNotificationPreference('offlineOrbs', !notificationPreferences.offlineOrbs)}
+                      className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-left hover:border-emerald-500/40"
+                    >
+                      <span>
+                        <span className="block text-xs font-bold text-slate-100">Offline Orbs</span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">Reminder when your offline storage is full</span>
+                      </span>
+                      <span className={'relative h-5 w-9 shrink-0 rounded-full transition-colors ' + (notificationPreferences.offlineOrbs ? 'bg-emerald-500' : 'bg-slate-700')}>
+                        <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ' + (notificationPreferences.offlineOrbs ? 'translate-x-4' : 'translate-x-0.5')} />
+                      </span>
+                    </button>
+                    <div className="pt-1 text-[9px] text-slate-500">
+                      {notificationsEnabled ? 'Reddit push permission is active.' : 'Both types are off.'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Sound Toggle */}
           <button

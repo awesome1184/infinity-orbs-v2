@@ -1,0 +1,2481 @@
+/*
+ * Infinity Orbs · mobile experience
+ * This is the final responsive layer and loads after the desktop polish sheets.
+ * Phone pages use natural document flow, thumb-sized controls, and one bottom
+ * navigation surface. Only intentionally horizontal controls keep local scroll.
+ */
+
+.io-ui .io-nav-mobile-only { display: none !important; }
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 320px;
+    min-height: 100%;
+    height: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scroll-padding-top: 132px;
+  }
+
+  .io-ui {
+    display: flex !important;
+    width: 100%;
+    min-width: 320px;
+    min-height: 100dvh;
+    height: auto !important;
+    padding-bottom: 0;
+    overflow: visible !important;
+    flex-direction: column;
+  }
+
+  .io-ui,
+  .io-ui * {
+    box-sizing: border-box;
+  }
+
+  .io-ui :is(.app-header, .app-nav, .app-main, .header-inner, .nav-shell, .io-page-shell, .io-combat-screen, .io-runes-page) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Header: identity, progress and wallet stay together; utilities remain reachable. */
+  .io-ui .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    width: 100%;
+    padding: calc(7px + env(safe-area-inset-top, 0px)) 11px 8px;
+    border-bottom: 1px solid rgba(111, 158, 230, .2);
+    background: rgba(7, 14, 27, .97);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+
+  .io-ui .header-inner {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 7px;
+    width: 100%;
+  }
+
+  .io-ui .brand-lockup {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .io-ui .brand-mark {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 10px;
+  }
+
+  .io-ui .brand-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .io-ui .brand-copy > div:first-child {
+    min-width: 0;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .io-ui .brand-copy h1 {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .io-ui .brand-copy [aria-label^="App version"] { display: none; }
+
+  .io-ui .brand-copy > button.io-level-progress {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    min-height: 20px;
+    margin-top: 2px;
+    gap: 7px;
+  }
+
+  .io-ui .io-level-progress-track {
+    width: 48px;
+    height: 5px;
+    flex: 0 0 48px;
+  }
+
+  .io-ui .io-level-progress-copy {
+    min-width: 0;
+    font-size: 9px;
+    line-height: 1.2;
+  }
+
+  .io-ui .header-actions {
+    display: flex !important;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+    margin: 0;
+  }
+
+  .io-ui .header-actions > * { min-width: 0; }
+
+  .io-ui .header-resource-row {
+    order: -2;
+    width: 100%;
+    min-width: 0;
+    flex: 0 0 100%;
+    margin: 0;
+  }
+
+  .io-ui .resource-chip {
+    display: grid;
+    width: 100%;
+    min-height: 39px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    gap: 3px;
+    padding: 4px 6px;
+  }
+
+  .io-ui .resource-chip > div[class~="w-[1px]"] { display: none; }
+
+  .io-ui .resource-item {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 14px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: 0 4px;
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .io-ui .resource-item svg {
+    width: 13px;
+    height: 13px;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .io-ui .resource-value {
+    min-width: 0;
+    grid-column: 2;
+    overflow-wrap: anywhere;
+    font-size: 10px;
+  }
+
+  .io-ui .resource-chip .resource-label {
+    display: block;
+    grid-column: 2;
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .io-ui .header-actions > .offline-button {
+    order: -1;
+    min-width: 112px;
+    min-height: 40px;
+    flex: 1 1 120px;
+    justify-content: center;
+    padding: 4px 7px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .io-ui .header-actions > button:not(.offline-button),
+  .io-ui .header-actions > div:has(.header-icon-button) {
+    display: flex;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    flex: 0 0 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 !important;
+  }
+
+  .io-ui .header-actions > div:has(.header-icon-button) > button,
+  .io-ui .header-icon-button {
+    display: flex;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 !important;
+    border-radius: 10px;
+  }
+
+  .io-ui .header-actions > :is(button, div) svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Bottom navigation is stable across every game page. */
+  .io-ui .app-nav {
+    position: fixed !important;
+    inset: auto 0 0;
+    top: auto !important;
+    z-index: 80;
+    width: 100%;
+    padding: 6px 9px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(111, 158, 230, .28);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    background: rgba(7, 15, 29, .97);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, .34);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
+
+  .io-ui .app-nav .nav-shell {
+    display: grid;
+    width: 100%;
+    max-width: 560px;
+    grid-template-columns: minmax(0, 1fr) 132px;
+    align-items: stretch;
+    gap: 6px;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .io-ui .app-nav:not(.io-nav-combat) .io-nav-primary {
+    display: grid;
+    width: 100%;
+    min-height: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .io-ui .app-nav:not(.io-nav-combat) .io-nav-primary > .nav-tab:nth-child(n + 4) {
+    display: none !important;
+  }
+
+  .io-ui .app-nav .io-nav-trailing {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+  }
+
+  .io-ui .io-nav-more-wrap { position: relative; min-width: 0; }
+
+  .io-ui .app-nav .nav-tab {
+    display: flex;
+    min-width: 0;
+    min-height: 52px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 2px;
+    border-radius: 10px;
+    font-size: 9px;
+    line-height: 1.1;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .io-ui .app-nav .io-nav-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .io-ui .app-nav .io-nav-icon { width: 18px; height: 18px; }
+  .io-ui .app-nav .io-nav-unlock { display: none; }
+
+  .io-ui .io-nav-more,
+  .io-ui .io-combat-mode-switch {
+    width: 100%;
+    height: 100%;
+  }
+
+  .io-ui .io-nav-more .io-nav-chevron {
+    display: block;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+
+  .io-ui .io-nav-more .io-nav-current-page {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 8px;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .io-ui .io-nav-more.io-nav-mobile-more-active {
+    border-color: rgba(120, 174, 255, .38);
+    color: #e5f0ff;
+    background: linear-gradient(135deg, rgba(46, 91, 153, .43), rgba(29, 56, 94, .48));
+  }
+
+  .io-ui .io-nav-mobile-only { display: flex !important; }
+
+  .io-ui .io-nav-menu {
+    top: auto;
+    right: 0;
+    bottom: calc(100% + 9px);
+    left: auto;
+    width: min(290px, calc(100vw - 18px));
+    max-height: min(64dvh, 480px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 9px;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .io-ui .io-nav-menu .nav-tab {
+    width: 100%;
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 7px 9px;
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .io-ui .io-nav-menu .io-nav-label { font-size: 12px; }
+  .io-ui .io-nav-menu .io-nav-icon { width: 16px; height: 16px; }
+
+  .io-ui .io-nav-combat .nav-shell { display: flex; gap: 6px; }
+
+  .io-ui .io-nav-combat .io-nav-combat-list {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 1px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list::-webkit-scrollbar { display: none; }
+
+  .io-ui .io-nav-combat .io-nav-combat-list > .nav-tab {
+    min-height: 52px;
+    flex: 0 0 62px;
+    padding: 4px 3px;
+  }
+
+  .io-ui .io-nav-combat .io-combat-mode-switch {
+    min-height: 52px;
+    flex: 0 0 72px;
+    padding-inline: 3px;
+  }
+
+  /* One document scroller: no clipped content or nested page-height panes. */
+  .io-ui .app-main {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto !important;
+    min-height: 0;
+    padding: 12px 11px calc(116px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow: visible !important;
+    overscroll-behavior-y: auto;
+  }
+
+  .io-ui .app-main > :is(.roll-layout, .io-page-shell, .io-combat-screen, .io-runes-page) {
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .app-main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .io-ui .app-main input:is([type="checkbox"], [type="radio"]) {
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
+    flex: 0 0 auto;
+  }
+  .io-ui .app-main input[type="range"] {
+    width: 100%;
+    min-height: 32px;
+    touch-action: pan-x;
+  }
+
+  .io-ui .app-main :is(button, [role="button"], summary) {
+    min-height: 42px;
+    touch-action: manipulation;
+  }
+
+  .io-ui .app-main :is(p, li) { line-height: 1.55; }
+  .io-ui .app-main :is(h2, h3, h4) { line-height: 1.22; }
+
+  .io-ui .io-page-shell {
+    display: flex !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 13px !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-shell > * {
+    width: 100%;
+    min-width: 0;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-shell .io-page-hero {
+    padding: 13px !important;
+    border-radius: 14px !important;
+  }
+
+  .io-ui .io-page-shell .io-page-hero :is(h1, h2) {
+    font-size: 19px !important;
+    line-height: 1.2;
+  }
+
+  .io-ui .io-page-shell :is(section, article, form, .rounded-2xl, .rounded-3xl) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .io-ui .io-page-shell :is(button, [role="button"]) { min-height: 42px; }
+
+  /* Roll: compact stage, large primary action, and upgrades below the play area. */
+  .io-ui .roll-layout {
+    display: flex !important;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .io-ui .roll-main,
+  .io-ui .roll-sidebar {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .io-ui .roll-main { gap: 10px; }
+
+  .io-ui .roll-main > .roll-stage {
+    width: 100%;
+    min-height: clamp(248px, 68vw, 320px);
+    height: auto;
+    border-radius: 14px;
+  }
+
+  .io-ui .io-main-orb {
+    width: min(46vw, 176px);
+    height: min(46vw, 176px);
+    min-width: 138px;
+    min-height: 138px;
+  }
+
+  .io-ui .io-orbit-track { transform: scale(.76); }
+
+  .io-ui .roll-controls {
+    width: 100%;
+    max-width: none;
+    gap: 8px !important;
+  }
+
+  .io-ui .roll-controls .roll-button {
+    width: 100%;
+    min-height: 54px;
+    font-size: 16px;
+  }
+
+  .io-ui .roll-controls > button:not(.roll-button) { min-height: 44px; }
+
+  .io-ui .roll-reward-summary {
+    width: 100%;
+    gap: 7px;
+  }
+
+  .io-ui .roll-reward-values,
+  .io-ui .roll-main > .grid.grid-cols-2.sm\:grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .io-ui .roll-quick-upgrades { display: grid; width: 100%; }
+  .io-ui .roll-quick-upgrade { grid-template-columns: minmax(0,1fr) auto; }
+  .io-ui .roll-quick-upgrade-buy { min-width: 76px; min-height: 42px; font-size: 10px; }
+
+  /* Shared mobile card rhythm across the progression screens. */
+  .io-ui :is(.io-page-upgrades, .io-page-codex, .io-page-quests, .io-page-profile, .io-page-social, .io-page-altar, .io-page-mastery, .io-page-boosters) {
+    display: flex !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    align-items: stretch;
+    gap: 12px !important;
+  }
+
+  .io-ui :is(.io-page-upgrades, .io-page-codex, .io-page-quests, .io-page-profile, .io-page-social, .io-page-altar, .io-page-mastery, .io-page-boosters) > * {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    width: 100%;
+    min-width: 0;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-shell .io-page-hero { gap: 12px !important; }
+
+  .io-ui .io-page-shell :is(.rounded-3xl, .rounded-2xl)[class*="p-6"],
+  .io-ui .io-page-shell :is(.rounded-3xl, .rounded-2xl)[class*="p-7"],
+  .io-ui .io-page-shell :is(.rounded-3xl, .rounded-2xl)[class*="p-8"] {
+    padding: 13px !important;
+  }
+
+  /* Upgrades: readable single-column purchase cards. */
+  .io-ui .io-page-upgrades > .io-page-hero + div {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section {
+    width: 100%;
+    padding: 12px !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > .grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 9px !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > .grid > div {
+    min-height: 0;
+    padding: 12px !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > .grid > div p {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > .grid > div button {
+    min-height: 44px;
+    font-size: 11px;
+  }
+
+  .io-ui .io-page-upgrades .io-page-hero > .grid,
+  .io-ui .io-page-quests .io-page-hero > .grid,
+  .io-ui .io-page-profile .io-page-hero > .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px !important;
+  }
+
+  /* Codex: controls wrap cleanly; rarity cards use the full phone width. */
+  .io-ui .io-page-codex > .io-page-hero { display: flex; flex-direction: column; gap: 10px; }
+  .io-ui .io-page-codex > .io-page-hero > :first-child { flex-wrap: wrap; gap: 10px; }
+  .io-ui .io-page-codex > .io-codex-patcher { padding: 13px !important; }
+  .io-ui .io-page-codex > .io-codex-patcher > .grid { grid-template-columns: minmax(0,1fr) !important; }
+  .io-ui .io-page-codex > .io-codex-milestones { overflow: visible !important; }
+  .io-ui .io-page-codex > .io-codex-milestones > .grid {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-rows: none;
+    gap: 6px !important;
+  }
+  .io-ui .io-page-codex > .io-codex-milestones > .grid > div {
+    min-height: 48px;
+    height: auto;
+    padding: 6px 3px !important;
+  }
+  .io-ui .io-page-codex > .flex.flex-wrap {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    height: auto !important;
+    padding: 9px !important;
+    overflow: visible !important;
+  }
+  .io-ui .io-page-codex > .flex.flex-wrap [role="group"] {
+    display: flex;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .io-ui .io-page-codex > .flex.flex-wrap [role="group"]::-webkit-scrollbar { display: none; }
+  .io-ui .io-page-codex > .flex.flex-wrap [role="group"] button { min-height: 36px; flex: 0 0 auto; }
+  .io-ui .io-page-codex > .grid[class*="grid-cols-"] { grid-template-columns: minmax(0,1fr) !important; }
+  .io-ui .io-page-codex > .grid[class*="grid-cols-"] > * { min-width: 0; }
+  .io-ui .io-page-codex > nav[aria-label="Codex pages"] { gap: 10px; }
+  .io-ui .io-page-codex > nav[aria-label="Codex pages"] button { min-height: 42px; }
+
+  /* Quests: keep streak information compact, give each quest a clear action. */
+  .io-ui .io-page-quests > .io-page-hero {
+    display: flex !important;
+    flex-direction: column;
+    gap: 11px;
+  }
+  .io-ui .io-page-quests > .io-page-hero > .grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .io-ui .io-page-quests > .io-page-hero ~ div.space-y-3 {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .io-ui .io-page-quests > .io-page-hero ~ div.space-y-3 > .grid {
+    height: auto !important;
+    grid-template-columns: minmax(0,1fr) !important;
+    grid-auto-rows: auto;
+    gap: 9px !important;
+  }
+  .io-ui .io-page-quests > .io-page-hero ~ div.space-y-3 > .grid > div {
+    height: auto !important;
+    min-height: 0;
+    padding: 12px !important;
+    overflow: visible;
+  }
+
+  /* Progress: two-column stat tiles, single-column long descriptions. */
+  .io-ui .io-page-profile > .io-page-hero { padding: 14px !important; }
+  .io-ui .io-page-profile > .io-page-hero ~ div .grid[class*="grid-cols-2"][class*="sm:grid-cols-4"] {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .io-ui .io-page-profile > .io-page-hero ~ div .grid[class*="grid-cols-1"][class*="sm:grid-cols-2"] {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .io-ui .io-page-profile :is(button, [role="group"]) { max-width: 100%; }
+  .io-ui .io-page-profile > .io-page-hero ~ div [role="group"][aria-label*="Filter"] {
+    display: flex;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .io-ui .io-page-profile > .io-page-hero ~ div [role="group"][aria-label*="Filter"]::-webkit-scrollbar { display: none; }
+
+  /* Community/Guilds: tab controls scroll horizontally; cards and member lists stack. */
+  .io-ui .io-page-social > [role="group"][aria-label="Guilds and social sections"] {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 7px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .io-ui .io-page-social > [role="group"][aria-label="Guilds and social sections"]::-webkit-scrollbar { display: none; }
+  .io-ui .io-page-social > [role="group"][aria-label="Guilds and social sections"] > button {
+    min-height: 42px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .io-ui .io-page-social .io-social-task-grid,
+  .io-ui .io-page-social [class*="grid-cols-1"][class*="md:grid-cols-2"],
+  .io-ui .io-page-social [class*="grid-cols-1"][class*="lg:grid-cols-3"] {
+    grid-template-columns: minmax(0,1fr) !important;
+  }
+  .io-ui .io-page-social :is(.io-social-raid-card, .io-social-perks-panel) { padding: 13px !important; }
+  .io-ui .io-page-social :is(.max-h-64, .h-80, .overflow-y-auto, .overflow-auto) {
+    max-height: min(46dvh, 360px);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .io-ui .io-page-social .io-social-chat,
+  .io-ui .io-page-social .io-social-raid-card,
+  .io-ui .io-page-social .io-social-perks-panel { min-width: 0; }
+
+  /* Altar and Mastery: labels wrap, sliders and category controls remain tappable. */
+  .io-ui .io-page-altar > .io-page-hero { padding: 14px !important; }
+  .io-ui .io-page-altar > .io-page-hero + div,
+  .io-ui .io-page-altar > form,
+  .io-ui .io-page-altar > .io-page-hero ~ .grid {
+    width: 100%;
+    margin: 0 !important;
+  }
+  .io-ui .io-page-altar > form { padding: 13px !important; }
+  .io-ui .io-page-altar > form [class*="grid-cols-1"][class*="sm:grid-cols-2"] {
+    grid-template-columns: minmax(0,1fr) !important;
+  }
+  .io-ui .io-page-altar input[type="range"],
+  .io-ui .io-page-mastery input[type="range"] {
+    width: 100%;
+    min-height: 34px;
+    touch-action: pan-x;
+  }
+  .io-ui .io-page-altar > form button { min-height: 46px; }
+  .io-ui .io-page-mastery > .io-page-hero + div [role="group"] {
+    display: flex;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .io-ui .io-page-mastery > .io-page-hero + div [role="group"]::-webkit-scrollbar { display: none; }
+  .io-ui .io-page-mastery > .io-page-hero + div [class*="grid-cols-1"][class*="md:grid-cols-2"] {
+    grid-template-columns: minmax(0,1fr) !important;
+  }
+
+  /* Boosters: one meaningful card per row, no tiny two-column descriptions. */
+  .io-ui .io-page-boosters > section {
+    width: 100%;
+    padding: 13px !important;
+  }
+  .io-ui .io-page-boosters > section > .grid,
+  .io-ui .io-page-boosters > section [class*="grid-cols-1"][class*="md:grid-cols-2"],
+  .io-ui .io-page-boosters > section [class*="grid-cols-1"][class*="lg:grid-cols-3"] {
+    grid-template-columns: minmax(0,1fr) !important;
+    grid-template-rows: none !important;
+    height: auto !important;
+  }
+  .io-ui .io-page-boosters > section > .grid > * {
+    height: auto !important;
+    min-height: 0;
+    padding: 12px !important;
+  }
+
+  /* Combat is a set of vertically readable panels, not a miniature desktop grid. */
+  .io-ui .io-combat-screen {
+    display: flex !important;
+    width: 100%;
+    flex-direction: column;
+    gap: 12px;
+    overflow: visible !important;
+  }
+  .io-ui .io-combat-screen > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible;
+  }
+  .io-ui .io-combat-page-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .io-ui .io-combat-page-head p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+  .io-ui .io-combat-run-stamp {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 8px 10px;
+    border-right: 0;
+    border-left: 3px solid var(--cc);
+  }
+  .io-ui .io-combat-page-fight .io-combat-stage {
+    min-height: 0;
+    padding: 12px 10px;
+  }
+  .io-ui .io-combat-duel {
+    min-height: 0;
+    grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr);
+    align-items: center;
+    gap: 3px;
+  }
+  .io-ui .io-combat-combatant { min-width: 0; }
+  .io-ui .io-combat-sprite { width: 58px; height: 58px; font-size: 32px; }
+  .io-ui .io-combat-name {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: 8px;
+  }
+  .io-ui .io-combat-combatant small { font-size: 8px; line-height: 1.35; }
+  .io-ui .io-combat-stage-foot { justify-content: space-between; gap: 6px; font-size: 9px; }
+  .io-ui .io-combat-orb-panel {
+    grid-template-columns: 48px minmax(0,1fr);
+    gap: 10px;
+    padding: 11px;
+  }
+  .io-ui .io-combat-orb-art { width: 46px; height: 46px; font-size: 21px; }
+  .io-ui .io-combat-orb-copy { min-width: 0; }
+  .io-ui .io-combat-orb-copy h2 { overflow-wrap: anywhere; font-size: 15px; }
+  .io-ui .io-combat-orb-damage {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    padding: 9px 0 0;
+    border-top: 1px solid #46344f;
+    border-left: 0;
+  }
+  .io-ui .io-combat-orb-damage-metric { align-items: flex-start; }
+  .io-ui .io-combat-orb-damage small { text-align: left; }
+  .io-ui .io-combat-turn-tracker,
+  .io-ui .io-combat-panel { padding: 13px !important; }
+  .io-ui .io-combat-speed-row {
+    grid-template-columns: minmax(82px,1fr) minmax(38px,.9fr) 48px;
+    gap: 6px;
+  }
+  .io-ui .io-combat-speed-row > span { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 8px; }
+  .io-ui .io-combat-speed-row > strong { font-size: 8px; }
+  .io-ui .io-combat-turn-sequence { max-width: 100%; overflow-x: auto; }
+  .io-ui .io-combat-turn-track { min-width: max-content; }
+  .io-ui .io-combat-control-row { align-items: stretch; flex-direction: column; gap: 8px; }
+  .io-ui .io-combat-command-group { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 5px; }
+  .io-ui .io-combat-command { min-width: 0; min-height: 48px; padding: 6px 3px; }
+  .io-ui .io-combat-command > span { font-size: 10px; }
+  .io-ui .io-combat-command > small { font-size: 8px; }
+  .io-ui .io-combat-run-controls { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+  .io-ui .io-combat-run-controls > button { min-width: 0; min-height: 44px; padding: 6px 4px; font-size: 9px; }
+  .io-ui .io-combat-skill-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-combat-skill-card { padding: 10px; }
+  .io-ui .io-combat-skill-card h3 { font-size: 12px; }
+  .io-ui .io-combat-skill-card p { min-height: 0; font-size: 10px; }
+  .io-ui .io-combat-skill-card .io-combat-button { width: 100%; min-height: 44px; padding: 6px; font-size: 9px; }
+  .io-ui .io-combat-stat-strip { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-combat-stat-strip > div { min-width: 0; padding: 10px; }
+  .io-ui .io-combat-stat-strip strong { overflow-wrap: anywhere; font-size: 16px; }
+  .io-ui .io-combat-columns { grid-template-columns: minmax(0,1fr); gap: 10px; }
+  .io-ui .io-combat-log { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+  .io-ui .io-combat-equipped-lines { grid-template-columns: minmax(0,1fr); }
+
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-choice-grid { grid-template-columns: minmax(0,1fr); gap: 9px; }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-choice { padding: 13px; }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-hero { grid-template-columns: minmax(0,1fr); }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-art { min-height: 140px; border-right: 0; border-bottom: 1px solid #3a303f; }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+
+  .io-ui .io-combat-page-gear .io-combat-equipped-grid,
+  .io-ui .io-combat-page-gear .io-combat-gear-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon-wrap { min-width: 0; }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .io-ui .io-combat-page-gear .io-combat-gear-filters > * { min-width: 0; flex: 1 1 120px; }
+
+  /* Forge and Gacha tools stack in their actual task order. */
+  .io-ui .io-combat-page-forge { display: flex !important; flex-direction: column; gap: 10px; }
+  .io-ui .io-combat-page-forge > .io-combat-forge-panel,
+  .io-ui .io-combat-page-forge > .io-combat-auto-scrap-panel {
+    width: 100%;
+    padding: 13px !important;
+  }
+  .io-ui .io-combat-page-forge .io-combat-forge-slots { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-combat-page-forge .io-combat-forge-slot { min-width: 0; min-height: 56px; padding: 8px; }
+  .io-ui .io-combat-page-forge .io-combat-forge-slot > * { min-width: 0; overflow-wrap: anywhere; }
+  .io-ui .io-combat-page-forge .io-combat-quality-picker { padding: 12px; }
+
+  .io-ui .io-combat-page-skills { display: flex !important; flex-direction: column; gap: 10px; }
+  .io-ui .io-combat-page-skills > .io-combat-skill-banner { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; padding: 13px; }
+  .io-ui .io-combat-page-skills > .io-combat-panel { width: 100%; padding: 13px; }
+  .io-ui .io-combat-page-skills .io-combat-skill-grid { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; }
+  .io-ui .io-combat-page-skills .io-combat-skill-icon { width: 100%; max-width: 58px; height: auto; aspect-ratio: 1; }
+  .io-ui .io-combat-page-skills .io-combat-skill-search { display: flex; flex-wrap: wrap; gap: 7px; }
+  .io-ui .io-combat-page-skills .io-combat-skill-search input { flex: 1 1 180px; }
+
+  .io-ui .io-combat-page-arena { display: flex !important; flex-direction: column; gap: 10px; }
+  .io-ui .io-combat-page-arena .io-combat-arena-head,
+  .io-ui .io-combat-page-arena .io-combat-arena-toolbar { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .io-ui .io-combat-page-arena .io-combat-arena-rating { width: 100%; }
+  .io-ui .io-combat-page-arena .io-combat-arena-filters { display: grid; grid-template-columns: minmax(0,1fr); gap: 7px; }
+  .io-ui .io-combat-page-arena .io-combat-opponent-grid { grid-template-columns: minmax(0,1fr); gap: 9px; }
+  .io-ui .io-combat-page-arena .io-combat-opponent-card { padding: 13px; }
+  .io-ui .io-combat-page-arena .io-combat-arena-result-log { grid-template-columns: minmax(0,1fr); }
+
+  /* Runes: more inventory columns on phones; filters wrap without shrinking. */
+  .io-ui .io-runes-page {
+    display: flex !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex-direction: column;
+    gap: 11px;
+    overflow: visible !important;
+  }
+  .io-ui .io-runes-page > * { width: 100%; min-width: 0; height: auto !important; max-height: none !important; }
+  .io-ui .io-runes-page .io-runes-panel { padding: 13px !important; }
+  .io-ui .io-runes-page .io-runes-header { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .io-ui .io-runes-page .io-runes-header > :last-child { width: 100%; display: flex; flex-wrap: wrap; }
+  .io-ui .io-runes-page .io-runes-loadout { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-runes-page .io-runes-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-runes-page .io-runes-inventory-tools { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+  .io-ui .io-runes-page .io-runes-search { min-width: 0; flex: 1 1 100%; }
+  .io-ui .io-runes-page .io-runes-filter-group { max-width: 100%; overflow-x: auto; }
+  .io-ui .io-runes-page .io-runes-inventory { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; }
+  .io-ui .io-runes-page .io-runes-tooltip { width: min(310px,calc(100vw - 24px)); max-height: min(56dvh,420px); }
+
+  /* All dialogs behave like scrollable sheets above the phone's safe area. */
+  .io-ui .io-modal-backdrop {
+    align-items: flex-end !important;
+    padding: 8px 8px 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+  .io-ui .io-modal-card {
+    width: 100% !important;
+    max-width: 560px !important;
+    max-height: min(90dvh, 820px) !important;
+    margin: 0 auto;
+    padding: 18px 15px calc(16px + env(safe-area-inset-bottom,0px)) !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 20px 20px 0 0 !important;
+  }
+  .io-ui .io-modal-card :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea) { min-height: 44px; font-size: 16px; }
+  .io-ui .io-modal-card input:is([type="checkbox"],[type="radio"]) { width: 18px; height: 18px; min-height: 18px; }
+  .io-ui .io-modal-actions {
+    position: sticky;
+    bottom: -1px;
+    padding: 9px 0 2px;
+    background: linear-gradient(180deg,rgba(3,7,18,0),rgba(3,7,18,.98) 24%);
+  }
+
+  .io-ui .io-chat-window {
+    right: 11px !important;
+    bottom: calc(88px + env(safe-area-inset-bottom,0px)) !important;
+  }
+
+  .io-ui .io-chat-launcher {
+    right: 11px !important;
+    bottom: calc(88px + env(safe-area-inset-bottom,0px)) !important;
+  }
+
+  .io-ui.app-shell > .fixed.bottom-5.right-5 {
+    right: 11px;
+    bottom: calc(90px + env(safe-area-inset-bottom,0px));
+    left: 11px;
+    width: auto;
+  }
+
+  .io-ui .app-main :is(button, a, input, select, textarea, summary) { scroll-margin-block: 120px; }
+}
+
+@media (max-width: 420px) {
+  .io-ui .app-main { padding-inline: 9px; }
+  .io-ui .resource-item { grid-template-columns: 12px minmax(0,1fr); font-size: 9px; }
+  .io-ui .resource-item svg { width: 12px; height: 12px; }
+  .io-ui .resource-chip .resource-label { font-size: 7px; }
+  .io-ui .app-nav .nav-shell { grid-template-columns: minmax(0,1fr) 120px; gap: 4px; }
+  .io-ui .app-nav .nav-tab { min-height: 50px; }
+  .io-ui .io-combat-duel { grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr); }
+  .io-ui .io-combat-sprite { width: 50px; height: 50px; font-size: 28px; }
+  .io-ui .io-combat-command-group { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .io-ui .io-combat-page-gear .io-combat-gear-grid { grid-template-columns: minmax(0,1fr); }
+  .io-ui .io-combat-page-skills .io-combat-skill-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .io-ui .io-runes-page .io-runes-inventory { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+@media (max-width: 359px) {
+  .io-ui .header-actions { gap: 3px; }
+  .io-ui .app-nav .nav-shell { grid-template-columns: minmax(0,1fr) 112px; gap: 3px; }
+  .io-ui .app-nav .nav-tab { min-height: 48px; }
+  .io-ui .io-nav-more .io-nav-current-page { display: none; }
+  .io-ui .io-combat-run-controls { grid-template-columns: minmax(0,1fr); }
+  .io-ui .io-runes-page .io-runes-inventory { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+@media (min-width: 761px) and (max-width: 980px) {
+  .io-ui .app-main { padding: 14px 16px 28px; }
+  .io-ui .app-nav { position: relative; top: auto; }
+  .io-ui .nav-shell { gap: 6px; }
+  .io-ui .io-nav-primary { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+  .io-ui .io-nav-primary > .nav-tab { flex: 0 0 auto; padding-inline: 9px; }
+  .io-ui .io-nav-trailing { flex: 0 0 auto; }
+  .io-ui .io-page-shell { gap: 14px !important; }
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > .grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .io-ui .io-page-social [class*="grid-cols-1"][class*="lg:grid-cols-3"] { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .io-ui .io-combat-page-forge .io-combat-forge-slots { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-ui .app-nav,
+  .io-ui .app-nav *,
+  .io-ui .app-header,
+  .io-ui .app-header *,
+  .io-ui .io-modal-card {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+
+/* 2.1.31 mobile usability pass: more room for content, clearer navigation,
+   and larger combat controls without changing desktop layouts. */
+@media (max-width: 760px) {
+  .io-ui .app-header {
+    padding: calc(5px + env(safe-area-inset-top, 0px)) 9px 7px;
+  }
+
+  .io-ui .header-inner { gap: 6px; }
+  .io-ui .brand-mark {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    border-radius: 9px;
+  }
+  .io-ui .brand-lockup { gap: 7px; }
+  .io-ui .brand-copy > button.io-level-progress {
+    min-height: 18px;
+    margin-top: 1px;
+  }
+
+  .io-ui .header-actions { gap: 4px; }
+  .io-ui .header-actions > .offline-button {
+    min-height: 38px;
+    min-width: 108px;
+    padding-inline: 6px;
+    font-size: 9px;
+  }
+  .io-ui .header-actions > button:not(.offline-button),
+  .io-ui .header-actions > div:has(.header-icon-button) {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    flex: 0 0 36px;
+  }
+  .io-ui .header-actions > div:has(.header-icon-button) > button,
+  .io-ui .header-icon-button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    border-radius: 9px;
+  }
+  .io-ui .header-actions > :is(button, div) svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .io-ui .resource-chip {
+    min-height: 42px;
+    padding: 4px 7px;
+    gap: 4px;
+  }
+  .io-ui .resource-item { font-size: 10px; }
+  .io-ui .resource-value {
+    font-size: 11px;
+    line-height: 1.15;
+  }
+  .io-ui .resource-chip .resource-label {
+    font-size: 8.5px;
+    line-height: 1.1;
+  }
+
+  .io-ui .app-nav {
+    padding: 7px 8px calc(7px + env(safe-area-inset-bottom, 0px));
+  }
+  .io-ui .app-nav .nav-shell {
+    grid-template-columns: minmax(0, 1fr) 124px;
+    gap: 6px;
+  }
+  .io-ui .app-nav .nav-tab {
+    min-height: 56px;
+    gap: 4px;
+    padding: 5px 3px;
+  }
+  .io-ui .app-nav .io-nav-label {
+    font-size: 10px;
+    line-height: 1.15;
+  }
+  .io-ui .app-nav .io-nav-icon {
+    width: 19px;
+    height: 19px;
+  }
+  .io-ui .io-nav-more .io-nav-current-page { font-size: 9px; }
+  .io-ui .io-nav-menu {
+    width: min(320px, calc(100vw - 16px));
+    max-height: min(72dvh, 560px);
+    padding: 10px;
+  }
+  .io-ui .io-nav-menu .nav-tab {
+    min-height: 48px;
+    gap: 11px;
+    padding: 8px 10px;
+  }
+  .io-ui .io-nav-menu .io-nav-label { font-size: 12px; }
+
+  .io-ui .app-main {
+    padding: 10px 10px calc(128px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .io-ui .io-page-shell { gap: 11px !important; }
+  .io-ui .io-page-shell .io-page-hero { padding: 12px !important; }
+  .io-ui .io-page-shell .io-page-hero :is(h1, h2) {
+    font-size: 20px !important;
+    line-height: 1.18;
+  }
+
+  .io-ui .roll-main { gap: 9px; }
+  .io-ui .roll-main > .roll-stage {
+    min-height: clamp(228px, 62vw, 292px);
+    padding: 12px 8px;
+  }
+  .io-ui .io-main-orb {
+    width: min(44vw, 168px);
+    height: min(44vw, 168px);
+    min-width: 132px;
+    min-height: 132px;
+  }
+  .io-ui .io-orbit-track { transform: scale(.7); }
+  .io-ui .roll-controls { gap: 9px !important; }
+  .io-ui .roll-controls .roll-button {
+    min-height: 58px;
+    border-radius: 13px !important;
+    font-size: 16px;
+  }
+  .io-ui .roll-controls > button:not(.roll-button) { min-height: 48px; }
+  .io-ui .roll-action-hint {
+    max-width: 34ch;
+    font-size: 11px;
+    line-height: 1.4;
+    text-align: center;
+  }
+  .io-ui .roll-quick-upgrade-buy {
+    min-width: 82px;
+    min-height: 44px;
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+  .io-ui .roll-quick-upgrade-title { gap: 6px; }
+  .io-ui .roll-quick-upgrade-title strong { font-size: 12px; }
+
+  /* Give combat commands enough width for readable labels and confident taps. */
+  .io-ui .io-combat-command-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px;
+  }
+  .io-ui .io-combat-command {
+    min-width: 0;
+    min-height: 56px;
+    justify-content: center;
+    padding: 9px 10px;
+    border-radius: 11px;
+  }
+  .io-ui .io-combat-command > span { font-size: 11px; line-height: 1.2; }
+  .io-ui .io-combat-command > small { font-size: 9px; }
+  .io-ui .io-combat-run-controls > button {
+    min-height: 48px;
+    font-size: 10px;
+  }
+  .io-ui .io-combat-name { font-size: 9px; }
+  .io-ui .io-combat-combatant small { font-size: 9px; }
+  .io-ui .io-combat-stage-foot { font-size: 10px; }
+  .io-ui .io-combat-speed-row > span,
+  .io-ui .io-combat-speed-row > strong { font-size: 9px; }
+  .io-ui .io-nav-combat .io-nav-combat-list {
+    scroll-snap-type: x proximity;
+    padding-inline: 2px;
+  }
+  .io-ui .io-nav-combat .io-nav-combat-list > .nav-tab {
+    flex-basis: 68px;
+    scroll-snap-align: center;
+  }
+  .io-ui .io-nav-combat .io-combat-mode-switch { flex-basis: 78px; }
+
+  .io-ui .io-runes-page .io-runes-panel { padding: 12px !important; }
+  .io-ui .io-runes-page .io-runes-loadout,
+  .io-ui .io-runes-page .io-runes-stat-grid { gap: 8px; }
+  .io-ui .io-runes-page .io-runes-inventory { gap: 8px; }
+
+  .io-ui .app-main :is(button, a, input, select, textarea, summary):focus-visible,
+  .io-ui .app-nav :is(button, a):focus-visible,
+  .io-ui .app-header :is(button, a):focus-visible {
+    outline: 2px solid #8bc8ff;
+    outline-offset: 3px;
+  }
+  .io-ui .app-main button:active,
+  .io-ui .app-nav button:active,
+  .io-ui .app-header button:active {
+    transform: scale(.985);
+  }
+}
+
+@media (max-width: 420px) {
+  .io-ui .app-main { padding-inline: 9px; }
+  .io-ui .app-nav .nav-shell { grid-template-columns: minmax(0, 1fr) 116px; }
+  .io-ui .roll-main > .roll-stage { min-height: clamp(220px, 64vw, 258px); }
+  .io-ui .io-main-orb {
+    width: min(46vw, 154px);
+    height: min(46vw, 154px);
+    min-width: 130px;
+    min-height: 130px;
+  }
+  .io-ui .io-combat-command-group { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+@media (max-width: 359px) {
+  .io-ui .app-nav .nav-shell { grid-template-columns: minmax(0, 1fr) 108px; }
+  .io-ui .app-nav .nav-tab { min-height: 52px; }
+  .io-ui .header-actions > button:not(.offline-button),
+  .io-ui .header-actions > div:has(.header-icon-button) {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    flex-basis: 34px;
+  }
+  .io-ui .header-actions > div:has(.header-icon-button) > button,
+  .io-ui .header-icon-button {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+}
+
+
+/* 2.1.32 mobile first-fold pass: core shop first, secondary stats later. */
+@media (max-width: 760px) {
+  .io-ui .io-page-shell { gap: 10px !important; }
+  .io-ui .io-page-shell > .io-page-hero { padding: 11px !important; border-radius: 15px !important; gap: 9px !important; }
+  .io-ui .io-page-shell > .io-page-hero p { font-size: 11px; line-height: 1.38; }
+  .io-ui .io-page-upgrades { display: flex !important; flex-direction: column; gap: 10px !important; }
+  .io-ui .io-page-upgrades > .io-page-hero,
+  .io-ui .io-page-upgrades > .io-page-hero + div,
+  .io-ui .io-page-upgrades > .io-upgrade-stats-card,
+  .io-ui .io-page-upgrades > div:last-child { width: 100%; grid-column: auto !important; }
+  .io-ui .io-page-upgrades > .io-page-hero { order: 1; }
+  .io-ui .io-page-upgrades > .io-page-hero + div { order: 2; }
+  .io-ui .io-page-upgrades > .io-upgrade-stats-card { order: 3; }
+  .io-ui .io-page-upgrades > div:last-child { order: 4; }
+  .io-ui .io-upgrade-primary-group { padding: 10px !important; gap: 8px !important; }
+  .io-ui .io-upgrade-primary-group > header p { display: none; }
+  .io-ui .io-upgrade-primary-group .io-upgrade-card-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7px !important; }
+  .io-ui .io-upgrade-card { min-width: 0; min-height: 132px; padding: 9px !important; gap: 7px !important; border-radius: 12px !important; }
+  .io-ui .io-upgrade-card h3 { font-size: 11px !important; line-height: 1.2; }
+  .io-ui .io-upgrade-card p { display: none; }
+  .io-ui .io-upgrade-card button { min-height: 40px; padding: 7px 5px !important; font-size: 10px !important; line-height: 1.2; }
+  .io-ui .io-upgrade-card .text-right { max-width: 44%; }
+  .io-ui .io-upgrade-card .text-right > div { flex-wrap: wrap; justify-content: flex-end; }
+  .io-ui .io-upgrade-stats-card { order: 3; padding: 9px !important; }
+  .io-ui .io-upgrade-stats-card > .grid { gap: 7px !important; }
+  .io-ui .io-upgrade-stats-card > .grid > div { padding: 9px !important; }
+  .io-ui .io-upgrade-stats-card > .grid > div > span:first-child { font-size: 8px; }
+  .io-ui .io-upgrade-stats-card > .grid > div > span:last-child { font-size: 12px; }
+
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) { align-items: flex-end !important; justify-content: center !important; padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px)) !important; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-card {
+    width: min(100%, 560px) !important; max-width: 560px !important; max-height: min(84dvh, 720px) !important;
+    margin: 0 auto !important; padding: 18px 15px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: contain;
+    border-radius: 19px 19px 12px 12px !important; -webkit-overflow-scrolling: touch;
+  }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-actions { flex-direction: column; gap: 8px; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-actions > button,
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-actions > a { width: 100%; min-height: 48px; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-close { width: 38px; height: 38px; top: 8px; right: 8px; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) :is(h1, h2, h3) { max-width: 100%; overflow-wrap: anywhere; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) p { font-size: 12px; line-height: 1.48; }
+  .io-ui .io-page-intro { margin-bottom: 0 !important; }
+  .io-ui .io-page-shell > .io-page-hero { margin-bottom: 0 !important; }
+  .io-ui .io-combat-page-head { margin-bottom: 8px !important; }
+  .io-ui .io-combat-panel, .io-ui .io-runes-panel { padding: 11px !important; }
+}
+@media (max-width: 420px) {
+  .io-ui .io-upgrade-primary-group .io-upgrade-card-grid { gap: 6px !important; }
+  .io-ui .io-upgrade-card { min-height: 126px; padding: 8px !important; }
+  .io-ui .io-upgrade-card .text-right { max-width: 42%; }
+  .io-ui .io-modal-backdrop:not(.io-frenzy-calculating-backdrop) .io-modal-card { max-height: min(86dvh, 720px) !important; }
+}
+
+
+/* 2.1.34 desktop breathing-room pass.
+   Large screens use the available width and normal document flow instead of
+   shrinking every destination into a fixed-height dashboard. Phone rules above
+   remain untouched. */
+@media (min-width: 1180px) {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: visible !important;
+  }
+
+  .io-ui {
+    height: auto !important;
+    min-height: 100dvh;
+    overflow: visible !important;
+  }
+
+  .io-ui .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    flex: 0 0 auto;
+  }
+
+  .io-ui .app-nav {
+    position: sticky;
+    top: 62px;
+    z-index: 50;
+    flex: 0 0 auto;
+  }
+
+  .io-ui .app-main {
+    display: block !important;
+    width: 100%;
+    max-width: min(100%, 1720px) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+    padding: 28px clamp(24px, 3vw, 52px) 64px !important;
+  }
+
+  .io-ui .app-main > :is(.roll-layout, .io-page-shell, .io-combat-screen, .io-runes-page) {
+    width: 100%;
+    max-width: min(100%, 1640px) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    margin-inline: auto;
+    overflow: visible !important;
+  }
+
+  /* Progression pages keep their useful internal grids, but no longer have
+     fixed-height rows or clipped card contents. */
+  .io-ui .io-page-shell {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch;
+    align-content: initial;
+    gap: 20px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding-bottom: 0 !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-shell > * {
+    width: 100%;
+    height: auto !important;
+    min-width: 0;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-shell .io-page-hero {
+    padding: 20px 26px !important;
+  }
+
+  .io-ui .io-page-shell .io-page-hero :is(h1, h2) {
+    font-size: 26px !important;
+    line-height: 1.2;
+  }
+
+  .io-ui .io-page-shell .io-page-hero p {
+    max-width: 100ch;
+    font-size: 13px !important;
+    line-height: 1.55;
+  }
+
+  .io-ui .io-page-shell :is(section, article, form)[class*="rounded-2xl"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* The roll screen retains its desktop two-column play layout, but the Orb,
+     action controls, and quick-upgrade rail get real space. */
+  .io-ui .app-main > .roll-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+    grid-template-rows: auto;
+    align-items: start;
+    gap: 24px;
+    overflow: visible !important;
+  }
+
+  .io-ui .roll-main {
+    display: grid !important;
+    width: 100%;
+    max-width: none !important;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+    grid-template-rows: auto auto auto minmax(380px, auto) auto auto;
+    align-content: start;
+    align-items: center;
+    gap: 14px 22px;
+  }
+
+  .io-ui .roll-main > .roll-stage {
+    height: 100%;
+    min-height: 380px;
+    max-height: 520px;
+    padding: 14px 16px;
+  }
+
+  .io-ui .roll-main > .roll-controls {
+    width: 100%;
+    max-width: none !important;
+    min-height: 0;
+    justify-content: center;
+    gap: 10px !important;
+    padding: 10px 0;
+  }
+
+  .io-ui .roll-controls .roll-button {
+    min-height: 52px;
+    padding-block: 12px !important;
+    font-size: 14px;
+  }
+
+  .io-ui .roll-controls > button:not(.roll-button),
+  .io-ui .roll-controls details > summary {
+    min-height: 40px;
+    padding-block: 8px !important;
+  }
+
+  .io-ui .roll-sidebar {
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .io-ui .roll-sidebar .field-card {
+    padding: 15px;
+  }
+
+  /* Upgrades become a readable full-width shop. Descriptions and upgrade
+     values remain visible instead of being hidden or clipped to one line. */
+  .io-ui .io-page-upgrades > .io-page-hero + div {
+    display: flex !important;
+    flex-direction: column;
+    height: auto !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    gap: 18px !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section {
+    display: block !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 18px 20px !important;
+    gap: 14px !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-page-hero + div > section > header p {
+    display: block !important;
+    font-size: 12px !important;
+    line-height: 1.45;
+  }
+
+  .io-ui .io-page-upgrades .io-upgrade-card-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+    grid-auto-rows: auto;
+    gap: 12px !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-upgrade-card {
+    height: auto !important;
+    min-height: 176px;
+    padding: 16px !important;
+    gap: 12px !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-upgrade-card h3 {
+    font-size: 14px !important;
+    line-height: 1.25;
+  }
+
+  .io-ui .io-upgrade-card p {
+    display: block !important;
+    overflow: visible !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+    -webkit-line-clamp: unset !important;
+  }
+
+  .io-ui .io-upgrade-card .text-right {
+    max-width: none !important;
+  }
+
+  .io-ui .io-upgrade-card button {
+    min-height: 42px;
+    padding: 9px 12px !important;
+    font-size: 11px !important;
+  }
+
+  .io-ui .io-page-upgrades > .io-upgrade-stats-card {
+    padding: 16px !important;
+  }
+
+  /* Combat keeps its two-column dashboard structure, but panels expand to
+     their content and the page itself becomes the only vertical scroller. */
+  .io-ui .io-combat-screen {
+    width: 100%;
+    max-width: min(100%, 1640px) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    align-content: start;
+    overflow: visible !important;
+    gap: 16px;
+  }
+
+  .io-ui .io-combat-screen > * {
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  .io-ui .io-combat-screen :is(
+    .io-combat-panel,
+    .io-combat-stage,
+    .io-combat-turn-tracker,
+    .io-combat-tactic-row,
+    .io-combat-columns,
+    .io-combat-gear-grid,
+    .io-combat-skill-grid,
+    .io-combat-dungeon-hero,
+    .io-combat-rule-panel,
+    .io-combat-training-content,
+    .io-combat-skill-results,
+    .io-combat-opponent-grid,
+    .io-combat-arena-result,
+    .io-combat-forge-panel,
+    .io-combat-auto-scrap-panel
+  ) {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-runes-page {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    grid-template-rows: auto auto;
+    overflow: visible !important;
+  }
+
+  .io-ui .io-runes-page > * {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+
+/* Mobile Gear uses direct, large tap targets rather than requiring the
+   floating item inspector to reach the Equip action. Desktop keeps the compact
+   icon grid and its existing inspector unchanged. */
+.io-ui .io-combat-gear-mobile-details,
+.io-ui .io-combat-gear-mobile-equip {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .io-ui .io-combat-page-gear .io-combat-gear-icon-wrap {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    align-items: center;
+    justify-content: stretch;
+    gap: 10px;
+    min-width: 0;
+    padding: 9px;
+    border: 1px solid #39313f;
+    border-radius: 13px;
+    background: linear-gradient(145deg, rgba(37, 29, 45, .96), rgba(18, 15, 23, .96));
+    text-align: left;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-icon {
+    width: 76px;
+    max-width: 76px;
+    height: 76px;
+    aspect-ratio: auto;
+    touch-action: manipulation;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-mobile-details {
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    gap: 6px;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-mobile-details > strong {
+    color: #f1e8f7;
+    font-size: 11px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-mobile-details > small {
+    color: #aa9eaf;
+    font: 800 8px ui-monospace, monospace;
+    letter-spacing: .04em;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-mobile-equip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    padding: 8px 12px;
+    border: 1px solid rgba(190, 154, 239, .5);
+    border-radius: 9px;
+    background: linear-gradient(110deg, rgba(117, 72, 163, .34), rgba(58, 39, 83, .55));
+    color: #f1e6ff;
+    font-size: 11px;
+    font-weight: 900;
+    touch-action: manipulation;
+  }
+
+  .io-ui .io-combat-page-gear .io-combat-gear-mobile-equip:disabled {
+    border-color: rgba(145, 170, 116, .35);
+    background: rgba(85, 110, 57, .16);
+    color: #c5d8aa;
+    opacity: .82;
+  }
+}
+
+
+/* 2.1.48 · Adaptive experience pass
+   Fluid layouts, smaller desktop Armory, mobile-safe controls and fullscreen flow. */
+.io-ui { width:100%; max-width:100%; min-width:0; overflow-x:clip; --io-layout-gap:clamp(10px,1.2vw,18px); }
+html,body,#root { width:100%; max-width:100%; min-width:320px; overflow-x:clip; }
+.io-ui .app-main,
+.io-ui .app-main > :is(.roll-layout,.io-page-shell,.io-combat-screen,.io-runes-page) {
+  width:100%; max-width:100%; min-width:0; box-sizing:border-box;
+}
+.io-ui :is(.roll-layout,.roll-main,.roll-sidebar,.io-page-shell,.io-combat-screen,.io-runes-page),
+.io-ui :is(.grid,[class*="grid-cols-"],.flex,[class*="flex-"]) > * { min-width:0; }
+.io-ui :is(h1,h2,h3,h4,p,li,span,strong,small,label,summary,a,td,th) { overflow-wrap:anywhere; }
+.io-ui :is(button,[role="button"],summary,a,input,select,textarea) { max-width:100%; box-sizing:border-box; }
+.io-ui :is(input,select,textarea) { min-width:0; }
+.io-ui :is(img,video,canvas,svg) { max-width:100%; }
+.io-ui pre { max-width:100%; overflow-x:auto; overflow-wrap:anywhere; overscroll-behavior-x:contain; }
+.io-ui .io-page-shell > *,
+.io-ui .io-combat-screen > *,
+.io-ui .io-runes-page > * { min-width:0; max-width:100%; }
+.io-ui .io-page-shell :is(section,article,form,aside) { min-width:0; }
+.io-ui .io-page-hero,.io-ui .io-combat-page-head { min-width:0; max-width:100%; }
+.io-ui .io-page-hero :is(h1,h2,p),.io-ui .io-combat-page-head :is(h1,h2,p) { max-width:100%; overflow-wrap:anywhere; }
+.io-ui .io-modal-backdrop {
+  box-sizing:border-box; max-width:100vw; max-height:100dvh;
+  padding:clamp(10px,2vw,26px) calc(10px + env(safe-area-inset-left,0px))
+    calc(10px + env(safe-area-inset-bottom,0px)) calc(10px + env(safe-area-inset-right,0px));
+}
+.io-ui .io-modal-backdrop .io-modal-card {
+  box-sizing:border-box; width:min(100%,900px); max-width:min(100%,900px);
+  max-height:min(90dvh,860px); overflow-x:hidden; overflow-y:auto;
+  overscroll-behavior:contain; scrollbar-gutter:stable;
+}
+.io-ui :is(.io-combat-gear-tooltip,.io-combat-skill-tooltip) {
+  box-sizing:border-box; max-width:min(360px,calc(100vw - 24px));
+  max-height:min(78dvh,720px); overflow-x:hidden; overflow-y:auto;
+  overscroll-behavior:contain; overflow-wrap:anywhere;
+}
+.io-ui .io-combat-screen,
+.io-ui .io-combat-screen :is(.io-combat-panel,.io-combat-stage,.io-combat-orb-panel,
+  .io-combat-turn-tracker,.io-combat-tactic-row,.io-combat-columns,.io-combat-dungeon-hero,
+  .io-combat-rule-panel,.io-combat-forge-panel,.io-combat-auto-scrap-panel) {
+  min-width:0; max-width:100%;
+}
+.io-ui .io-combat-stage-top,.io-ui .io-combat-stage-foot,.io-ui .io-combat-panel-head,
+.io-ui .io-combat-page-head,.io-ui .io-combat-arena-toolbar,.io-ui .io-combat-arena-filters,
+.io-ui .io-combat-inventory-head { min-width:0; flex-wrap:wrap; }
+.io-ui .io-combat-stat-strip > *,
+.io-ui .io-combat-speed-row > *,
+.io-ui .io-combat-equipped-line > * { min-width:0; }
+.io-ui .io-combat-log,.io-ui .io-combat-loot-items,
+.io-ui .io-combat-equipped-line strong,.io-ui .io-combat-equipped-card > strong {
+  overflow-wrap:anywhere; word-break:normal;
+}
+.io-ui .io-combat-gear-grid,.io-ui .io-combat-equipped-grid,
+.io-ui .io-combat-skill-grid,.io-ui .io-combat-opponent-grid,
+.io-ui .io-runes-inventory { min-width:0; max-width:100%; align-content:start; }
+.io-ui :is(button,[role="button"],summary,input,select,textarea):focus-visible {
+  outline:2px solid rgba(116,221,202,.9); outline-offset:2px;
+}
+.io-ui :is(button,[role="button"],summary) { touch-action:manipulation; }
+.io-ui .io-page-shell .io-page-hero :is(h1,h2) { font-size:clamp(20px,2vw,29px); line-height:1.18; }
+.io-ui .io-page-upgrades .io-upgrade-card-grid {
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)) !important;
+}
+.io-ui .io-page-upgrades .io-upgrade-card { min-width:0; min-height:0; height:auto; }
+.io-ui .io-page-social > [role="group"] { min-width:0; max-width:100%; flex-wrap:wrap; }
+
+@media (min-width:1180px) {
+  html,body,#root { height:auto !important; min-height:100%; overflow-x:clip; overflow-y:visible !important; }
+  .io-ui { height:auto !important; min-height:100dvh; overflow:visible !important; }
+  .io-ui .app-main {
+    width:100%; max-width:min(100%,1880px) !important;
+    padding:clamp(18px,2vw,30px) clamp(20px,2.6vw,48px) clamp(38px,4vw,64px) !important;
+    overflow:visible !important;
+  }
+  .io-ui .header-inner,.io-ui .nav-shell {
+    max-width:min(100%,1840px) !important; padding-inline:clamp(16px,2vw,36px);
+  }
+  .io-ui .app-main > .roll-layout {
+    grid-template-columns:minmax(0,1fr) minmax(300px,370px);
+    gap:clamp(18px,2vw,34px); align-items:start;
+  }
+  .io-ui .roll-main {
+    min-width:0; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr);
+    gap:14px clamp(14px,1.4vw,22px);
+  }
+  .io-ui .roll-main > .roll-stage { min-width:0; min-height:clamp(380px,48vh,620px); max-height:680px; }
+  .io-ui .io-page-shell { gap:clamp(14px,1.3vw,22px) !important; }
+  .io-ui .io-page-shell > * { min-width:0; max-width:100%; }
+
+  /* Combat screens use content-driven page height rather than viewport-sized rows. */
+  .io-ui .io-combat-screen {
+    display:flex !important; flex-direction:column; align-items:stretch;
+    gap:var(--io-layout-gap); width:100%; max-width:min(100%,1760px) !important;
+    height:auto !important; min-height:calc(100dvh - 150px);
+    max-height:none !important; overflow:visible !important;
+  }
+  .io-ui .io-combat-screen > * {
+    width:100%; min-width:0; min-height:0 !important; max-height:none !important; margin:0 !important;
+  }
+  .io-ui .io-combat-screen .io-combat-panel { padding:clamp(12px,1vw,18px); overflow:visible !important; }
+  .io-ui .io-combat-screen .io-combat-stat-strip {
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px;
+  }
+  .io-ui .io-combat-screen .io-combat-stat-strip > div { min-width:0; padding:9px 11px; }
+  .io-ui .io-combat-screen .io-combat-stat-strip strong { font-size:clamp(14px,1vw,18px); overflow-wrap:anywhere; }
+
+  /* Fight: stage and turn order alongside the Orb readout and tactic. */
+  .io-ui .io-combat-page-fight {
+    display:grid !important; grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);
+    grid-template-rows:none; grid-auto-rows:auto; align-items:start; align-content:start;
+    gap:12px; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-fight > :is(.io-combat-page-head,.io-combat-error,.io-combat-control-row,
+    .io-combat-panel,.io-combat-stat-strip,.io-combat-columns,.io-combat-pending) {
+    grid-column:1/-1 !important; grid-row:auto !important;
+  }
+  .io-ui .io-combat-page-fight > :is(.io-combat-stage,.io-combat-turn-tracker) { grid-column:1 !important; grid-row:auto !important; }
+  .io-ui .io-combat-page-fight > :is(.io-combat-orb-panel,.io-combat-tactic-row) { grid-column:2 !important; grid-row:auto !important; }
+  .io-ui .io-combat-page-fight > * { min-height:0 !important; max-height:none !important; }
+  .io-ui .io-combat-page-fight .io-combat-stage { min-height:270px; height:auto !important; }
+  .io-ui .io-combat-page-fight .io-combat-columns {
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-fight .io-combat-columns > * { min-width:0; overflow:visible !important; }
+  .io-ui .io-combat-page-fight .io-combat-turn-sequence { max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+
+  .io-ui .io-combat-page-dungeons {
+    display:flex !important; flex-direction:column; gap:12px; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-choice-grid {
+    grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px;
+  }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-choice { min-width:0; height:auto; min-height:0; }
+
+  /* Armory: 52px actual item tiles, dense 76px columns and compact equipped cards. */
+  .io-ui .io-combat-page-gear {
+    display:flex !important; flex-direction:column; gap:12px;
+    grid-template-columns:none !important; grid-template-rows:none !important; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-gear > * { width:100%; min-width:0; grid-column:auto !important; grid-row:auto !important; }
+  .io-ui .io-combat-page-gear .io-combat-equipped-grid {
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr)) !important; gap:8px;
+  }
+  .io-ui .io-combat-page-gear .io-combat-equipped-card { min-width:0; min-height:0; padding:9px 10px; }
+  .io-ui .io-combat-page-gear .io-combat-equipped-card :is(p,small) { font-size:10px; line-height:1.35; overflow-wrap:anywhere; }
+  .io-ui .io-combat-page-gear .io-combat-gear-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)) !important;
+    grid-auto-rows:min-content; align-items:start; align-content:start; gap:8px;
+    max-height:none !important; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon-wrap { width:100%; max-width:62px; min-width:0; margin-inline:auto; }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon {
+    width:52px; min-width:52px; max-width:52px; height:52px; min-height:52px;
+    aspect-ratio:1; gap:2px; border-radius:9px;
+  }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon > small { font-size:8px; }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon-power { left:3px; bottom:2px; font-size:7px; }
+
+  .io-ui .io-combat-page-forge {
+    display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:none !important; grid-auto-rows:auto; align-items:start; gap:12px;
+    overflow:visible !important;
+  }
+  .io-ui .io-combat-page-forge > :is(.io-combat-page-head,.io-combat-error,.io-combat-stat-strip,
+    .io-combat-forge-success,.io-combat-pending) { grid-column:1/-1 !important; grid-row:auto !important; }
+  .io-ui .io-combat-page-forge > .io-combat-forge-panel { grid-column:1 !important; }
+  .io-ui .io-combat-page-forge > .io-combat-auto-scrap-panel { grid-column:2 !important; }
+  .io-ui .io-combat-page-skills { display:flex !important; flex-direction:column; gap:12px; overflow:visible !important; }
+  .io-ui .io-combat-page-skills .io-combat-skill-grid {
+    grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); grid-auto-rows:min-content; gap:10px;
+  }
+  .io-ui .io-combat-page-arena {
+    display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:none !important; grid-auto-rows:auto; align-items:start; gap:12px;
+    overflow:visible !important;
+  }
+  .io-ui .io-combat-page-arena > :is(.io-combat-page-head,.io-combat-error,.io-combat-arena-head,
+    .io-combat-arena-result,.io-combat-opponent-grid,.io-combat-stat-strip,.io-combat-pending) {
+    grid-column:1/-1 !important; grid-row:auto !important;
+  }
+  .io-ui .io-combat-page-arena > .io-combat-arena-toolbar { grid-column:1 !important; }
+  .io-ui .io-combat-page-arena > .io-combat-arena-filters { grid-column:2 !important; }
+  .io-ui .io-combat-page-arena .io-combat-opponent-grid {
+    grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); overflow:visible !important;
+  }
+  .io-ui .io-runes-page {
+    display:flex !important; flex-direction:column; gap:14px; height:auto !important;
+    min-height:0 !important; max-height:none !important; overflow:visible !important;
+  }
+  .io-ui .io-runes-page > * { min-width:0; max-width:100%; height:auto !important; min-height:0 !important; max-height:none !important; overflow:visible !important; }
+  .io-ui .io-runes-page .io-runes-inventory { grid-template-columns:repeat(auto-fill,minmax(68px,1fr)); gap:8px; }
+}
+
+@media (min-width:761px) and (max-width:1179px) {
+  .io-ui .app-main { width:100%; max-width:100%; padding-inline:clamp(14px,2.2vw,26px); }
+  .io-ui .io-combat-screen { display:flex !important; flex-direction:column; gap:12px; height:auto !important; min-height:0 !important; max-height:none !important; overflow:visible !important; }
+  .io-ui .io-combat-screen > * { width:100%; min-width:0; min-height:0 !important; max-height:none !important; }
+  .io-ui .io-combat-page-gear .io-combat-gear-grid { grid-template-columns:repeat(auto-fill,minmax(64px,1fr)) !important; gap:7px; }
+  .io-ui .io-combat-page-gear .io-combat-gear-icon { width:48px; min-width:48px; max-width:48px; height:48px; min-height:48px; }
+  .io-ui .io-combat-page-gear .io-combat-equipped-grid { grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); }
+  .io-ui .io-combat-page-fight { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:none !important; }
+  .io-ui .io-combat-page-fight > :is(.io-combat-page-head,.io-combat-control-row,.io-combat-panel,.io-combat-stat-strip,.io-combat-columns,.io-combat-pending) { grid-column:1/-1 !important; grid-row:auto !important; }
+  .io-ui .io-combat-page-fight > :is(.io-combat-stage,.io-combat-turn-tracker) { grid-column:1 !important; }
+  .io-ui .io-combat-page-fight > :is(.io-combat-orb-panel,.io-combat-tactic-row) { grid-column:2 !important; }
+  .io-ui .io-combat-page-forge,.io-ui .io-combat-page-arena { display:flex !important; flex-direction:column; height:auto !important; max-height:none !important; overflow:visible !important; }
+}
+
+@media (max-width:760px) {
+  html,body,#root,.io-ui { width:100%; min-width:0; max-width:100%; overflow-x:clip; }
+  .io-ui .app-main { width:100%; min-width:0; padding-inline:clamp(10px,3vw,16px) !important; }
+  .io-ui .io-page-shell,.io-ui .io-combat-screen,.io-ui .io-runes-page,.io-ui .roll-layout {
+    width:100%; min-width:0; max-width:100%; height:auto !important; min-height:0 !important;
+    max-height:none !important; overflow:visible !important;
+  }
+  .io-ui .io-combat-screen { display:flex !important; flex-direction:column; gap:12px; }
+  .io-ui .io-combat-page-fight,.io-ui .io-combat-page-forge,.io-ui .io-combat-page-arena {
+    display:flex !important; flex-direction:column; gap:10px; height:auto !important; max-height:none !important; overflow:visible !important;
+  }
+  .io-ui .io-combat-page-fight > *,.io-ui .io-combat-page-forge > *,.io-ui .io-combat-page-arena > * {
+    width:100%; min-width:0; max-width:100%; grid-column:auto !important; grid-row:auto !important;
+  }
+  .io-ui .io-combat-screen .io-combat-stat-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .io-ui .io-combat-page-dungeons .io-combat-dungeon-choice-grid { grid-template-columns:minmax(0,1fr); }
+  .io-ui .io-combat-page-gear .io-combat-equipped-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .io-ui .io-combat-page-gear .io-combat-gear-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .io-ui .io-combat-page-gear .io-combat-gear-grid { max-height:none !important; overflow:visible !important; }
+  .io-ui .io-combat-page-fight .io-combat-columns { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; }
+  .io-ui .io-combat-page-fight .io-combat-stage { height:auto !important; min-height:190px; max-height:none !important; }
+  .io-ui .io-combat-page-fight .io-combat-turn-sequence { max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+  .io-ui .io-combat-page-head { align-items:flex-start; flex-wrap:wrap; gap:8px; }
+  .io-ui .io-combat-page-head p,.io-ui .io-combat-page-head .io-combat-run-stamp { max-width:100%; }
+  .io-ui .io-combat-pending { min-height:38px; padding:8px 10px; font-size:10px; }
+  .io-ui .app-main :is(button,[role="button"],summary) { min-height:44px; }
+  .io-ui .io-modal-backdrop { padding-inline:8px; }
+  .io-ui .io-modal-backdrop .io-modal-card { width:100%; max-width:100%; max-height:min(90dvh,820px); }
+}
+@media (max-width:420px) {
+  .io-ui .io-combat-page-gear .io-combat-gear-filters { grid-template-columns:minmax(0,1fr); }
+  .io-ui .io-combat-page-fight .io-combat-stage { padding:9px; }
+  .io-ui .io-page-shell .io-page-hero { padding:11px !important; }
+  .io-ui .io-page-shell .io-page-hero :is(h1,h2) { font-size:clamp(19px,6vw,24px) !important; }
+}
+@media (max-width:359px) {
+  .io-ui .io-combat-screen .io-combat-stat-strip,
+  .io-ui .io-combat-page-gear .io-combat-equipped-grid { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:980px) and (orientation:landscape) and (max-height:540px) {
+  .io-ui .app-header,.io-ui .app-nav { position:relative; }
+  .io-ui .app-main { padding-top:10px !important; padding-bottom:24px !important; }
+  .io-ui .io-modal-backdrop .io-modal-card { max-height:88dvh; }
+  .io-ui .io-combat-page-fight .io-combat-stage { min-height:150px; }
+}
+#root:fullscreen { width:100vw; height:100dvh; min-height:100dvh; max-width:100vw; overflow-x:clip; overflow-y:auto; }
+#root:fullscreen .io-ui { width:100%; min-height:100%; height:auto !important; overflow:visible !important; }
+#root:fullscreen .io-ui .app-main { width:100%; max-width:100%; padding-inline:clamp(12px,2vw,36px) !important; }
+@media (prefers-reduced-motion:reduce) {
+  .io-ui *,.io-ui *::before,.io-ui *::after {
+    scroll-behavior:auto !important; animation-duration:.01ms !important;
+    animation-iteration-count:1 !important; transition-duration:.01ms !important;
+  }
+}
+@supports (content-visibility:auto) {
+  .io-ui .io-combat-page-gear .io-combat-gear-grid > *,
+  .io-ui .io-combat-page-skills .io-combat-skill-grid > *,
+  .io-ui .io-combat-page-arena .io-combat-opponent-grid > *,
+  .io-ui .io-runes-inventory > *,
+  .io-ui .io-page-upgrades .io-upgrade-card { content-visibility:auto; contain-intrinsic-size:auto 92px; }
+}
+
+/* Devvit expanded mode is the game's real fullscreen presentation. The webview
+   is a larger modal on desktop and a full-screen surface on mobile, so detect
+   it from the Devvit mode class rather than the browser :fullscreen pseudo-class. */
+.io-ui.io-expanded-view .app-main {
+  width: 100%;
+  max-width: min(100%, 1880px) !important;
+  padding-inline: clamp(18px, 2.6vw, 48px) !important;
+}
+.io-ui.io-expanded-view .io-page-codex {
+  width: 100%;
+  max-width: 1800px !important;
+}
+.io-ui.io-expanded-view .io-page-codex .io-codex-milestone-grid {
+  display: grid !important;
+  grid-template-columns: repeat(9, minmax(0, 1fr)) !important;
+  align-items: stretch;
+  gap: clamp(6px, .7vw, 12px) !important;
+}
+.io-ui.io-expanded-view .io-page-codex .io-codex-milestone-card {
+  min-width: 0;
+  min-height: clamp(148px, 18vh, 220px) !important;
+  padding: clamp(8px, .9vw, 16px) clamp(4px, .5vw, 9px) !important;
+  gap: clamp(7px, .8vh, 12px) !important;
+  border-radius: 18px;
+}
+.io-ui.io-expanded-view .io-page-codex .io-codex-milestone-card .io-rarity-orb-icon {
+  width: clamp(48px, 5vw, 88px) !important;
+  flex: 0 0 auto;
+}
+.io-ui.io-expanded-view .io-page-codex .io-codex-milestone-name {
+  font-size: clamp(13px, 1vw, 17px) !important;
+  line-height: 1.2;
+}
+.io-ui.io-expanded-view .io-page-codex .io-codex-milestone-odds {
+  font-size: clamp(11px, .82vw, 14px) !important;
+  line-height: 1.25;
+}
+.io-ui.io-expanded-view .io-rarity-modal {
+  width: min(1180px, calc(100vw - 48px)) !important;
+  max-width: min(1180px, calc(100vw - 48px)) !important;
+  max-height: min(92dvh, 1120px) !important;
+  padding: clamp(16px, 2vw, 28px) !important;
+}
+.io-ui.io-expanded-view .io-rarity-modal .io-rarity-tier-row {
+  min-height: 76px;
+  padding-block: clamp(12px, 1.2vh, 18px);
+  gap: clamp(12px, 1.4vw, 20px);
+}
+.io-ui.io-expanded-view .io-rarity-modal .io-rarity-orb-icon--compact {
+  width: clamp(44px, 3.8vw, 58px) !important;
+}
+
+/* The fourth continuum row (Epic) gets a moving spectrum accent. */
+.io-rarity-tier-row--shifting {
+  position: relative;
+  isolation: isolate;
+  background-image: linear-gradient(
+    105deg,
+    rgba(251, 146, 60, .10),
+    rgba(250, 204, 21, .08),
+    rgba(74, 222, 128, .08),
+    rgba(56, 189, 248, .09),
+    rgba(192, 132, 252, .10),
+    rgba(251, 146, 60, .10)
+  ) !important;
+  background-size: 260% 100%;
+  animation: io-rarity-epic-row-shift 9s linear infinite;
+}
+.io-rarity-tier-row--shifting::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto 0 0;
+  width: 4px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(180deg, #fb923c, #facc15, #4ade80, #38bdf8, #c084fc, #fb923c);
+  background-size: 100% 260%;
+  animation: io-rarity-epic-row-shift 6s linear infinite;
+}
+.io-rarity-tier-row--shifting .io-rarity-tier-name-cell > span {
+  color: transparent !important;
+  background-image: linear-gradient(90deg, #fb923c, #facc15, #4ade80, #38bdf8, #c084fc, #fb923c);
+  background-size: 260% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: io-rarity-epic-row-shift 6s linear infinite;
+}
+.io-rarity-tier-row--shifting .io-rarity-orb-icon::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  content: "";
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .58;
+  mix-blend-mode: color;
+  background: conic-gradient(
+    from 0deg,
+    #fb923c,
+    #facc15,
+    #4ade80,
+    #38bdf8,
+    #818cf8,
+    #c084fc,
+    #fb923c
+  );
+  animation: io-rarity-epic-orb-shift 8s linear infinite;
+}
+.io-rarity-tier-row--shifting .io-rarity-orb-icon__glint { z-index: 1; }
+.io-rarity-tier-row--shifting .io-rarity-orb-icon__shine { z-index: 2; }
+.io-rarity-tier-row--shifting .io-rarity-orb-icon.is-locked {
+  opacity: .78;
+  filter: saturate(.82) brightness(.76);
+}
+@keyframes io-rarity-epic-row-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 260% 50%; }
+}
+@keyframes io-rarity-epic-orb-shift {
+  from { transform: rotate(0deg); filter: hue-rotate(0deg); }
+  to { transform: rotate(360deg); filter: hue-rotate(360deg); }
+}
+
+@media (max-width: 760px) {
+  .io-ui.io-expanded-view .app-main {
+    padding-inline: clamp(10px, 3vw, 18px) !important;
+  }
+  .io-ui.io-expanded-view .io-page-codex .io-codex-milestone-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+  .io-ui.io-expanded-view .io-page-codex .io-codex-milestone-card {
+    min-height: 142px !important;
+    padding: 10px 4px !important;
+    gap: 7px !important;
+  }
+  .io-ui.io-expanded-view .io-page-codex .io-codex-milestone-card .io-rarity-orb-icon {
+    width: clamp(46px, 13.5vw, 64px) !important;
+  }
+  .io-ui.io-expanded-view .io-rarity-modal {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    padding: 12px !important;
+  }
+  .io-ui.io-expanded-view .io-rarity-modal .io-rarity-orb-icon--compact {
+    width: 36px !important;
+  }
+}
+@media (max-width: 420px) {
+  .io-ui.io-expanded-view .io-page-codex .io-codex-milestone-card {
+    min-height: 136px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .io-rarity-tier-row--shifting,
+  .io-rarity-tier-row--shifting::before,
+  .io-rarity-tier-row--shifting .io-rarity-tier-name-cell > span,
+  .io-rarity-tier-row--shifting .io-rarity-orb-icon::after {
+    animation: none !important;
+  }
+}
+
+
+/* Combat Skill Gacha details use a dedicated tap-open sheet on phones.
+   Floating tooltips are hover-first and can be clipped by the mobile webview. */
+.io-combat-skill-mobile-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(2, 4, 12, .82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.io-combat-skill-mobile-detail {
+  width: min(100%, 560px);
+  max-height: min(82dvh, 680px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  padding: 19px 17px 17px;
+  border: 1px solid rgba(167, 139, 250, .42);
+  border-radius: 21px 21px 13px 13px;
+  background: linear-gradient(155deg, rgba(24, 18, 38, .99), rgba(7, 12, 24, .99));
+  color: #f8fafc;
+  box-shadow: 0 -18px 64px rgba(0, 0, 0, .56), 0 0 36px rgba(139, 92, 246, .13);
+}
+.io-combat-skill-mobile-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.io-combat-skill-mobile-detail h2 {
+  margin: 10px 0 7px;
+  color: #fff;
+  font-size: 21px;
+  line-height: 1.2;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+.io-combat-skill-mobile-detail > p {
+  margin: 0 0 13px;
+  color: #d1d5e2;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.io-combat-skill-mobile-detail > small {
+  display: block;
+  margin: 9px 0 7px;
+  color: #d5ff85;
+  font-size: 11px;
+  font-weight: 800;
+}
+.io-combat-skill-mobile-detail-note {
+  padding: 10px 11px;
+  border: 1px solid rgba(148, 163, 184, .2);
+  border-radius: 11px;
+  background: rgba(15, 23, 42, .55);
+}
+.io-combat-skill-mobile-detail-close {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .7);
+  color: #e2e8f0;
+  font-size: 25px;
+  line-height: 1;
+}
+.io-combat-skill-mobile-detail > .io-combat-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 14px;
+}
+@media (max-width: 760px) {
+  .io-ui .io-combat-skill-icon-wrap .io-combat-skill-tooltip {
+    display: none !important;
+  }
+}
+
+
+/* Mobile Combat uses a fixed bottom dock. Four core destinations stay visible;
+   the remaining three live in an upward-opening More menu. */
+@media (max-width: 760px) {
+  .io-ui .app-main.io-app-main-combat {
+    padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .io-ui .app-nav.io-nav-combat {
+    position: fixed !important;
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 100;
+    width: 100% !important;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    border-top: 1px solid var(--io-line-bright);
+    background: rgba(12, 19, 31, .96);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, .24);
+    backdrop-filter: blur(16px);
+  }
+
+  .io-ui .app-nav.io-nav-combat .nav-shell {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 58px !important;
+    align-items: stretch;
+    flex-direction: row !important;
+    gap: 6px;
+    width: 100%;
+    max-width: none;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    gap: 3px;
+    padding: 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list > .io-nav-combat-overflow {
+    display: none !important;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list > .io-nav-item {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    gap: 3px;
+    padding: 5px 2px;
+    border-radius: 11px;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list > .io-nav-item .io-nav-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-list > .io-nav-item .io-nav-label {
+    font-size: 9px;
+    line-height: 1.1;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-trailing {
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    width: auto;
+    min-width: 0;
+    flex: 0 0 58px;
+    margin: 0;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-mobile-more {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    align-self: stretch;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-more {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    gap: 3px;
+    padding: 5px 2px;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-more .io-nav-label {
+    font-size: 9px;
+    line-height: 1.1;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-more .io-nav-current-page {
+    display: none;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-more .io-nav-chevron {
+    width: 14px;
+    height: 14px;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-menu {
+    top: auto !important;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: min(260px, calc(100vw - 16px));
+    max-height: min(70dvh, 520px);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-menu .nav-tab {
+    width: 100%;
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-menu .nav-tab .io-nav-label {
+    font-size: 12px;
+    white-space: normal;
+  }
+
+  .io-ui .io-nav-combat .io-nav-combat-desktop-return {
+    display: none !important;
+  }
+}
+
+@media (min-width: 761px) {
+  .io-ui .io-nav-combat .io-nav-combat-mobile-more {
+    display: none !important;
+  }
+}
+
+
+/* Multiball preview: give each result a visible glass satellite around the
+   centerpiece. The rotating ring moves the satellites; their counter-rotation
+   keeps each tiny orb visually upright. */
+.io-ui .io-orbit-layer {
+  z-index: 2;
+  overflow: visible;
+}
+.io-ui .io-orbit-track {
+  box-sizing: border-box;
+  border-color: rgba(139, 174, 224, .24) !important;
+  border-style: dashed;
+  opacity: .9;
+  box-shadow: 0 0 18px rgba(93, 145, 218, .08), inset 0 0 18px rgba(93, 145, 218, .035);
+  transform: none !important;
+}
+.io-ui .io-orbit-satellite {
+  z-index: 2;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .55));
+}
+.io-ui .io-orbit-satellite-core {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(235, 245, 255, .62);
+  border-radius: 50%;
+  box-shadow:
+    0 0 11px rgba(190, 215, 255, .24),
+    inset 0 1px 3px rgba(255, 255, 255, .52),
+    inset 0 -3px 6px rgba(0, 0, 0, .48);
+}
+.io-ui .io-orbit-satellite-core::before {
+  position: absolute;
+  inset: 1px;
+  content: "";
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 31% 23%, rgba(255, 255, 255, .92), rgba(255, 255, 255, .2) 23%, transparent 44%),
+    linear-gradient(145deg, rgba(255, 255, 255, .18), transparent 54%, rgba(0, 0, 0, .26));
+  pointer-events: none;
+}
+.io-ui .io-orbit-satellite-core::after {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 5px;
+  height: 5px;
+  content: "";
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .22);
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+/* Main and orbiting Orb borders use the exact base hue of their fill.
+   The same hue-rotation filter then shifts fill and border together. */
+.io-ui .io-main-orb {
+  border-color: var(--io-orb-current-color, rgba(213,232,255,.42));
+}
+.io-ui .io-orbit-satellite-core {
+  border-color: var(--io-orb-current-color, rgba(235,245,255,.62));
+}
+/* New rarity hues cycle at a more visible pace. */
+.io-rarity-color-cycle {
+  animation: io-rarity-color-cycle 16s linear infinite;
+}
+.io-rarity-tier-row--animated {
+  border-left-color: var(--io-rarity-tier-color) !important;
+  background-image: linear-gradient(100deg, rgba(255, 255, 255, .025), rgba(0, 0, 0, .035)) !important;
+}
+@keyframes io-rarity-color-cycle {
+  from { filter: hue-rotate(0deg) saturate(1.12); }
+  to { filter: hue-rotate(360deg) saturate(1.12); }
+}
+@media (max-width: 760px) {
+  .io-ui .io-orbit-satellite { width: 19px; height: 19px; }
+  .io-ui .io-orbit-satellite-core { width: 16px; height: 16px; }
+}
+
+
+/* Preserve existing orbit counter-rotation and Codex unlock pulse while the
+   newly extended rarity palette slowly shifts hue. */
+.io-ui .io-orbit-satellite-core.io-rarity-color-cycle {
+  animation: orbit-ccw 18s linear infinite, io-rarity-color-cycle 16s linear infinite;
+}
+.io-rarity-orb-icon.io-rarity-color-cycle.is-unlocked {
+  animation: io-rarity-orb-pulse 3.2s ease-in-out infinite, io-rarity-color-cycle 16s linear infinite;
+}
+.io-rarity-orb-icon.io-rarity-color-cycle.is-locked {
+  animation: io-rarity-color-cycle 16s linear infinite;
+}
+
+/* Keep the composed faster animations disabled when reduced motion is requested. */
+@media (prefers-reduced-motion: reduce) {
+  .io-rarity-color-cycle,
+  .io-ui .io-orbit-satellite-core.io-rarity-color-cycle,
+  .io-rarity-orb-icon.io-rarity-color-cycle.is-unlocked,
+  .io-rarity-orb-icon.io-rarity-color-cycle.is-locked,
+  .io-ui .animate-orbit-ring,
+  .io-ui .animate-orbit-counter {
+    animation: none !important;
+  }
+}

@@ -6,7 +6,7 @@ Combat is a mode inside Infinity Orbs, not a separate app or a replacement for o
 ## First playable slice
 - Server-authoritative Undercrypt combat resolves in discrete one-second beats. Auto tactics (Balanced, Aggressive, Defensive, Recovery) choose commands from current health and energy on the server; a manually queued Strike, Heavy, Guard, or Mend overrides the next automatic beat once.
 - Auto-run is the default; Pause, Auto toggle, manual Next Beat, and Strike / Heavy / Guard / Mend selection are available.
-- Speed controls actions resolved per beat. Presentation timing is not a combat stat.
+- Speed controls actions resolved per beat. Player Speed comes from equipped gear and explicit bonuses and does not multiply with dungeon depth; enemy Speed continues to scale with depth. Presentation timing is not a combat stat.
 - Health persists between encounters. Death restarts the push at Depth 1, while best depth, gear, skill ranks, combat level, and Delver Coins persist.
 - Three expedition choices: Undercrypt (balanced, Warden clears improve orb Luck), Cinder Vault (tougher enemies, +10% player damage, +40% coins, more gear drops), and Glass Labyrinth (lower enemy HP, faster/harder enemies, +35 Speed, +5 percentage points crit chance, +25% combat XP). Each dungeon stores its own best depth and has its own boss every tenth depth.
 - Gear has seven slots, randomized names / quality / stat-bearing powers, active traits, and 30 possible Major Abilities. Top grades are substantially rarer, and high-quality gear has a nonlinear stat budget rather than just a cosmetic grade.
@@ -15,7 +15,7 @@ Combat is a mode inside Infinity Orbs, not a separate app or a replacement for o
 - Scrap rewards now scale with gear Power and dungeon depth, making regular salvage a meaningful path toward high-quality forging.
 - Skill gacha has 35 active abilities. Duplicate copies improve ability ranks with increasing cost.
 - Combat state is separate from the main rolling save and uses Redis WATCH/MULTI/EXEC to reject concurrent stale writes. Auto-combat therefore doesn't rewrite Infinity Orbs player state every second. On entering combat, core-game level and highest-orb rarity are refreshed into the combat snapshot: every 10 core levels adds +2% combat damage and max HP (up to +20%), and each order of magnitude in highest orb rarity adds +0.3% (up to +5%).
-- Every cleared Crypt Warden grants +1% effective Luck to core orb rolls, capped at +25% after 25 bosses. The bonus is derived from separate combat progress and does not rewrite the main rolling save.
+- Every cleared boss across Undercrypt, Cinder Vault, and Glass Labyrinth contributes to a permanent core-game Luck bonus of (1.01^n − 1), where n is the total lifetime boss clears across all three dungeons. The bonus compounds with itself, adds to other Luck sources, has no fixed 25-boss cap (growth remains bounded by each dungeon's maximum depth), and does not change combat Orb rarity.
 - Arena supports asynchronous player-build challenges: opponents are real recently active players, battles resolve from server-saved gear and skills, and both players receive Elo-style rating / record updates. It never fills the board with fake accounts.
 
 ## Follow-up layers

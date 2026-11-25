@@ -32,9 +32,19 @@ test('Rune Strengthen is tooltip-driven and Auto Sacrifice only consumes un-equi
   const combat=source('src/server/combat.ts');
   const api=source('src/server/app.ts');
   assert.ok(ui.includes('>Strengthen</button>'),'Rune tooltip must expose a Strengthen action');
-  assert.ok(ui.includes('handleRuneClick(rune)'),'clicking a Rune must act as the sacrifice donor while Strengthen is active');
-  assert.ok(combat.includes('!equipped.has(rune.id) && combatRuneRarityAtOrBelow'),'bulk auto-sacrifice must protect equipped donors');
-  assert.ok(combat.includes('const target = pick(targets);'),'each donor must select an equipped Rune target at random');
+  assert.ok(ui.includes('handleRuneClick(rune)'),'Rune icons must remain active while Strengthen is selected');
+  assert.ok(ui.includes('setSacrificeDonorId(rune.id)'),'clicking a Rune must select it as donor, never sacrifice it implicitly');
+  assert.ok(ui.includes('Sacrifice selected Rune'),'a separate confirmation action must perform the sacrifice');
+  assert.ok(
+    combat.includes('!equipped.has(rune.id) &&') &&
+      combat.includes('shouldAutoSacrificeRune(rune, s.runeAutoSacrifice.maxRarity, s.runeAutoSacrifice.preserveSpecialEffects)'),
+    'bulk auto-sacrifice must protect equipped donors and preserve special-effect Runes',
+  );
+  assert.ok(
+    combat.includes('const configuredTarget = typeof s.runeAutoSacrifice.targetRuneId') &&
+      combat.includes("targets.find(targetRune => /insight/i.test(targetRune.name))"),
+    'automatic Rune drops should feed the selected target or prefer an equipped Insight Rune',
+  );
   assert.ok(combat.includes('const qualifiesForAutoSacrifice = s.runeAutoSacrifice.enabled'),'new eligible drops must use the saved auto-sacrifice setting');
   assert.ok(api.includes("app.post('/api/combat/runes/auto-sacrifice/settings'"));
   assert.ok(api.includes("app.post('/api/combat/runes/auto-sacrifice/run'"));
@@ -89,7 +99,7 @@ test('Frenzy handoff preflight is single-flight and stops before claim after unm
   const mountedGuard = effect.indexOf('if (!componentMountedRef.current) return;');
   const claim = effect.indexOf("getJson<RollResponse>('/api/frenzy/claim'");
   assert.ok(mountedGuard > 0 && claim > mountedGuard, 'mounted state must be checked before the claim POST');
-  assert.ok(client.includes('frenzyClaimActiveRef.current = false;\n        if (!componentMountedRef.current) return;'));
+  assert.ok(client.includes('frenzyClaimActiveRef.current = false;\n        activeFrenzyPostId = null;\n        activeFrenzyAttemptId = null;\n        if (!componentMountedRef.current) return;'));
 });
 
 test('Frenzy client retries read-only preflight but does not retry the claim POST', () => {
@@ -100,7 +110,7 @@ test('Frenzy client retries read-only preflight but does not retry the claim POS
   const resolver = main.slice(start, end);
 
   assert.match(resolver, /for \(let attempt = 0; attempt < 12; attempt\+\+\)/);
-  assert.match(resolver, /getJson<RollResponse>\('\/api\/frenzy\/claim', \{ method: 'POST' \}\)/);
+  assert.match(resolver, /getJson<RollResponse>\('\/api\/frenzy\/claim', \{[\s\S]*?method: 'POST',[\s\S]*?body: JSON\.stringify\(\{ attemptId: activeFrenzyAttemptId \}\)/);
   assert.equal(
     (resolver.match(/getJson<RollResponse>\('\/api\/frenzy\/claim'/g) ?? []).length,
     1,
@@ -134,7 +144,9 @@ test('Global Chat comments are submitted as USER and Reddit comment triggers are
   assert.match(social.slice(senderStart, senderEnd), /runAs: 'USER'/);
   assert.match(social, /resolveGlobalGamePostId/);
   assert.match(social, /export async function getGlobalChatStatus/);
-  assert.match(social, /Global Chat is disabled because you're not in the main Game launcher/);
+  assert.match(social, /Every public comment is posted to the main Game/);
+  assert.match(social, /async function requireGlobalChatLauncher\(\): Promise<string>/);
+  assert.doesNotMatch(social, /currentPostId !== destination/, 'embedded entrypoint metadata must not disable Global Chat when all messages route to the registered canonical post.');
 
   const chat = source('src/client/components/GlobalChatWindow.tsx');
   assert.match(chat, /\/api\/chat\/status/);
@@ -153,7 +165,7 @@ test('Chain Patcher is server-authoritative, arms exactly one guaranteed rarity,
   const shared = source('src/shared/game.ts');
   assert.match(shared, /CHAIN_PATCHER_COOLDOWN_MS = 24 \* 60 \* 60 \* 1_000/);
   assert.match(shared, /nextCodexChainRarity/);
-  assert.match(shared, /Math\.floor\(targetRarity \/ 100\) \+ 1/);
+  assert.match(shared, /10 \* \(Math\.floor\(targetRarity \/ 100\) \+ 1\)/);
 
   const game = source('src/server/game.ts');
   assert.match(game, /export async function buyChainPatcher/);
@@ -198,7 +210,7 @@ test('Chain Patcher is server-authoritative, arms exactly one guaranteed rarity,
 
   const social = source('src/server/social.ts');
   assert.match(social, /chainLength: highestCodexChain\(save\.collection\)/);
-  assert.match(social, /chainLength: sortLeaderboard\(eligible, entry => entry\.chainLength \?\? 0\)/);
+  assert.match(social, /chainLength: sortLeaderboard\(boardsWithHistoricalMetric\('chainLength'\), entry => entry\.chainLength \?\? 0\)/);
 
   const leaderboardUi = source('src/client/components/GuildsAndSocial.tsx');
   assert.match(leaderboardUi, /label: 'Chain Length'/);
@@ -546,8 +558,8 @@ test('comprehensive admin tests atomically reset cooldown, issue a roll ticket, 
   assert.match(modal.slice(mechanicStart, mechanicEnd), /xp: 600/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /level: 4,\s*levelXpFloor: 533/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /freeShardsEarnedToday: 0/);
-  assert.match(debug, /'globalBoosterCredits', 'freeShardsEarnedToday'/);
-  assert.match(modal, /shardSynthesis: 1 \}, \{ shards: 10, xp: 32_000, level: 20, levelXpFloor: 0 \}/);
+  assert.match(debug, /for \(const field of \['shards', 'lifetimeShards', 'freeShardsEarnedToday'\]\)/);
+  assert.match(modal, /shardSynthesis: 1 \}, \{ shards: 100, xp: 32_000, level: 20, levelXpFloor: 0 \}/);
   assert.match(modal.slice(mechanicStart, mechanicEnd), /lastFreeShardReset: '2020-01-01'/);
   assert.match(modal, /await new Promise\(resolve => setTimeout\(resolve, 5_200\)\)/);
   assert.match(modal, /collection endpoint/);
@@ -573,8 +585,10 @@ test('comprehensive admin tests atomically reset cooldown, issue a roll ticket, 
   const frenzyVolleyEnd = modal.indexOf("'Mechanic · Astral Reserve'", frenzyVolleyStart);
   assert.ok(frenzyVolleyStart >= 0 && frenzyVolleyEnd > frenzyVolleyStart);
   const frenzyVolley = modal.slice(frenzyVolleyStart, frenzyVolleyEnd);
-  assert.ok(frenzyVolley.includes('frenzyOrbCountForRarity(normalRarity) * 2'));
-  assert.ok(frenzyVolley.includes('frenzyOrbCountForRarity(volleyRarity) * 1.20'));
+  assert.ok(frenzyVolley.includes('normalRollsPerActivation = Number((await readMechanics()).rollsPerActivation ?? 1)'));
+  assert.ok(frenzyVolley.includes('volleyRollsPerActivation = Number((await readMechanics()).rollsPerActivation ?? 1)'));
+  assert.ok(frenzyVolley.includes('frenzyOrbCountForRarity(normalRarity) * Math.max(1, normalRollsPerActivation)'));
+  assert.ok(frenzyVolley.includes('frenzyOrbCountForRarity(volleyRarity) * Math.max(1, volleyRollsPerActivation) * 1.20'));
 
   const adminFrenzyStart = modal.indexOf('"API · Frenzy admin start creates a dedicated post record"');
   const adminFrenzyEnd = modal.indexOf('"API · Frenzy admin claim returns the authoritative volley and owner reward"', adminFrenzyStart);
@@ -683,7 +697,7 @@ test('Current Dry Streak and Cosmic Reserve are included in the gameplay UI and 
   const profile = source('src/client/components/ProfileAndPrestige.tsx');
   const debugModal = source('src/client/components/DevDebugModal.tsx');
   assert.match(social, /currentDryStreak: Math\.max\(0, Number\(save\.rollsSinceBest/);
-  assert.match(social, /currentDryStreak: sortLeaderboard\(eligible, entry => entry\.currentDryStreak/);
+  assert.match(social, /currentDryStreak: sortLeaderboard\(boardsWithHistoricalMetric\('currentDryStreak'\), entry => entry\.currentDryStreak/);
   assert.match(socialTypes, /currentDryStreak\?: number/);
   assert.match(leaderboardUi, /label: 'Current Dry Streak'/);
   assert.match(shared, /cosmicReserveMultiplier = 1 \+ unspentCosmicDust \* cosmicReserveLevel \* 0\.01/);
@@ -746,49 +760,39 @@ test('chat report duplicate detection precedes the report cooldown check', () =>
   assert.match(modal, /beforeUpgraded = recordValue\(await request<any>\('\/api\/me'\)\)/);
 });
 
-test('guild parser validates nested state while repairing legacy challenge and boss projections', () => {
+test('Guild parser preserves task/member data while removing legacy levels, XP, Titan, and tax', () => {
   const social = source('src/server/social.ts');
   const start = social.indexOf('function validateGuildNestedState');
-  const end = social.indexOf('\nfunction isGuildPlaytestRecoveryEnabled', start);
+  const end = social.indexOf('function isGuildPlaytestRecoveryEnabled', start);
   assert.ok(start >= 0 && end > start, 'nested Guild validator must exist before normalization');
   const validator = social.slice(start, end);
   assert.match(validator, /const invalid = \(field = 'unknown nested field'\)/);
   assert.match(validator, /guild\.members\[\] \(invalid member fields\)/);
   assert.match(validator, /guild\.challenge \(type\/target\/progress\/reward\/label\)/);
-  assert.match(validator, /guild\.combo\.\${field}/);
-  assert.match(validator, /guild\.tasks\[\]\.\${field}/);
-  assert.match(validator, /perkCaps/);
-  assert.match(validator, /guildXpRank: 20/);
-  assert.match(validator, /if \(value == null\) continue; \/\/ Legacy saves can omit core economy defaults/);
-  assert.match(validator, /if \(field === 'xp'\)/);
-  assert.match(validator, /throw invalid\('guild\.xp'\)/);
+  assert.match(validator, /guild\.combo\.\$\{field\}/);
+  assert.match(validator, /guild\.tasks\[\]\.\$\{field\}/);
+  assert.match(validator, /guild\.tokens/);
+  assert.doesNotMatch(validator, /guildXpReward|guildXpRank|taxRate|guild\.level|guild\.xp|guild\.boss|GuildBoss/);
+
   const normalizeStart = social.indexOf('function normalizeGuilds');
   const normalizeEnd = social.indexOf('function generatedFallbackTaskType', normalizeStart);
   assert.ok(normalizeStart >= 0 && normalizeEnd > normalizeStart);
   const normalize = social.slice(normalizeStart, normalizeEnd);
-  assert.match(normalize, /g\.level \?\?= 1/);
-  assert.match(normalize, /g\.xp = Math\.min\(Number\.MAX_SAFE_INTEGER/);
-  assert.match(social, /function addGuildExperience\(guild: Guild, requested: number\)/);
-  assert.equal((social.match(/addGuildExperience\(guild,/g) ?? []).length, 4);
-  assert.doesNotMatch(social, /guild\.xp\s*\+=/);
-  assert.match(normalize, /g\.tokens \?\?= 0/);
-  assert.match(validator, /Number\.isSafeInteger\(member\.contribution\)/);
-  assert.match(validator, /guild\.challenge != null/);
-  // Challenge is a legacy projection of task progress. Normalization clamps its progress.
-  assert.doesNotMatch(validator, /Number\(challenge\.progress\) > Number\(challenge\.target\)/);
-  assert.match(normalize, /progress: Math\.min\(firstTask\.target, firstTask\.progress\)/);
-  assert.match(validator, /guild\.createdAt != null/);
-  assert.match(validator, /Number\.isSafeInteger\(value\)/);
-  assert.match(validator, /guild\.tasks != null/);
-  assert.match(validator, /!isRecordValue\(task\)/);
-  assert.match(validator, /guild\.chat != null/);
-  assert.match(validator, /typeof message\.text !== 'string'/);
-  assert.match(validator, /guild\.bossWeek === weekKey\(\)/);
-  assert.match(validator, /Number\.isSafeInteger\(boss\.tier\)/);
-  assert.doesNotMatch(validator, /Number\(boss\.tier\) > 10/);
-  assert.match(normalize, /legacyBossTierAboveCap/);
-  assert.match(normalize, /g\.boss = createInitialGuildBoss\(Math\.max\(1, Math\.min\(10, g\.level \|\| 1\)\)\)/);
-  assert.match(validator, /boss\.currentHp > boss\.maxHp/);
+  assert.match(normalize, /delete \(g as any\)\.level/);
+  assert.match(normalize, /delete \(g as any\)\.xp/);
+  assert.match(normalize, /delete \(g as any\)\.taxRate/);
+  assert.match(normalize, /delete \(g as any\)\.boss/);
+  assert.match(normalize, /delete \(task as any\)\.guildXpReward/);
+  assert.match(normalize, /createInitialGuildTasks\(\)/);
+  assert.doesNotMatch(normalize, /g\.level \?\?=|g\.xp =|g\.boss =|guildXpRank:|guildXpReward:/);
+
+  // Legacy nested fields are discarded, while memberships and task progress remain.
+  assert.match(social, /delete guild\.level/);
+  assert.match(social, /delete guild\.xp/);
+  assert.match(social, /delete guild\.taxRate/);
+  assert.match(social, /delete guild\.boss/);
+  assert.match(social, /delete task\.guildXpReward/);
+  assert.match(social, /function parseGuildList/);
   const parserStart = social.indexOf('function parseGuildList');
   const parserEnd = social.indexOf('function parseLeaderboardList', parserStart);
   assert.ok(parserStart >= 0 && parserEnd > parserStart);
@@ -910,23 +914,45 @@ test('Daily Streak reward and community tier commit atomically with player state
 });
 
 
-test('rolling Shard grants fail closed on malformed daily counters and requests', () => {
+test('rolling Shard grants preserve fractions, repair telemetry, and have no daily cap', () => {
   const shared = source('src/shared/game.ts');
   const start = shared.indexOf('export function grantRollShards');
   const end = shared.indexOf('export function spendShards', start);
   assert.ok(start >= 0 && end > start);
   const grant = shared.slice(start, end);
-  assert.match(grant, /Number\.isFinite\(requested\)/);
-  assert.match(grant, /Number\.isSafeInteger\(rawEarnedToday\)/);
-  assert.match(grant, /: FREE_SHARD_DAILY_CAP/);
-  assert.match(grant, /Math\.max\(0, FREE_SHARD_DAILY_CAP - earnedToday\)/);
-  assert.match(grant, /s\.freeShardsEarnedToday = earnedToday \+ granted/);
+  assert.match(grant, /Number\.isFinite\(rawEarnedToday\)/);
+  assert.match(grant, /const granted = addShardsWithinSafeIntegerLimit\(s, requested\)/);
+  assert.doesNotMatch(grant, /FREE_SHARD_DAILY_CAP/);
+  assert.match(grant, /s\.freeShardsEarnedToday = roundShardAmount\(earnedToday \+ granted\)/);
   const shardHelperStart = shared.indexOf('function addShardsWithinSafeIntegerLimit');
   const shardHelperEnd = shared.indexOf('\nexport function grantFreeShards', shardHelperStart);
   assert.ok(shardHelperStart >= 0 && shardHelperEnd > shardHelperStart);
   const shardHelper = shared.slice(shardHelperStart, shardHelperEnd);
-  assert.match(shardHelper, /Number\.isSafeInteger\(rawLifetimeShards\)/);
-  assert.match(shardHelper, /Math\.min\(Number\.MAX_SAFE_INTEGER, lifetimeShards \+ granted\)/);
+  assert.match(shardHelper, /Number\.isFinite\(rawLifetimeShards\)/);
+  assert.match(shardHelper, /roundShardAmount\(Math\.min\(Number\.MAX_SAFE_INTEGER, lifetimeShards \+ granted\)\)/);
+});
+
+test('manual Rune sacrifice has a direct donor selector and consumes only the donor while granting XP', () => {
+  const ui = source('src/client/components/RunesSection.tsx');
+  assert.match(ui, /Donor Rune/);
+  assert.match(ui, /Sacrifice selected Rune/);
+  assert.match(ui, /void sacrifice\(strengthenTargetRune\.id,donor\.id\)/);
+  const combat = source('src/server/combat.ts');
+  const start = combat.indexOf('export async function sacrificeCombatRuneInto');
+  assert.ok(start >= 0, 'server sacrifice function must exist');
+  const end = combat.indexOf('export async function rollCombatSkill', start + 10);
+  const sacrifice = combat.slice(start, end > start ? end : start + 1_500);
+  assert.match(sacrifice, /grantRuneSacrificeExperience\(target,\s*donor\)/);
+  assert.match(sacrifice, /s\.runes=s\.runes\.filter\(item=>item\.id!==donor\.id\)/);
+  assert.match(sacrifice, /s\.equippedRunes=s\.equippedRunes\.filter\(id=>id!==donor\.id\)/);
+});
+
+test('whole-number Shard wallets survive parsing, save validation, and payment-state normalization', () => {
+  const game = source('src/server/game.ts');
+  assert.doesNotMatch(game, /Math\.abs\(record\.shards \* 1_000/);
+  assert.match(game, /const normalizedWalletShards = roundShardAmount\(record\.shards\)/);
+  assert.match(game, /s\.shards = roundShardAmount\(s\.shards\)/);
+  assert.match(game, /shardPityRolls: 0/);
 });
 
 test('roll rewards commit atomically with Guild and community progress', () => {
@@ -937,14 +963,15 @@ test('roll rewards commit atomically with Guild and community progress', () => {
   assert.ok(rollStart >= 0 && rollEnd > rollStart);
   const roll = game.slice(rollStart, rollEnd);
   assert.match(roll, /prepareGuildRollEffects\(/);
-  assert.match(roll, /if \(guildEffects\.extraWrite\) \{\s*stageSaveExtraWrite\(s, \{\s*\.\.\.guildEffects\.extraWrite,\s*onConflict:/);
+  assert.match(game, /stageSaveExtraWrite\(s, guildEffects\.extraWrite\)/);
+  assert.doesNotMatch(roll, /onConflict:/);
   assert.match(roll, /prepareCommunityRolls\(rollCount, pendingCommunityWrite\)/);
-  assert.match(roll, /getCommunityEvent\(\)\.catch\(error =>/);
+  assert.match(roll, /s\.riftSession \? Promise\.resolve\(null\) : getCommunityEvent\(\)\)\.catch\(error =>/);
   assert.match(roll, /Read failed; rolling without the event bonus/);
   assert.match(roll, /Progress not recorded for this roll; preserving shared data/);
 
   assert.match(roll, /stageSaveExtraWrite\(s, \{/);
-  assert.doesNotMatch(roll, /await applyGuildTax\(/);
+  assert.doesNotMatch(roll, /taxedCoins|Guild Tax|applyGuildTax/);
   assert.doesNotMatch(roll, /await contribute\(/);
   assert.doesNotMatch(roll, /await addCommunityRolls\(/);
   assert.match(social, /export async function prepareGuildRollEffects/);
@@ -1042,7 +1069,10 @@ test('account cleanup never overwrites a concurrent leaderboard update or replac
 });
 
 
-test('Frenzy claim commits owner reward, Guild effects, community progress, and post consumption together', () => {
+
+test('Frenzy claim uses normal-roll projections and commits its receipt and owner reward together', () => {
+  const shared = source('src/shared/game.ts');
+  assert.match(shared, /FRENZY_OWNER_SHARD_REWARD = 100/);
   const game = source('src/server/game.ts');
   const rewardStart = game.indexOf('async function prepareFrenzyOwnerRewardWrites');
   const rewardEnd = game.indexOf('function parseGlobalBoosterSnapshot', rewardStart);
@@ -1053,20 +1083,33 @@ test('Frenzy claim commits owner reward, Guild effects, community progress, and 
   assert.match(reward, /key: ownerKey/);
   assert.match(reward, /Number\.isSafeInteger\(generation\)/);
 
+  const applyStart = game.indexOf('export async function applyRolls');
+  const applyEnd = game.indexOf('async function commitOfflineNotificationMarkerIfUnchanged', applyStart);
+  assert.ok(applyStart >= 0 && applyEnd > applyStart);
+  const apply = game.slice(applyStart, applyEnd);
+  assert.match(apply, /prepareGuildRollEffects\(/);
+  assert.match(apply, /prepareCommunityRolls\(/);
+
   const claimStart = game.indexOf('export async function claimOrbFrenzy');
-  const claimEnd = game.indexOf('function sampleBinomial', claimStart);
+  const claimEnd = game.indexOf('export async function postFrenzyThankYouComment', claimStart);
   assert.ok(claimStart >= 0 && claimEnd > claimStart);
   const claim = game.slice(claimStart, claimEnd);
-  assert.match(claim, /prepareGuildRollEffects\(/);
-  assert.match(claim, /prepareCommunityRolls\(/);
+  assert.match(claim, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
   assert.match(claim, /prepareFrenzyOwnerRewardWrites\(/);
+  const ownerRewardCallStart = claim.indexOf('const ownerReward = await prepareFrenzyOwnerRewardWrites(');
+  const ownerRewardCallEnd = claim.indexOf(');', ownerRewardCallStart);
+  assert.ok(ownerRewardCallStart >= 0 && ownerRewardCallEnd > ownerRewardCallStart);
+  const ownerRewardCall = claim.slice(ownerRewardCallStart, ownerRewardCallEnd);
+  assert.ok(ownerRewardCall.includes('data.ownerId'), 'the poster receives the reward');
+  assert.ok(ownerRewardCall.includes('FRENZY_OWNER_SHARD_REWARD'), 'the owner-directed grant uses the configured amount');
+  assert.ok(claim.includes('ownerRewardWrites = ownerReward.writes;'), 'owner rewards are written to the poster save');
+  assert.ok(claim.includes('shardsGained: shardsGained + (isOwner ? ownerRewardShards : 0),'), 'a normal claimant does not receive the poster bonus');
   assert.match(claim, /await save\(s, \[[\s\S]*?FRENZY_POST_PREFIX \+ postId[\s\S]*?\.\.\.ownerRewardWrites/);
   assert.doesNotMatch(claim, /await applyGuildTax\(coinsGained\)/);
   assert.doesNotMatch(claim, /await contribute\(finalValue/);
   assert.doesNotMatch(claim, /await addCommunityRolls\(count\)/);
   assert.doesNotMatch(claim, /grantFrenzyOwnerReward/);
 });
-
 
 test('player saves watch and validate active distributed lease tokens before EXEC', () => {
   const game = source('src/server/game.ts');
@@ -1145,7 +1188,7 @@ test('admin Global Booster credit grants unwrap and validate player saves before
   assert.match(parser, /if \(depth > 6 \|\| value == null\) return null/);
   assert.match(parser, /return unwrap\(JSON\.parse\(value\), depth \+ 1\)/);
   assert.match(parser, /'coins' in record &&\s*'shards' in record &&\s*'totalRolls' in record/);
-  assert.match(parser, /typeof record\.coins === 'number'[\s\S]*?Number\.isFinite\(record\.coins\)[\s\S]*?Number\.isSafeInteger\(record\.shards\)[\s\S]*?Number\.isSafeInteger\(record\.totalRolls\)/);
+  assert.match(parser, /typeof record\.coins === 'number'[\s\S]*?Number\.isFinite\(record\.coins\)[\s\S]*?Number\.isFinite\(record\.shards\)[\s\S]*?Math\.abs\(record\.shards \* 1_000 - Math\.round\(record\.shards \* 1_000\)\) < 1e-6[\s\S]*?Number\.isSafeInteger\(record\.totalRolls\)/);
   assert.match(parser, /record\.stateRevision == null[\s\S]*?Number\.isSafeInteger\(record\.stateRevision\)/);
   assert.match(parser, /for \(const key of \['value', 'state', 'player', 'data', 'payload', 'result'\]\)/);
   assert.match(parser, /const nested = unwrap\(record\[key\], depth \+ 1\)/);
@@ -1465,25 +1508,28 @@ test('manual offline claim compare-clears only reminder values observed before t
   assert.doesNotMatch(claim, /redis\.del\(OFFLINE_FULL_(?:NOTIFICATION|JOB)_PREFIX/);
 });
 
-test('collection value rollover is prevented consistently in every roll path', () => {
+
+test('collection value uses the full finite Number range consistently in every roll path', () => {
   const shared = source('src/shared/game.ts');
   const server = source('src/server/game.ts');
   assert.match(shared, /export function addCollectionValue\(current: unknown, increment: unknown\): number/);
-  assert.match(shared, /Number\.MAX_SAFE_INTEGER, bounded\(current\) \+ bounded\(increment\)/);
+  assert.match(shared, /return addCoinAmount\(current, increment\);/);
+  assert.match(shared, /return Number\.isFinite\(sum\) \? Math\.min\(Number\.MAX_VALUE, sum\) : Number\.MAX_VALUE;/);
 
   const normalStart = server.indexOf('export async function applyRolls(');
-  const normalEnd = server.indexOf('\nexport async function ', normalStart + 40);
+  const normalEnd = server.indexOf('\nasync function commitOfflineNotificationMarkerIfUnchanged', normalStart);
   assert.ok(normalStart >= 0 && normalEnd > normalStart);
   const normal = server.slice(normalStart, normalEnd);
-  assert.match(normal, /s\.collectionValue = addCollectionValue\(s\.collectionValue, finalVal\)/);
-  assert.match(normal, /s\.lifetimeCollectionValue = addCollectionValue\(s\.lifetimeCollectionValue, finalVal\)/);
+  assert.match(normal, /s\.collectionValue = addCollectionValue\(s\.collectionValue, weightedFinalValue\)/);
+  assert.match(normal, /s\.lifetimeCollectionValue = addCollectionValue\(s\.lifetimeCollectionValue, weightedFinalValue\)/);
 
   const frenzyStart = server.indexOf('export async function claimOrbFrenzy');
-  const frenzyEnd = server.indexOf('\nexport async function ', frenzyStart + 40);
+  const frenzyEnd = server.indexOf('export async function postFrenzyThankYouComment', frenzyStart);
   assert.ok(frenzyStart >= 0 && frenzyEnd > frenzyStart);
   const frenzy = server.slice(frenzyStart, frenzyEnd);
-  assert.match(frenzy, /s\.collectionValue = addCollectionValue\(s\.collectionValue, finalValue\)/);
-  assert.match(frenzy, /s\.lifetimeCollectionValue = addCollectionValue\(s\.lifetimeCollectionValue, finalValue\)/);
+  assert.match(frenzy, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
+  assert.doesNotMatch(frenzy, /s\.collectionValue = addCollectionValue/);
+  assert.doesNotMatch(frenzy, /s\.lifetimeCollectionValue = addCollectionValue/);
 
   const simulationStart = shared.indexOf('export function predictRollActivation(');
   const simulationEnd = shared.indexOf('\nexport function ', simulationStart + 40);
@@ -1493,22 +1539,24 @@ test('collection value rollover is prevented consistently in every roll path', (
   assert.match(simulation, /s\.lifetimeCollectionValue = addCollectionValue\(s\.lifetimeCollectionValue, finalVal\)/);
 });
 
+
 test('corrupt optional Guild roll projections do not cancel normal or Frenzy player payouts', () => {
   const game = source('src/server/game.ts');
   const normalStart = game.indexOf('export async function applyRolls(');
-  const normalEnd = game.indexOf('\nexport async function ', normalStart + 40);
+  const normalEnd = game.indexOf('\nasync function commitOfflineNotificationMarkerIfUnchanged', normalStart);
   assert.ok(normalStart >= 0 && normalEnd > normalStart);
   const normal = game.slice(normalStart, normalEnd);
   assert.match(normal, /let guildEffects: Awaited<ReturnType<typeof prepareGuildRollEffects>>/);
-  assert.match(normal, /Could not prepare roll effects; skipping Guild tax\/contribution/);
-  assert.match(normal, /guildEffects = \{ taxedCoins: 0 \}/);
+  assert.match(normal, /Could not prepare task progress; the player roll will still complete/);
+  assert.match(normal, /guildEffects = \{\}/);
+  assert.doesNotMatch(normal, /taxedCoins|Guild Tax|guildXpRank/);
 
   const frenzyStart = game.indexOf('export async function claimOrbFrenzy');
-  const frenzyEnd = game.indexOf('\nexport async function ', frenzyStart + 40);
+  const frenzyEnd = game.indexOf('export async function postFrenzyThankYouComment', frenzyStart);
   assert.ok(frenzyStart >= 0 && frenzyEnd > frenzyStart);
   const frenzy = game.slice(frenzyStart, frenzyEnd);
-  assert.match(frenzy, /Could not prepare Frenzy effects; skipping Guild tax\/contribution/);
-  assert.match(frenzy, /guildEffects = \{ taxedCoins: 0 \}/);
+  assert.match(frenzy, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
+  assert.doesNotMatch(frenzy, /prepareGuildRollEffects\(/);
 });
 
 test('rarity flair sync serializes side effects and rechecks saved rarity before caching', () => {
@@ -1648,7 +1696,7 @@ test('Aftershock and Unbroken Momentum are persisted, purchase-gated, and shown 
   assert.match(game, /s\.aftershockRecord = Math\.max\(/);
   assert.match(game, /recordRollingSessionActivity\(s, now\)/);
   assert.doesNotMatch(game, /masteryEngineLevel|prestigeUpgrades\?\.masteryEngine/);
-  assert.match(mastery, /Best Aftershock record/);
+  assert.match(mastery, /Longest dry interval record/);
   assert.match(profile, /id === 'unbrokenMomentum'/);
   assert.doesNotMatch(profile, /Aftershock Record/);
   assert.doesNotMatch(profile, /case 'masteryEngine'/);
@@ -1758,8 +1806,12 @@ test('persisted PlayerState parser rejects malformed wallet and roll-counter cor
   assert.match(parser, /typeof record\.coins === 'number'/);
   assert.match(parser, /Number\.isFinite\(record\.coins\)/);
   assert.match(parser, /record\.coins >= 0/);
-  assert.match(parser, /Number\.isSafeInteger\(record\.shards\)/);
-  assert.match(parser, /Number\(record\.shards\) >= 0/);
+  assert.match(parser, /typeof record\.shards === 'number'/);
+  assert.match(parser, /Number\.isFinite\(record\.shards\)/);
+  assert.match(parser, /record\.shards >= 0/);
+  assert.doesNotMatch(parser, /Math\.abs\(record\.shards \* 1_000/);
+  assert.match(parser, /shards: normalizedWalletShards/);
+  assert.match(parser, /shardPityRolls: 0/);
   assert.match(parser, /Number\.isSafeInteger\(record\.totalRolls\)/);
   assert.match(parser, /if \(!validCoreState\) return null/);
 });
@@ -1921,6 +1973,7 @@ test('share route commits the share cooldown before posting and treats quest pro
 });
 
 
+
 test('optional World Event conflicts cannot block primary player rewards', () => {
   const game = source('src/server/game.ts');
   const saveStart = game.indexOf('export async function save(');
@@ -1935,29 +1988,28 @@ test('optional World Event conflicts cannot block primary player rewards', () =>
   assert.match(save, /pendingSaveExtraWrites\.set\(s, remaining\)/);
 
   const rollStart = game.indexOf('export async function applyRolls');
-  const rollEnd = game.indexOf('async function sendOfflineFullNotification', rollStart);
+  const rollEnd = game.indexOf('async function commitOfflineNotificationMarkerIfUnchanged', rollStart);
   assert.ok(rollStart >= 0 && rollEnd > rollStart);
   const roll = game.slice(rollStart, rollEnd);
   assert.match(roll, /Progress not recorded for this roll; preserving shared data/);
   assert.match(roll, /key: communityUpdate\.key,[\s\S]*?optional: true/);
 
   const claimStart = game.indexOf('export async function claimOrbFrenzy');
-  const claimEnd = game.indexOf('function sampleBinomial', claimStart);
+  const claimEnd = game.indexOf('export async function postFrenzyThankYouComment', claimStart);
   assert.ok(claimStart >= 0 && claimEnd > claimStart);
   const claim = game.slice(claimStart, claimEnd);
-  assert.match(claim, /Frenzy progress not recorded; preserving shared data/);
-  assert.match(claim, /key: communityUpdate\.key,[\s\S]*?optional: true/);
+  assert.match(claim, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
+  assert.doesNotMatch(claim, /Frenzy progress not recorded; preserving shared data/);
 });
 
-
-test('third lifetime Orb guarantee uses an immutable pre-batch roll count', () => {
+test('third lifetime Orb guarantee is main-game-only and uses an immutable pre-batch roll count', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('export async function applyRolls');
   const end = game.indexOf('async function sendOfflineFullNotification', start);
   assert.ok(start >= 0 && end > start);
   const roll = game.slice(start, end);
   assert.match(roll, /const lifetimeRollsBeforeBatch = s\.totalRolls/);
-  assert.match(roll, /forcedRarity == null && lifetimeRollsBeforeBatch \+ i === 2/);
+  assert.match(roll, /!s\.riftSession && forcedRarity == null && lifetimeRollsBeforeBatch \+ virtualRollOffset === 2/);
   assert.doesNotMatch(roll, /s\.totalRolls \+ i === 2/);
 
   const shared = source('src/shared/game.ts');
@@ -1966,9 +2018,10 @@ test('third lifetime Orb guarantee uses an immutable pre-batch roll count', () =
   assert.ok(predictionStart >= 0 && predictionEnd > predictionStart);
   const prediction = shared.slice(predictionStart, predictionEnd);
   assert.match(prediction, /const lifetimeRollsBeforeBatch = s\.totalRolls/);
-  assert.match(prediction, /const isGuaranteedThirdBall = lifetimeRollsBeforeBatch \+ i === 2/);
+  assert.match(prediction, /const isGuaranteedThirdBall = !s\.riftSession && lifetimeRollsBeforeBatch \+ i === 2/);
   assert.doesNotMatch(prediction, /s\.totalRolls \+ i === 2/);
 });
+
 
 
 test('critical rarity caps match the continuum ceiling and cannot downgrade high-tier Orbs', () => {
@@ -1977,28 +2030,32 @@ test('critical rarity caps match the continuum ceiling and cannot downgrade high
   assert.match(shared, /if \(isInfinity \|\| raw === Number\.POSITIVE_INFINITY\) return 'Infinity'/);
   assert.match(shared, /getOrbInfo\(rarity: number, isInfinity = false\)/);
   assert.doesNotMatch(shared, /Infinity: \['Infinity Orb'\]/);
-  assert.match(shared, /return Math\.max\(2, Math\.min\(MAX_ORB_RARITY, Math\.floor\(rawRarity\)\)\)/);
+  assert.match(shared, /const rawRarity = \(1 \/ u\) \* safeLevel \* luckRarityFactor\(luck\) \* safeMultiplier/);
+  assert.match(shared, /return Math\.sqrt\(effectiveLuck\)/);
+  assert.doesNotMatch(shared, /Math\.min\(25, Math\.pow\(effectiveLuck, 0\.08\)\)/);
+  assert.match(shared, /return Math\.max\(safeFloor, Math\.min\(MAX_ORB_RARITY, Math\.floor\(rawRarity\)\)\)/);
 
   const game = source('src/server/game.ts');
   const applyStart = game.indexOf('export async function applyRolls');
-  const applyEnd = game.indexOf('async function sendOfflineFullNotification', applyStart);
+  const applyEnd = game.indexOf('async function commitOfflineNotificationMarkerIfUnchanged', applyStart);
   assert.ok(applyStart >= 0 && applyEnd > applyStart);
   const apply = game.slice(applyStart, applyEnd);
-  assert.match(apply, /const rawCritRarity = isCrit \? Math\.round\(baseRarity \* effectiveCm\) : baseRarity/);
+  assert.match(apply, /const rarityMultiplier = runeLuckMultiplier/);
+  assert.match(apply, /criticalMultiplierAppliedBeforeFloor = true/);
+  assert.match(apply, /const rawCritRarity = isCrit && !criticalMultiplierAppliedBeforeFloor/);
   assert.match(apply, /if \(isCrit && \(!Number\.isFinite\(rawCritRarity\) \|\| rawCritRarity > MAX_ORB_RARITY\)\) isInfinityOrb = true/);
-  const claimStart = game.indexOf('export async function claimOrbFrenzy');
-  const claimEnd = game.indexOf('function sampleBinomial', claimStart);
-  assert.ok(claimStart >= 0 && claimEnd > claimStart);
-  const claim = game.slice(claimStart, claimEnd);
-  assert.match(claim, /const rawNormalCritRarity = Math\.round\(data\.rarity \* critMultiplier\(s\)\)/);
-  assert.match(claim, /const rawSupernovaRarity = Math\.round\(data\.rarity \* critMultiplier\(s\) \* 5\)/);
-  assert.match(claim, /isInfinity: baseIsInfinity/);
-  assert.match(claim, /s\.collection\[group\.isInfinity \? 'Infinity' : String\(group\.rarity\)\]/);
-  assert.match(apply, /effectiveCm = cm \* 5/);
+  assert.match(apply, /const supernovaMultiplier = criticalMultiplier \* 5/);
   assert.match(shared, /effectiveCm = cm \* 5/);
   assert.doesNotMatch(game, /Math\.min\(1_000_000_000_000_000, Math\.round\((?:baseRarity|data\.rarity)/);
-});
 
+  const claimStart = game.indexOf('export async function claimOrbFrenzy');
+  const claimEnd = game.indexOf('export async function postFrenzyThankYouComment', claimStart);
+  assert.ok(claimStart >= 0 && claimEnd > claimStart);
+  const claim = game.slice(claimStart, claimEnd);
+  assert.match(claim, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
+  assert.doesNotMatch(claim, /const rawNormalCritRarity = Math\.round\(data\.rarity/);
+  assert.doesNotMatch(claim, /const groups = \[\s*\{ count: count - critCount/);
+});
 
 test('the rarity continuum can sample and display its full finite Infinity ceiling', () => {
   const shared = source('src/shared/game.ts');
@@ -2010,31 +2067,33 @@ test('the rarity continuum can sample and display its full finite Infinity ceili
   assert.match(game, /function serverRarityRandom\(\): number/);
   assert.match(game, /new Uint32Array\(34\)/);
   assert.match(game, /bitLength - 1088/);
-  assert.match(game, /rollContinuum\(effectiveLuck, randomOverride \?\? serverRarityRandom\)/);
+  assert.match(game, /rollContinuum\(\s*sampleLuck,\s*randomOverride \?\? serverRarityRandom,\s*rarityMultiplier,\s*rarityFloor/);
+  assert.match(game, /const rarityMultiplier = runeLuckMultiplier/);
+  assert.match(game, /const rarityFloor = runeRarityFloor \* maxCategoryMultiplier/);
 });
 
 
-test('earned Coins and lifetime Coins stay within safe integer bounds', () => {
+
+test('earned Coins and lifetime Coins use the full finite Number range', () => {
   const game = source('src/server/game.ts');
-  assert.match(game, /function finiteNonNegativeInteger\(value: unknown, fallback = 0\): number \{[\s\S]*?Math\.min\(Number\.MAX_SAFE_INTEGER/);
-  assert.match(game, /function addCoins\(s: PlayerState, amount: number\): number \{[\s\S]*?Number\.MAX_SAFE_INTEGER - currentCoins/);
+  assert.match(game, /function addCoins\(s: PlayerState, amount: number\): number \{[\s\S]*?Number\.MAX_VALUE - currentCoins/);
 
   const loadStart = game.indexOf('export async function loadRaw');
   const loadEnd = game.indexOf('function applyXp', loadStart);
   assert.ok(loadStart >= 0 && loadEnd > loadStart);
   const load = game.slice(loadStart, loadEnd);
-  assert.match(load, /coins: finiteNonNegativeInteger\(parsed\.coins\)/);
-  assert.match(load, /lifetimeCoins: finiteNonNegativeInteger\(parsed\.lifetimeCoins \?\? parsed\.coins\)/);
+  assert.match(load, /coins: normalizeCoinAmount\(parsed\.coins\)/);
+  assert.match(load, /lifetimeCoins: normalizeCoinAmount\(parsed\.lifetimeCoins \?\? parsed\.coins\)/);
 
   const saveStart = game.indexOf('export async function save(');
   const saveEnd = game.indexOf('function serverRandom', saveStart);
   assert.ok(saveStart >= 0 && saveEnd > saveStart);
   const save = game.slice(saveStart, saveEnd);
   assert.match(save, /Player Coin balance is invalid; no changes were saved/);
-  assert.match(save, /s\.coins = finiteNonNegativeInteger\(s\.coins\)/);
+  assert.match(save, /s\.coins = normalizeCoinAmount\(s\.coins\)/);
 
   const rollStart = game.indexOf('export async function applyRolls');
-  const rollEnd = game.indexOf('async function sendOfflineFullNotification', rollStart);
+  const rollEnd = game.indexOf('async function commitOfflineNotificationMarkerIfUnchanged', rollStart);
   assert.ok(rollStart >= 0 && rollEnd > rollStart);
   const roll = game.slice(rollStart, rollEnd);
   assert.match(roll, /coinsGained = addCoins\(s, coinsGained\)/);
@@ -2042,10 +2101,10 @@ test('earned Coins and lifetime Coins stay within safe integer bounds', () => {
   assert.doesNotMatch(roll, /s\.lifetimeCoins = \(s\.lifetimeCoins \?\? 0\) \+ coinsGained/);
 
   const frenzyStart = game.indexOf('export async function claimOrbFrenzy');
-  const frenzyEnd = game.indexOf('function sampleBinomial', frenzyStart);
+  const frenzyEnd = game.indexOf('export async function postFrenzyThankYouComment', frenzyStart);
   assert.ok(frenzyStart >= 0 && frenzyEnd > frenzyStart);
   const frenzy = game.slice(frenzyStart, frenzyEnd);
-  assert.match(frenzy, /coinsGained = addCoins\(s, coinsGained\)/);
+  assert.match(frenzy, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
   assert.doesNotMatch(frenzy, /s\.coins \+= coinsGained/);
 });
 
@@ -2088,7 +2147,8 @@ test('malformed nested player-save shapes fall back before reaching gameplay cod
   assert.match(game, /collection: isValidCollection\(parsed\.collection\) \? parsed\.collection : base\.collection/);
   assert.match(game, /claimedAchievements: isStringList\(parsed\.claimedAchievements\) \? parsed\.claimedAchievements : base\.claimedAchievements/);
   assert.match(game, /streak: normalizePlayerStreak\(parsed\.streak, base\.streak\)/);
-  assert.match(game, /unlockedCosmetics: isStringList\(parsed\.unlockedCosmetics\)/);
+  assert.match(game, /activeCosmetic: 'default'/);
+  assert.match(game, /unlockedCosmetics: \['default'\]/);
 });
 
 
@@ -2152,8 +2212,8 @@ test('applyRolls preflights lifetime roll-counter capacity before shared reads a
 
   const errorIndex = applyRolls.indexOf('Roll counter would exceed the safe integer range');
   const sharedReadsIndex = applyRolls.indexOf('const [freshGlobalBoosters, worldEvent, fakeCcuBonus, combatStateRaw] = await Promise.all([');
-  const loopIndex = applyRolls.indexOf('for (let i = 0; i < rollCount; i++)');
-  const incrementIndex = applyRolls.indexOf('s.totalRolls++');
+  const loopIndex = applyRolls.indexOf('for (let i = 0; i < simulationLoopCount; i++)');
+  const incrementIndex = applyRolls.indexOf('s.totalRolls += sampleWeight');
 
   assert.ok(errorIndex >= 0, 'counter capacity guard must exist');
   assert.ok(sharedReadsIndex > errorIndex, 'guard must run before shared Redis-backed reads');
@@ -2170,7 +2230,7 @@ test('applyRolls preflights lifetime roll-counter capacity before shared reads a
 });
 
 
-test('achievement claim cannot exceed bounded Coin accounting', () => {
+test('achievement claim preserves Coin accounting through the finite Number range', () => {
   const social = source('src/server/social.ts');
   const start = social.indexOf('export async function claimAchievement');
   const end = social.indexOf('\nexport function shareText', start);
@@ -2179,9 +2239,9 @@ test('achievement claim cannot exceed bounded Coin accounting', () => {
 
   assert.match(claim, /typeof state\.coins !== 'number'/);
   assert.match(claim, /!Number\.isFinite\(state\.coins\)/);
-  assert.match(claim, /Number\.MAX_SAFE_INTEGER - currentCoins/);
-  assert.match(claim, /state\.coins = currentCoins \+ rewardCoins/);
-  assert.match(claim, /state\.lifetimeCoins = Math\.min\(Number\.MAX_SAFE_INTEGER, lifetimeCoins \+ rewardCoins\)/);
+  assert.match(claim, /Math\.min\(requestedGain, Number\.MAX_VALUE - currentCoins\)/);
+  assert.match(claim, /state\.coins = addCoinAmount\(currentCoins, rewardCoins\)/);
+  assert.match(claim, /state\.lifetimeCoins = addCoinAmount\(lifetimeCoins, rewardCoins\)/);
   assert.match(claim, /return \{ state, rewardCoins, rewardShards \}/);
   assert.doesNotMatch(claim, /state\.coins\s*\+=\s*achievement\.rewardCoins/);
 });
@@ -2223,25 +2283,23 @@ test('Guild expiry persistence rejects malformed watched snapshots instead of fi
 });
 
 
+
 test('Frenzy preflights lifetime roll-counter capacity before rewards and shared side effects', () => {
   const game = source('src/server/game.ts');
   const start = game.indexOf('export async function claimOrbFrenzy');
-  const end = game.indexOf('\nexport async function ', start + 1);
+  const end = game.indexOf('export async function postFrenzyThankYouComment', start);
   assert.ok(start >= 0 && end > start, 'claimOrbFrenzy function must exist');
   const frenzy = game.slice(start, end);
 
   const countIndex = frenzy.indexOf('const count = frenzyClaimCountForRarity(');
   const guardIndex = frenzy.indexOf('Frenzy roll counter would exceed the safe integer range');
-  const critIndex = frenzy.indexOf('const critChance =');
-  const shardGrantIndex = frenzy.indexOf('grantRollShards(');
-  const guildStageIndex = frenzy.indexOf('prepareGuildRollEffects(');
-  const incrementIndex = frenzy.indexOf('s.totalRolls += count');
-
+  const rollIndex = frenzy.indexOf("const result = await applyRolls(");
+  const ownerRewardIndex = frenzy.indexOf('prepareFrenzyOwnerRewardWrites(');
+  const saveIndex = frenzy.indexOf('await save(s, [');
   assert.ok(countIndex >= 0 && guardIndex > countIndex, 'final batch count must be established before its guard');
-  assert.ok(critIndex > guardIndex, 'counter capacity guard must run before reward calculations');
-  assert.ok(shardGrantIndex > guardIndex, 'counter capacity guard must run before Shard grants');
-  assert.ok(guildStageIndex > guardIndex, 'counter capacity guard must run before Guild side-effect staging');
-  assert.ok(incrementIndex > guardIndex, 'counter guard must run before lifetime roll count mutation');
+  assert.ok(rollIndex > guardIndex, 'counter capacity guard must run before any normal-roll processing');
+  assert.ok(ownerRewardIndex > rollIndex, 'owner reward must follow successful rolls');
+  assert.ok(saveIndex > ownerRewardIndex, 'claim receipt and reward are saved after the batch');
 
   const guardStart = frenzy.lastIndexOf('if (', guardIndex);
   const guardEnd = frenzy.indexOf('\n  }', guardIndex);
@@ -2250,8 +2308,8 @@ test('Frenzy preflights lifetime roll-counter capacity before rewards and shared
   assert.match(guard, /!Number\.isSafeInteger\(s\.totalRolls\)/);
   assert.match(guard, /!Number\.isSafeInteger\(count\)/);
   assert.match(guard, /count > Number\.MAX_SAFE_INTEGER - s\.totalRolls/);
+  assert.doesNotMatch(frenzy, /s\.totalRolls \+= count/);
 });
-
 
 test('Global Booster polling synchronizes the state ref and survives stale player snapshots', () => {
   const main = source('src/client/main.tsx');
@@ -2274,7 +2332,8 @@ test('Global Booster polling synchronizes the state ref and survives stale playe
 });
 
 
-test('Frenzy uses the same critical chance and conditional coin/Shard modifiers as normal rolls', () => {
+
+test('Frenzy uses the shared critical chance and Coin/Shard modifiers from normal rolls', () => {
   const game = source('src/server/game.ts');
 
   const critStart = game.indexOf('function effectiveRollCritChance(');
@@ -2288,18 +2347,23 @@ test('Frenzy uses the same critical chance and conditional coin/Shard modifiers 
   assert.match(critHelper, /globalBoosterCritChanceBonus\(globalBoosters\?\.crit\)/);
   assert.match(critHelper, /guildComboCritChanceBonus\(s\.guildCombo\)/);
 
-  const frenzyEnd = game.indexOf('\nexport async function ', frenzyStart + 1);
+  const applyEnd = game.indexOf('async function commitOfflineNotificationMarkerIfUnchanged', normalStart);
+  assert.ok(applyEnd > normalStart);
+  const apply = game.slice(normalStart, applyEnd);
+  assert.match(apply, /effectiveRollCritChance\(s, globalBoosters\)/);
+  assert.match(apply, /const lowRarityCoins = lowRarityCoinsEstimate/);
+  assert.match(apply, /hasFilter[\s\S]*?Math\.round\(lowRarityCoins \* 0\.25\)/);
+  assert.match(apply, /transLevel[\s\S]*?Math\.round\(lowRarityCoins \* \(transLevel \* 0\.15\)\)/);
+  assert.match(apply, /const shardProcChance = Math\.min\(\s*ROLL_SHARD_PROC_CHANCE_CAP,/);
+  assert.match(apply, /sampleBinomialCount\(rollCount, Math\.min\(1, 0\.00025 \* transLevel\), rng\)/);
+
+  const frenzyEnd = game.indexOf('export async function postFrenzyThankYouComment', frenzyStart);
   assert.ok(frenzyEnd > frenzyStart, 'claimOrbFrenzy should have a following export');
   const frenzy = game.slice(frenzyStart, frenzyEnd);
-  assert.match(frenzy, /effectiveRollCritChance\(s, s\.globalBoosters\)/);
-  assert.match(frenzy, /const lowRarityCoins = groups[\s\S]*?group\.rarity < 100/);
-  assert.match(frenzy, /autoFilter[\s\S]*?Math\.round\(lowRarityCoins \* 0\.25\)/);
-  assert.match(frenzy, /transmutationLevel[\s\S]*?Math\.round\(lowRarityCoins \* \(transmutationLevel \* 0\.15\)\)/);
-  assert.match(frenzy, /sampleBinomial\(count, Math\.min\(1, 0\.01 \* transmutationLevel\)\)/);
-  assert.match(frenzy, /grantRollShards\(s, rarityShards \+ procShards \+ transmutationShardProcs\)/);
-  assert.match(frenzy, /s\.highestDryStreak = Math\.max\(s\.highestDryStreak \?\? 0, s\.rollsSinceBest\)/);
+  assert.match(frenzy, /applyRolls\([\s\S]{0,220}'frenzy',[\s\S]{0,220}chunkProcessed =>/);
+  assert.doesNotMatch(frenzy, /const shardChance = Math\.min/);
+  assert.doesNotMatch(frenzy, /const rarityShards = groups\.reduce/);
 });
-
 
 test('feature gate map covers all intended gated API routes and avoids gating online presence', () => {
   const app = source('src/server/app.ts');
@@ -2323,6 +2387,7 @@ test('feature gate map covers all intended gated API routes and avoids gating on
 });
 
 
+
 test('offline vault state is validated and bounded before auto-claim can process it', () => {
   const game = source('src/server/game.ts');
 
@@ -2330,10 +2395,7 @@ test('offline vault state is validated and bounded before auto-claim can process
   const parserEnd = game.indexOf('\nfunction parsePaymentPlayerState(', parserStart);
   assert.ok(parserStart >= 0 && parserEnd > parserStart);
   const parser = game.slice(parserStart, parserEnd);
-  assert.match(
-    parser,
-    /offlineRolls:\s*Math\.min\(\s*MAX_OFFLINE_ROLLS,\s*finiteNonNegativeInteger\(record\.offlineRolls, 0\),?\s*\)/,
-  );
+  assert.match(parser, /offlineRolls:\s*Math\.min\(\s*MAX_OFFLINE_ROLLS,\s*finiteNonNegativeInteger\(record\.offlineRolls, 0\),?\s*\)/);
   assert.match(parser, /function parsePlayerStateValue\(value: unknown/);
 
   const settleStart = game.indexOf('export async function settleOffline(');
@@ -2347,15 +2409,17 @@ test('offline vault state is validated and bounded before auto-claim can process
   assert.match(settle, /offlineRollCap\(s\)/);
 
   const applyStart = game.indexOf('export async function applyRolls(');
-  const applyEnd = game.indexOf('\nasync function sendOfflineFullNotification(', applyStart);
+  const applyEnd = game.indexOf('\nasync function commitOfflineNotificationMarkerIfUnchanged', applyStart);
   assert.ok(applyStart >= 0 && applyEnd > applyStart);
   const apply = game.slice(applyStart, applyEnd);
-  const maxCountIndex = apply.indexOf('const maxSupportedRollCount = offlineRollCap(s) * rollsPerActivation(s) + 2');
+  const maxCountIndex = apply.indexOf("const maxSupportedRollCount = source === 'offline'");
   const sharedReadsIndex = apply.indexOf('const [freshGlobalBoosters, worldEvent, fakeCcuBonus, combatStateRaw] = await Promise.all([');
   assert.ok(maxCountIndex >= 0 && sharedReadsIndex > maxCountIndex);
+  assert.match(apply, /source === 'offline'[\s\S]{0,100}offlineRollCap\(s\) \* rollsPerActivation\(s\) \+ 2/);
+  assert.match(apply, /MAX_EFFECTIVE_ROLLS_PER_BATCH/);
+  assert.match(apply, /createRollBatchPlan/);
   assert.match(apply, /rollCount > maxSupportedRollCount/);
 });
-
 
 test('bulk Global Booster retries reuse the durable recipient manifest and operation ID', () => {
   const debug = source('src/server/debug.ts');
@@ -2473,7 +2537,7 @@ test('Aftershock and Unbroken Momentum are unlocked through their purchase menus
   assert.match(shared, /unbrokenMomentum: \{[\s\S]*?name: 'Unbroken Momentum'[\s\S]*?maxLevel: 1/);
 
   const mastery = source('src/client/components/MasterySection.tsx');
-  assert.match(mastery, /Best Aftershock record/);
+  assert.match(mastery, /Longest dry interval record/);
   assert.match(mastery, /aftershockCriticalLuckBonus/);
   assert.match(mastery, /After next level/);
 
@@ -2507,8 +2571,23 @@ test('Combat is level-gated, guided, and reset with the rest of the player save'
   assert.ok(debug.includes('const combatStateKey = `infinity-orbs:combat:${userId}`'));
   assert.ok(debug.includes('redis.watch(generationKey, playerKey, combatStateKey)'));
   assert.ok(debug.includes('await txn.del(combatStateKey)'));
-  assert.ok(combat.includes('window.innerHeight-376'));
+  assert.ok(combat.includes('window.innerHeight-16'));
   assert.ok(combat.includes("maxHeight:'min(360px, calc(100vh - 16px))'"));
+});
+
+test('Combat menu loading keeps the React hook count stable', () => {
+  const combat = source('src/client/components/CombatSection.tsx');
+  assert.doesNotMatch(combat, /useMemo\s*\(/, 'combat list filtering must not introduce hooks below early returns');
+  assert.match(combat, /if\(loading&&!state\)return/);
+  assert.match(combat, /if\(!state\|\|!enemy\|\|!stats\)return/);
+});
+
+test('Navigation contains no category labels but preserves destination buttons', () => {
+  const main = source('src/client/main.tsx');
+  assert.doesNotMatch(main, /io-nav-group-label[^>]*>(?:PLAY|GROW|DISCOVER|COMMUNITY|LONG-TERM)</i);
+  for (const tab of ["changeTab('roll')", "changeTab('upgrades')", "changeTab('collection')", "changeTab('quests')", "changeTab('profile')"]) {
+    assert.ok(main.includes(tab), 'missing navigation destination ' + tab);
+  }
 });
 
 test('Global Chat comment ingestion rejects a canonical destination that is a Frenzy post', () => {
@@ -2562,19 +2641,21 @@ test('Global Chat destination cannot be inferred from a client-supplied launcher
   assert.doesNotMatch(creationRoutes, /global-game-post-id', post\.id, \{ nx: true \}/);
 });
 
-test('legacy guild contribution does not double-count each task update', () => {
+test('legacy Guild contribution advances each task once and rewards Tokens without XP or Titan', () => {
   const social = source('src/server/social.ts');
   const start = social.indexOf('export async function contribute(');
   const end = social.indexOf('export async function prepareGuildRollEffects', start);
   assert.ok(start >= 0 && end > start);
   const contribution = social.slice(start, end);
   for (const field of [
-    'task.progress = capSafeGuildCounter(task.progress + taskProgressValue)',
+    'task.progress = addGuildValueProgress(task.progress, safeValue)',
     'task.progress = capSafeGuildCounter(task.progress + taskProgressRolls)',
     'task.progress = capSafeGuildCounter(task.progress + taskProgressRare)',
   ]) {
     assert.equal(contribution.split(field).length - 1, 1, field + ' should be applied once');
   }
+  assert.match(contribution, /guild\.tokens = capSafeGuildCounter\(\(guild\.tokens \?\? 0\) \+ reward\)/);
+  assert.doesNotMatch(contribution, /guild\.boss|guildXpReward|guildXpRank|guild\.level|guild\.xp|taxRate/);
 });
 
 
@@ -2691,12 +2772,23 @@ test('passive player snapshots and the Play splash do not register active sessio
   // Saved Auto Roll and resource prefetches must also wait for explicit entry.
   assert.match(client, /if \(!splashEntered \|\| !stateRef\.current\) return;/);
   assert.match(client, /if \(isAutoRoll && !splashEntered\) return;/);
-  assert.match(client, /if \(!splashEntered \|\| !autoRoll \|\| !state \|\| state\.upgrades\.auto === 0\) return;/);
+  assert.match(client, /if \(!splashEntered \|\| combatMode \|\| !autoRoll \|\| !state \|\| state\.upgrades\.auto === 0\) return;/);
 
-  const promptStart = client.lastIndexOf('useEffect(() =>', client.indexOf('const checkPrompt = () =>'));
-  const promptEnd = client.indexOf('}, [splashEntered]);', promptStart);
-  assert.ok(promptStart >= 0 && promptEnd > promptStart, 'daily Frenzy prompt delay must start after Play');
-  assert.match(client.slice(promptStart, promptEnd), /if \(!splashEntered\) return;/);
+  const checkPromptStart = client.indexOf('const checkPrompt = () =>');
+  const promptStart = client.lastIndexOf('useEffect(() =>', checkPromptStart);
+  const promptEnd = client.indexOf('}, [splashEntered, popupConfigLoaded', checkPromptStart);
+  assert.ok(
+    promptStart >= 0 && checkPromptStart > promptStart && promptEnd > checkPromptStart,
+    'daily Frenzy prompt effect must start after Play and include its popup settings',
+  );
+  const promptEffect = client.slice(promptStart, promptEnd);
+  assert.match(promptEffect, /if \(!splashEntered \|\| !popupConfigLoaded \|\| !popupConfig\.frenzy\) return;/);
+  assert.match(promptEffect, /const startedAt = Date\.now\(\);/);
+  assert.match(promptEffect, /if \(!current \|\| now - startedAt < FRENZY_PROMPT_DELAY_MS\) return;/);
+  assert.ok(
+    promptEffect.indexOf('if (!splashEntered') < promptEffect.indexOf('const startedAt = Date.now();'),
+    'the Frenzy delay clock must start only after the Play-gated effect is active',
+  );
 });
 
 
@@ -2731,14 +2823,17 @@ test('background refreshes are deferred until Play and refresh promptly on entry
   const versionEffectStart = client.lastIndexOf('useEffect(() => {', versionStart);
   assert.match(client.slice(versionEffectStart, versionStart), /if \(!splashEntered\) return;/);
 
-  const communityStart = client.indexOf('const refreshCommunityState = async () =>');
+  const communityStart = client.indexOf('const refreshCommunityState = () =>');
   const communityEffectStart = client.lastIndexOf('useEffect(() => {', communityStart);
   const communityEffectEnd = client.indexOf('}, [tab, splashEntered]);', communityStart);
   assert.ok(communityEffectStart >= 0 && communityEffectEnd > communityStart);
   const communityEffect = client.slice(communityEffectStart, communityEffectEnd);
   assert.match(communityEffect, /if \(!splashEntered\) return;/);
   assert.match(communityEffect, /void refreshCommunityState\(\);/);
-  assert.match(communityEffect, /if \(inFlight\) return;/);
+  assert.match(communityEffect, /let worldEventInFlight = false/);
+  assert.match(communityEffect, /let guildInFlight = false/);
+  assert.match(communityEffect, /if \(!worldEventInFlight\)/);
+  assert.match(communityEffect, /if \(tab === 'social' && !guildInFlight\)/);
 
   const presenceStart = client.indexOf('const refreshPresence = async () =>');
   const presenceEffectStart = client.lastIndexOf('useEffect(() => {', presenceStart);
@@ -2754,7 +2849,7 @@ test('rolling disables both roll affordances and gives the orb keyboard semantic
   assert.match(roll, /<button[\s\S]{0,250}disabled=\{busy\}[\s\S]{0,250}aria-busy=\{busy\}/);
   assert.match(roll, /aria-label=\{busy \? 'Rolling orbs'/);
   assert.match(roll, /const primaryActionLabel = busy[\s\S]*?\? 'ROLL IN PROGRESS'/);
-  assert.match(roll, /className=\{'roll-button ' \+ \(busy \? 'is-waiting'/);
+  assert.match(roll, /className=\{'roll-button ' \+ \(isFirstSession \? 'is-first-session-cta ' : ''\) \+ \(busy \? 'is-waiting'/);
   const css = source('src/client/styles.css');
   assert.match(css, /\.roll-button:hover:disabled \{[^}]*transform: none !important;[^}]*cursor: wait !important;/);
 });
@@ -2860,7 +2955,7 @@ test('UI-only action buttons declare type=button to avoid accidental form submis
 
   const profile = source('src/client/components/ProfileAndPrestige.tsx');
   assert.ok(profile.includes('<button\n                  type="button"\n                  onClick={() => {\n                    sound.playClick();\n                    void onBuyPrestigeUpgrade(id);'));
-  assert.equal((profile.match(/type="button"\s+onClick=\{\(\) => \{\s+sound\.playClick\(\);\s+void onBuyCosmetic\(cosmetic\.id\);/g) ?? []).length, 2);
+  assert.doesNotMatch(profile, /onBuyCosmetic|Cosmetics & Customization/);
 
   const rarity = source('src/client/components/RarityTableModal.tsx');
   assert.equal((rarity.match(/<button\s+type="button"\s+onClick=\{onClose\}/g) ?? []).length, 2);
@@ -3029,7 +3124,7 @@ test('Chain Patcher takes priority over Free Roll cooldown bypass in the roll UI
   assert.ok(roll.includes('Chain Patcher is charged; wait'));
   assert.ok(roll.includes('preserves ${freeRolls} stored Free Rolls.'));
   const quests = source('src/client/components/QuestsAndStreaks.tsx');
-  assert.ok(quests.includes('Manual Free Rolls bypass normal cooldown; Frenzy and Chain Patcher take priority'));
+  assert.ok(quests.includes('Manual Free Rolls skip normal cooldown. Frenzy and Chain Patcher are used first.'));
 });
 
 test('armed Frenzy readiness and Pity Luck meter use the actual gameplay thresholds', () => {
@@ -3076,7 +3171,9 @@ test('background polling is single-flight and paused while hidden', () => {
   const sharedPollGuard = "if (cancelled || inFlight || document.visibilityState === 'hidden') return;";
   assert.ok(client.split(sharedPollGuard).length - 1 >= 3);
   assert.ok(client.includes("if (cancelled || !splashEntered || inFlight || document.visibilityState === 'hidden') return;"));
-  assert.ok(client.includes("if (!splashEntered) return;\n      if (inFlight) return;\n      if (document.visibilityState === 'hidden') return;"));
+  assert.ok(client.includes("if (!splashEntered || document.visibilityState === 'hidden') return;"));
+  assert.ok(client.includes("if (!worldEventInFlight)"));
+  assert.ok(client.includes("if (tab === 'social' && !guildInFlight)"));
   assert.ok(client.includes("if (inFlight || document.visibilityState === 'hidden') return;"));
   assert.ok(client.includes("document.addEventListener('visibilitychange', onVisibilityChange);"));
   assert.ok(client.includes("document.removeEventListener('visibilitychange', onVisibilityChange);"));

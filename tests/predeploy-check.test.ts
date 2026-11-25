@@ -17,6 +17,7 @@ function validDevvitConfig(name = 'infinity-orbs') {
         default: { entry: 'splash.html', height: 'tall' },
         game: { entry: 'game.html' },
         frenzy: { entry: 'frenzy.html', height: 'tall' },
+        rift: { entry: 'rift.html', height: 'tall' },
       },
     },
     server: { dir: 'dist/server', entry: 'index.cjs' },
@@ -77,8 +78,10 @@ function createFixture(options: {
     writeFileSync(join(sourceDir, 'entry.ts'), options.sourceText ?? 'export const healthy = true;\n');
     writeFileSync(join(clientDir, 'splash.html'), '<html class="io-inline-post"><body class="io-inline-post"><div id="root" class="io-inline-post"></div></body></html>');
     writeFileSync(join(clientDir, 'frenzy.html'), '<html class="io-inline-post"><body class="io-inline-post"><div id="root" class="io-inline-post"></div></body></html>');
+    writeFileSync(join(clientDir, 'rift.html'), '<html class="io-inline-post"><body class="io-inline-post"><div id="root" class="io-inline-post"></div></body></html>');
     writeFileSync(join(clientDir, 'splash.tsx'), 'export const splashInlineSafe = true;\n');
     writeFileSync(join(clientDir, 'frenzy.tsx'), 'export const frenzyInlineSafe = true;\n');
+    writeFileSync(join(clientDir, 'rift.tsx'), 'export const riftInlineSafe = true;\n');
     writeFileSync(join(clientDir, 'styles.css'), options.inlineCssText ?? 'html.io-inline-post, body.io-inline-post { height: 100%; overscroll-behavior: auto; touch-action: pan-y pinch-zoom; }\n#root.io-inline-post { overflow: clip; overscroll-behavior: auto; touch-action: pan-y pinch-zoom; }\n.io-public { overflow: clip; overscroll-behavior: auto; touch-action: pan-y pinch-zoom; }\n.io-combat-log{max-height:245px;overflow:auto}\n');
   }
 
@@ -182,6 +185,11 @@ const invalidManifestCases: Array<{
     label: 'Frenzy entrypoint and tall layout',
     mutate: manifest => { manifest.post.entrypoints.frenzy.height = 'inline'; },
     expected: /post\.entrypoints\.frenzy\.height must be/,
+  },
+  {
+    label: 'Rift completion entrypoint and tall layout',
+    mutate: manifest => { manifest.post.entrypoints.rift.height = 'inline'; },
+    expected: /post\.entrypoints\.rift\.height must be/,
   },
   {
     label: 'server output entry',
@@ -312,19 +320,35 @@ test('deployment workflow is manual, main-only, and installs only to the develop
     /run:\s*timeout --signal=TERM --kill-after=30s 9m npx devvit upload --version "\$REQUESTED_VERSION"/,
     'the exact version-pinned upload must be bounded by a timeout',
   );
+  assert.match(
+    workflow,
+    /npx devvit view "infinity-orbs@\$REQUESTED_VERSION" version/,
+    'uploaded-version verification must resolve the exact requested release rather than unqualified latest',
+  );
+  assert.match(workflow, /paths:\s*\n\s*- \.github\/workflows\/deploy\.yml/);
+  assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[deploy-dev:\d+\.\d+\.\d+\]'\)/);
+  assert.ok(workflow.includes('      - name: Detect whether the exact version already exists\n        id: existing-version\n        continue-on-error: true\n        env:\n          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}\n          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}\n          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}'));
+  assert.ok(workflow.includes('      - name: Upload exact requested version to Devvit\n        if: steps.existing-version.outcome != \'success\'\n        env:\n          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}\n          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}\n          CI: true\n          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}'));
+  assert.ok(workflow.includes('      - name: Verify uploaded version\n        id: uploaded-version\n        env:\n          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}\n          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}\n          REQUESTED_VERSION: ${{ steps.requested-version.outputs.version }}'));
+  assert.ok(workflow.includes('      - name: Install candidate to development subreddit only (r/infinity_orbs_dev)\n        env:\n          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}\n          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}\n          VERSION: ${{ steps.uploaded-version.outputs.version }}'));
+  assert.match(workflow, /DEVVIT_SESSION_ID/);
+  assert.match(workflow, /npx devvit whoami/);
+  assert.match(workflow, /Verify Devvit CLI authentication/);
+  assert.match(workflow, /if: steps\.existing-version\.outcome != 'success'/);
   assert.match(workflow, /^\s*npx devvit install r\/infinity_orbs_dev\b/m);
   assert.doesNotMatch(workflow, /^\s*npx devvit install r\/infinityorbs\b/m);
   assert.doesNotMatch(workflow, /^\s*npx devvit publish\b/m);
 });
 
 
-test('review submission workflow never installs to a subreddit', () => {
+test('review workflow publishes a version before installing only to development', () => {
   const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /confirm_publish:[\s\S]*?default:\s*false/);
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
-  assert.match(workflow, /^\s*npx devvit publish --version\b/m);
-  assert.doesNotMatch(workflow, /^\s*npx devvit install\b/m);
+  assert.ok(workflow.includes('npx devvit publish --version'));
+  assert.ok(workflow.includes('npx devvit install r/infinity_orbs_dev'));
+  assert.equal(workflow.includes('npx devvit install r/infinityorbs'), false);
 });
 
 test('production workflow requires explicit post-approval confirmation and only installs production', () => {

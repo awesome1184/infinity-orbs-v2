@@ -13,7 +13,7 @@ import {
   Award,
 } from 'lucide-react';
 import type { PlayerState, MasterySkillId } from '../../shared/game.js';
-import { formatNumber, formatRarity, MASTERY_SKILLS, masterySkillCost, bestCodexChain, codexDevotionLuckPercent, aftershockCriticalLuckBonus } from '../../shared/game.js';
+import { formatNumber, formatRarity, MASTERY_SKILLS, masterySkillCost, bestCodexChain, codexDevotionLuckPercent, aftershockCriticalLuckBonus, constellationAtlasDiscoveredRarities, constellationAtlasMilestonesUnlocked, CONSTELLATION_ATLAS_MILESTONE_THRESHOLDS } from '../../shared/game.js';
 import { sound } from '../sound.js';
 
 interface MasterySectionProps {
@@ -131,17 +131,17 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
   const filteredSkills = masterySkillsList.filter(([id]) => {
     if (activeBranch === 'all') return true;
     if (activeBranch === 'fortune' && (id === 'continuumLuck' || id === 'pityAccelerant' || id === 'apexFortune')) return true;
-    if (activeBranch === 'temporal' && (id === 'chronoFlow')) return true;
-    if (activeBranch === 'alchemy' && (id === 'prosperity' || id === 'shardAttunement' || id === 'infiniteVault')) return true;
-    if (activeBranch === 'cosmos' && (id === 'critMastery' || id === 'celestialSurge' || id === 'cosmicAttunement' || id === 'celestialVolley' || id === 'aftershock')) return true;
+    if (activeBranch === 'temporal' && (id === 'chronoFlow' || id === 'cooldownReclaimer')) return true;
+    if (activeBranch === 'alchemy' && (id === 'prosperity' || id === 'shardAttunement' || id === 'infiniteVault' || id === 'altarInsurance')) return true;
+    if (activeBranch === 'cosmos' && (id === 'critMastery' || id === 'celestialSurge' || id === 'cosmicAttunement' || id === 'celestialVolley' || id === 'aftershock' || id === 'constellationAtlas' || id === 'celestialAlignment')) return true;
     return false;
   });
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300 pb-12">
+    <div className="io-page-shell io-page-mastery max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300 pb-12">
       {masteryActionError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{masteryActionError}</div>}
       {/* Overview Banner */}
-      <div className="bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 border border-purple-800/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+      <div className="io-page-hero bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 border border-purple-800/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
@@ -153,7 +153,7 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
               Skill Tree
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
-              Spend Mastery Points on permanent passive skills.
+              Spend Mastery Points on permanent passive bonuses for your normal Orb game.
             </p>
           </div>
 
@@ -217,14 +217,35 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
           {filteredSkills.map(([skillId, skill]) => {
             const currentLevel = state.masterySkills?.[skillId] ?? 0;
             const isCodexDevotion = skillId === 'celestialSurge';
-            const codexChain = isCodexDevotion ? bestCodexChain(state.collection) : { start: 0, end: 0, length: 0 };
+            const localCodexChain = isCodexDevotion ? bestCodexChain(state.collection) : { start: 0, end: 0, length: 0 };
+            // The server strips the full Codex from ordinary player-state responses.
+            // Use its compact chain projection instead of treating that empty collection as zero.
+            const codexChainLength = isCodexDevotion
+              ? Number.isFinite(Number(state.codexChain))
+                ? Math.max(0, Math.floor(Number(state.codexChain)))
+                : localCodexChain.length
+              : 0;
+            const codexChainStart = isCodexDevotion && Number.isFinite(Number(state.codexChainStart))
+              ? Math.max(0, Number(state.codexChainStart))
+              : localCodexChain.start;
+            const codexChainEnd = isCodexDevotion && Number.isFinite(Number(state.codexChainEnd))
+              ? Math.max(0, Number(state.codexChainEnd))
+              : localCodexChain.end;
             const codexLuckPercent = isCodexDevotion
-              ? codexDevotionLuckPercent(currentLevel, codexChain.length)
+              ? codexDevotionLuckPercent(currentLevel, codexChainLength)
               : 0;
             const nextCodexLuckPercent = isCodexDevotion
-              ? codexDevotionLuckPercent(Math.min(skill.maxLevel, currentLevel + 1), codexChain.length)
+              ? codexDevotionLuckPercent(Math.min(skill.maxLevel, currentLevel + 1), codexChainLength)
               : 0;
             const isAftershock = skillId === 'aftershock';
+            const isConstellationAtlas = skillId === 'constellationAtlas';
+            const atlasDiscovered = isConstellationAtlas ? constellationAtlasDiscoveredRarities(state.collection) : 0;
+            const atlasMilestones = isConstellationAtlas
+              ? constellationAtlasMilestonesUnlocked(currentLevel, state.collection)
+              : 0;
+            const nextAtlasThreshold = isConstellationAtlas && currentLevel > 0
+              ? CONSTELLATION_ATLAS_MILESTONE_THRESHOLDS.slice(0, currentLevel).find(threshold => threshold > atlasDiscovered)
+              : undefined;
             const aftershockRecord = Math.max(0, state.aftershockRecord ?? 0);
             const aftershockBonus = aftershockCriticalLuckBonus(aftershockRecord);
             const isMax = currentLevel >= skill.maxLevel;
@@ -242,6 +263,8 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
             return (
               <div
                 key={skillId}
+                role="group"
+                aria-label={`${skill.name}, level ${currentLevel} of ${skill.maxLevel}`}
                 className={`bg-slate-950/70 border rounded-2xl p-5 flex flex-col justify-between space-y-4 transition-all duration-300 ${
                   isHighlighted
                     ? 'border-amber-400 ring-2 ring-amber-400/50 scale-[1.02] shadow-[0_0_25px_rgba(251,191,36,0.3)]'
@@ -278,13 +301,15 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
                           Longest Codex Chain
                         </span>
                         <span className="text-sm font-black font-mono text-white">
-                          {codexChain.length}
+                          {codexChainLength}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[10px] text-slate-500">
-                          {codexChain.length > 0
-                            ? `1/${formatRarity(codexChain.start)} → 1/${formatRarity(codexChain.end)}`
+                          {codexChainLength > 0
+                            ? codexChainStart > 0 && codexChainEnd > 0
+                              ? `1/${formatRarity(codexChainStart)} → 1/${formatRarity(codexChainEnd)}`
+                              : 'Longest consecutive rarity chain in your saved Codex'
                             : 'Collect consecutive rarities to build a chain'}
                         </span>
                         <span className="text-[10px] font-bold text-slate-400">+0.3% per chain rarity / level</span>
@@ -302,11 +327,31 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
                     </div>
                   )}
 
+                  {isConstellationAtlas && (
+                    <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/5 px-3 py-2 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] uppercase tracking-wide font-black text-indigo-300">Distinct rarities discovered</span>
+                        <span className="text-sm font-black font-mono text-white">{formatNumber(atlasDiscovered)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] text-slate-500">Permanent Luck milestones</span>
+                        <span className="text-sm font-black text-emerald-300">+{atlasMilestones}%</span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-slate-500">
+                        {currentLevel <= 0
+                          ? 'Purchase this skill to begin unlocking collection milestones.'
+                          : nextAtlasThreshold
+                            ? `Next constellation: ${nextAtlasThreshold} distinct rarities (${Math.max(0, nextAtlasThreshold - atlasDiscovered)} more).`
+                            : 'All milestones available at your current Mastery rank are unlocked.'}
+                      </p>
+                    </div>
+                  )}
+
                   {isAftershock && (
                     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[10px] uppercase tracking-wide font-black text-amber-300">
-                          Best Aftershock record
+                          Longest dry interval record
                         </span>
                         <span className="text-sm font-black font-mono text-white">
                           {fmt(aftershockRecord)} rolls
@@ -326,7 +371,7 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
 
                   {/* 10-Pip Progress Bar that changes color on wrap-around */}
                   <div className="space-y-1 pt-1">
-                    <div className="flex gap-1 overflow-hidden">
+                    <div className="flex gap-1 overflow-hidden" role="group" aria-label={`${skill.name} mastery ranks: ${currentLevel} of ${skill.maxLevel}`}>
                       {Array.from({ length: 10 }).map((_, idx) => {
                         let pipClass = 'bg-slate-800';
                         if (isMax) {
@@ -356,7 +401,7 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
                 <div className="flex items-center justify-between pt-2 border-t border-slate-900">
                   <div className="text-xs font-mono text-slate-400">
                     {!isMax ? (
-                      <span className="text-amber-300 font-bold">Cost: {cost} MP</span>
+                      <span className="text-amber-300 font-bold">Next rank: {cost} MP</span>
                     ) : (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <Check className="w-3.5 h-3.5" /> Maxed Out
@@ -379,7 +424,7 @@ export const MasterySection: React.FC<MasterySectionProps> = ({
                     }`}
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{isMax ? 'Maxed' : `Upgrade (${cost} MP)`}</span>
+                    <span>{isMax ? 'Maxed' : canAfford ? `Upgrade (${cost} MP)` : `Need ${fmt(cost - (state.masteryPoints ?? 0))} more MP`}</span>
                   </button>
                 </div>
               </div>

@@ -1,0 +1,119 @@
+name: One-time Devvit Development Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "dispatch/deploy-dev-infinity-orbs-1.2.57.once"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-time-dev-deploy-1-2-57
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'DEPLOY-DEV-1.2.57-ONCE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out release candidate
+        uses: actions/checkout@v4
+
+      - name: Validate Devvit authentication secret first
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DEVVIT_AUTH_TOKEN" || {
+            echo "::error::DEVVIT_TOKEN is missing in Settings > Secrets and variables > Actions."
+            exit 1
+          }
+          case "$DEVVIT_AUTH_TOKEN" in
+            \{*) ;;
+            *)
+              echo "::error::DEVVIT_TOKEN must be the complete JSON blob from ~/.devvit/token."
+              exit 1
+              ;;
+          esac
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify exact release and lockfile versions
+        id: candidate
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$VERSION" = "1.2.57" || {
+            echo "::error::Expected infinity-orbs@1.2.57, found infinity-orbs@$VERSION."
+            exit 1
+          }
+          node -e "const p=require('./package.json'),l=require('./package-lock.json'); if (p.name !== 'infinity-orbs' || p.version !== l.version || p.version !== l.packages?.['']?.version) process.exit(2)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Preparing infinity-orbs@$VERSION for development only."
+
+      - name: Run full preflight before upload
+        run: npm run preflight
+
+      - name: Configure Devvit CLI credentials
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          DEVVIT_SESSION_ID: ${{ secrets.DEVVIT_SESSION_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.devvit"
+          printf '%s' "$DEVVIT_AUTH_TOKEN" > "$HOME/.devvit/token"
+          if [ -n "${DEVVIT_SESSION_ID:-}" ]; then
+            printf '%s' "$DEVVIT_SESSION_ID" > "$HOME/.devvit/session-id"
+          else
+            node -e "process.stdout.write(require('node:crypto').randomUUID())" > "$HOME/.devvit/session-id"
+          fi
+          chmod 600 "$HOME/.devvit/token" "$HOME/.devvit/session-id"
+          node -e "const fs=require('node:fs'); const v=JSON.parse(fs.readFileSync(process.env.HOME+'/.devvit/token','utf8')); if(!v || typeof v!=='object' || Array.isArray(v)) process.exit(1)"
+          test -s "$HOME/.devvit/session-id"
+          echo "Devvit CLI credential files configured without displaying secrets."
+
+      - name: Verify Devvit authentication
+        run: npx devvit whoami
+
+      - name: Upload the validated version
+        env:
+          CI: true
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        timeout-minutes: 10
+        run: timeout --signal=TERM --kill-after=30s 9m npx devvit upload --version "$VERSION"
+
+      - name: Verify uploaded version
+        id: uploaded
+        env:
+          REQUESTED_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="$(npx devvit view infinity-orbs version)"
+          test "$VERSION" = "$REQUESTED_VERSION" || {
+            echo "::error::Uploaded version mismatch: expected $REQUESTED_VERSION, found $VERSION."
+            exit 1
+          }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install to development subreddit only
+        env:
+          DEVVIT_AUTH_TOKEN: ${{ secrets.DEVVIT_TOKEN }}
+          VERSION: ${{ steps.uploaded.outputs.version }}
+        run: |
+          set -euo pipefail
+          npx devvit install r/infinity_orbs_dev "infinity-orbs@$VERSION"
+          echo "===== Confirm installed version in r/infinity_orbs_dev ====="
+          npx devvit list installs r/infinity_orbs_dev
+          echo "===== Confirmed installation command succeeded for infinity-orbs@$VERSION ====="
